@@ -1,0 +1,55 @@
+{
+  "routePath": "/refund",
+  "seo": {
+    "title": "Cancellation & Refund Policy | SSC Jewellery",
+    "description": "Cancellation & Refund Policy for SSC Jewellery. Review store policies, legal terms, shipping, refunds, privacy, and customer obligations.",
+    "keywords": "SSC Jewellery, Cancellation & Refund Policy, store policy, refund",
+    "canonical": "https://supernally-bubonic-lilyana.ngrok-free.dev/refund",
+    "robots": "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1",
+    "image": "https://supernally-bubonic-lilyana.ngrok-free.dev/assets/contact.jpg",
+    "structuredData": [
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "SSC Jewellery",
+        "url": "https://supernally-bubonic-lilyana.ngrok-free.dev",
+        "logo": "https://supernally-bubonic-lilyana.ngrok-free.dev/branding/logo.webp"
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "JewelryStore",
+        "name": "SSC Jewellery",
+        "url": "https://supernally-bubonic-lilyana.ngrok-free.dev",
+        "logo": "https://supernally-bubonic-lilyana.ngrok-free.dev/branding/logo.webp",
+        "image": "https://supernally-bubonic-lilyana.ngrok-free.dev/assets/contact.jpg",
+        "geo": {
+          "@type": "GeoCoordinates",
+          "latitude": 0,
+          "longitude": 0
+        }
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://supernally-bubonic-lilyana.ngrok-free.dev/"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Cancellation & Refund Policy",
+            "item": "https://supernally-bubonic-lilyana.ngrok-free.dev/refund"
+          }
+        ]
+      }
+    ]
+  },
+  "metadata": {
+    "type": "static"
+  },
+  "generatedAt": "2026-03-22T04:20:36.536Z"
+}

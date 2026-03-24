@@ -1,0 +1,38 @@
+const express = require('express');
+const router = express.Router();
+const { protect, authorize } = require('../middleware/authMiddleware');
+const { createOrderFromCheckout, createRazorpayOrder, getCheckoutSummary, retryRazorpayPayment, verifyRazorpayPayment, handleRazorpayWebhook, getAdminOrders, getAdminPaymentHealth, getAdminOrderById, getMyOrders, getMyOrderByPaymentRef, updateOrderStatus, fetchAdminPaymentStatus, fetchMyPaymentStatus, deleteAdminOrder, deleteAdminPaymentAttempt, convertAdminPaymentAttemptToOrder, createAdminManualOrder, getAdminManualCoupons, getAdminManualPreview, validateRecoveryCoupon, getAvailableCoupons, getCustomerPopupData, getPublicPopupData, downloadMyInvoicePdf, downloadAdminInvoicePdf, sendAdminInvoiceCommunication, getOverdueShippedSummary, confirmDeliveryBySignedLink, downloadInvoiceBySignedLink } = require('../controllers/orderController');
+
+router.post('/checkout', protect, createOrderFromCheckout);
+router.post('/razorpay/order', protect, createRazorpayOrder);
+router.post('/summary', protect, getCheckoutSummary);
+router.post('/coupon/validate', protect, validateRecoveryCoupon);
+router.get('/coupons/available', protect, getAvailableCoupons);
+router.post('/coupons/available', protect, getAvailableCoupons);
+router.get('/coupons/popup', protect, getCustomerPopupData);
+router.get('/coupons/popup/public', getPublicPopupData);
+router.post('/razorpay/retry', protect, retryRazorpayPayment);
+router.post('/razorpay/verify', protect, verifyRazorpayPayment);
+router.post('/razorpay/webhook', handleRazorpayWebhook);
+router.get('/delivery/confirm', confirmDeliveryBySignedLink);
+router.get('/invoice/share', downloadInvoiceBySignedLink);
+router.get('/admin', protect, authorize('admin', 'staff'), getAdminOrders);
+router.get('/admin/payment/health', protect, authorize('admin', 'staff'), getAdminPaymentHealth);
+router.get('/admin/shipped/overdue-summary', protect, authorize('admin', 'staff'), getOverdueShippedSummary);
+router.get('/admin/:id', protect, authorize('admin', 'staff'), getAdminOrderById);
+router.put('/admin/:id/status', protect, authorize('admin', 'staff'), updateOrderStatus);
+router.post('/admin/manual/coupons', protect, authorize('admin', 'staff'), getAdminManualCoupons);
+router.post('/admin/manual/preview', protect, authorize('admin', 'staff'), getAdminManualPreview);
+router.post('/admin/manual', protect, authorize('admin', 'staff'), createAdminManualOrder);
+router.delete('/admin/:id', protect, authorize('admin', 'staff'), deleteAdminOrder);
+router.delete('/admin/attempt/:id', protect, authorize('admin', 'staff'), deleteAdminPaymentAttempt);
+router.post('/admin/attempt/:id/convert', protect, authorize('admin', 'staff'), convertAdminPaymentAttemptToOrder);
+router.post('/admin/payment/fetch-status', protect, authorize('admin', 'staff'), fetchAdminPaymentStatus);
+router.get('/admin/:id/invoice', protect, authorize('admin', 'staff'), downloadAdminInvoicePdf);
+router.post('/admin/:id/invoice/send', protect, authorize('admin', 'staff'), sendAdminInvoiceCommunication);
+router.get('/my', protect, getMyOrders);
+router.get('/my/payment/:paymentId', protect, getMyOrderByPaymentRef);
+router.post('/my/payment/fetch-status', protect, fetchMyPaymentStatus);
+router.get('/my/:id/invoice', protect, downloadMyInvoicePdf);
+
+module.exports = router;

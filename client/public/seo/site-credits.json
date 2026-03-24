@@ -1,0 +1,63 @@
+{
+  "routePath": "/site-credits",
+  "seo": {
+    "title": "Site Credits | SSC Jewellery",
+    "description": "Website design, frontend implementation, and technical development credits for SSC Jewellery, created by Creativecodz.",
+    "keywords": "SSC Jewellery, Site Credits, website credits, development partner, Creativecodz",
+    "canonical": "https://supernally-bubonic-lilyana.ngrok-free.dev/site-credits",
+    "robots": "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1",
+    "image": "https://supernally-bubonic-lilyana.ngrok-free.dev/assets/contact.jpg",
+    "structuredData": [
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "SSC Jewellery",
+        "url": "https://supernally-bubonic-lilyana.ngrok-free.dev",
+        "logo": "https://supernally-bubonic-lilyana.ngrok-free.dev/branding/logo.webp"
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Creativecodz",
+        "url": "https://creativecodz.com/",
+        "sameAs": [
+          "https://www.instagram.com/creativecodz"
+        ]
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://supernally-bubonic-lilyana.ngrok-free.dev/"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Site Credits",
+            "item": "https://supernally-bubonic-lilyana.ngrok-free.dev/site-credits"
+          }
+        ]
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": "SSC Jewellery site credits",
+        "description": "Website design, frontend implementation, and technical development credits for SSC Jewellery, created by Creativecodz.",
+        "url": "https://supernally-bubonic-lilyana.ngrok-free.dev/site-credits",
+        "about": {
+          "@type": "Organization",
+          "name": "Creativecodz",
+          "url": "https://creativecodz.com/"
+        }
+      }
+    ]
+  },
+  "metadata": {
+    "type": "static"
+  },
+  "generatedAt": "2026-03-22T04:20:36.536Z"
+}

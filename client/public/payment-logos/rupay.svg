@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="140" height="44" viewBox="0 0 140 44" role="img" aria-label="RuPay">
+  <rect width="140" height="44" rx="8" fill="#ffffff"/>
+  <path d="M20 32 L58 32 L70 12 L32 12 Z" fill="#2B4A9B"/>
+  <path d="M44 32 L82 32 L94 12 L56 12 Z" fill="#4AAE3D"/>
+  <path d="M68 32 L106 32 L118 12 L80 12 Z" fill="#F7941D"/>
+  <text x="70" y="29" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="16" fill="#ffffff">RuPay</text>
+</svg>

@@ -1,0 +1,55 @@
+{
+  "routePath": "/about",
+  "seo": {
+    "title": "About SSC Jewellery",
+    "description": "SSC Jewellery offers imitation and fashion jewellery. Learn more about our store promise, product support, and customer-first service.",
+    "keywords": "SSC Jewellery, about",
+    "canonical": "https://supernally-bubonic-lilyana.ngrok-free.dev/about",
+    "robots": "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1",
+    "image": "https://supernally-bubonic-lilyana.ngrok-free.dev/assets/contact.jpg",
+    "structuredData": [
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "SSC Jewellery",
+        "url": "https://supernally-bubonic-lilyana.ngrok-free.dev",
+        "logo": "https://supernally-bubonic-lilyana.ngrok-free.dev/branding/logo.webp"
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "JewelryStore",
+        "name": "SSC Jewellery",
+        "url": "https://supernally-bubonic-lilyana.ngrok-free.dev",
+        "logo": "https://supernally-bubonic-lilyana.ngrok-free.dev/branding/logo.webp",
+        "image": "https://supernally-bubonic-lilyana.ngrok-free.dev/assets/contact.jpg",
+        "geo": {
+          "@type": "GeoCoordinates",
+          "latitude": 0,
+          "longitude": 0
+        }
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://supernally-bubonic-lilyana.ngrok-free.dev/"
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "About",
+            "item": "https://supernally-bubonic-lilyana.ngrok-free.dev/about"
+          }
+        ]
+      }
+    ]
+  },
+  "metadata": {
+    "type": "static"
+  },
+  "generatedAt": "2026-03-22T04:20:36.536Z"
+}

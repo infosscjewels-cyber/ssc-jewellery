@@ -1,0 +1,222 @@
+/* Import fonts (add this to your index.html later for production) */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* 1. Set Default Body Styles */
+  body {
+    @apply bg-secondary text-dark font-sans antialiased;
+    /* Sets default background, text color, and font */
+  }
+
+  /* 2. Style All Headings Globally */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-serif font-bold text-primary;
+    /* All headings will automatically use the Serif font and Primary blue color */
+  }
+
+  h1 { @apply text-3xl md:text-4xl mb-6; }
+  h2 { @apply text-2xl md:text-3xl mb-4; }
+  h3 { @apply text-xl md:text-2xl mb-3; }
+
+  /* 3. Standardize Paragraphs & Links */
+  p { @apply mb-4 leading-relaxed text-gray-600; }
+  
+  a { 
+    @apply text-accent-deep hover:text-accent-hover transition-colors duration-200 font-medium; 
+    /* Now links on white pages will automatically be the readable #4c3e10 */
+  }
+
+  /* 4. Define a Standard Section Container */
+  .section {
+    @apply py-12 md:py-16 lg:py-20;
+    /* Standard vertical padding for all page sections */
+  }
+  
+  /* Custom Utility class for gold text based on logo */
+  .text-gold {
+      @apply text-accent;
+      background: linear-gradient(to right, #D4AF37, #FCEE21, #D4AF37);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+  }
+
+  body.tier-regular,
+  body.tier-bronze,
+  body.tier-silver,
+  body.tier-gold,
+  body.tier-platinum {
+    --tier-page-bg: #eef1f6;
+    --tier-panel-bg: #f3f5fa;
+  }
+}
+
+@layer components {
+  /* A standard button style you can reuse anywhere */
+  .btn-primary {
+    @apply bg-primary text-accent px-6 py-3 rounded-lg font-semibold 
+           hover:bg-primary-light transition-all duration-300 
+           flex items-center justify-center gap-2 shadow-md hover:shadow-lg;
+  }
+  
+  .input-field {
+      @apply w-full px-4 py-3 rounded-lg border border-gray-200 
+             focus:border-accent focus:ring-1 focus:ring-accent 
+             outline-none transition-all bg-white;
+  }
+}
+
+@layer utilities {
+  .tier-surface {
+    background-color: var(--tier-page-bg, #eef1f6);
+  }
+
+  .tier-card-surface {
+    background-color: #ffffff !important;
+    background-image: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+    border-color: rgba(148, 163, 184, 0.18) !important;
+  }
+
+  .tier-muted-surface {
+    background-color: #f8fafc !important;
+  }
+
+  .tier-soft-panel {
+    background-color: var(--tier-panel-bg, var(--tier-page-bg, transparent)) !important;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+  }
+
+  body.tier-regular .bg-secondary,
+  body.tier-bronze .bg-secondary,
+  body.tier-silver .bg-secondary,
+  body.tier-gold .bg-secondary,
+  body.tier-platinum .bg-secondary {
+    background-color: #eef1f6 !important;
+  }
+
+  /* Animation Keyframes */
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(100%); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  /* Animation Utility Class */
+  .animate-slide-in {
+    animation: slideIn 0.3s ease-out forwards;
+  }
+}
+
+@layer utilities {
+  @keyframes cartShake {
+    0% { transform: translateX(0); }
+    20% { transform: translateX(-3px); }
+    40% { transform: translateX(3px); }
+    60% { transform: translateX(-2px); }
+    80% { transform: translateX(2px); }
+    100% { transform: translateX(0); }
+  }
+
+  .cart-shake {
+    animation: cartShake 0.4s ease-in-out;
+  }
+}
+
+@layer utilities {
+  @keyframes cartPop {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+  }
+
+  .cart-pop {
+    animation: cartPop 0.25s ease-out;
+  }
+
+}
+
+@layer utilities {
+  @keyframes confetti-fall {
+    0% { transform: translateY(-10%) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(120vh) rotate(360deg); opacity: 0.9; }
+  }
+
+  @keyframes confetti-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(180deg); }
+  }
+
+  .confetti-piece {
+    position: absolute;
+    top: -10%;
+    width: var(--size);
+    height: calc(var(--size) * 0.6);
+    background: var(--color);
+    opacity: 0.95;
+    border-radius: 2px;
+    animation:
+      confetti-fall var(--duration) linear var(--delay) forwards,
+      confetti-spin 1.2s ease-in-out infinite;
+  }
+}
+
+/* --- Z-INDEX OVERRIDE FOR MOBILE --- */
+
+/* 1. Force the Modal Container (Backdrop + Content) to be highest */
+/* This targets the main wrapper of your Modal component */
+.fixed.inset-0.z-50 {
+    z-index: 9999 !important;
+}
+
+/* 2. Target Generic Modal Classes just in case */
+.modal-backdrop,
+div[role="dialog"] {
+    z-index: 9999 !important;
+}
+
+/* 3. Force the Mobile Bottom Nav to be lower */
+/* This targets the specific nav bar class from AdminDashboard.jsx */
+.fixed.bottom-0.z-50 {
+    z-index: 40 !important; /* Lower than the Modal's 9999 */
+}
+
+/* --- ANIMATED GRADIENT BACKGROUND --- */
+@layer utilities {
+  .bg-size-200 {
+    background-size: 200% 200%;
+  }
+  
+  @keyframes gradient-xy {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  .animate-gradient-xy {
+    animation: gradient-xy 6s ease infinite;
+  }
+  
+  /* Feature Card Hover Glow */
+  .hover-glow {
+    transition: all 0.3s ease;
+  }
+  .hover-glow:hover {
+    box-shadow: 0 0 20px rgba(212, 175, 55, 0.3); /* Gold Glow */
+    transform: translateY(-5px);
+  }
+
+  .emboss-card > :not(.bg-emboss-icon) {
+    position: relative;
+    z-index: 1;
+  }
+
+  .bg-emboss-icon {
+    pointer-events: none;
+    z-index: 0;
+    opacity: 1;
+    filter: none;
+  }
+}
