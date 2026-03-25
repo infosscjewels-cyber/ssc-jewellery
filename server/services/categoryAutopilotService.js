@@ -51,6 +51,10 @@ const deterministicSort = (rows = [], { seed = '', score = null } = {}) => (
 const uniqueIds = (rows = []) => [...new Set((Array.isArray(rows) ? rows : []).map((entry) => String(entry?.id || entry || '').trim()).filter(Boolean))];
 const parseIdCsv = (value = '') => uniqueIds(String(value || '').split(',').map((part) => String(part || '').trim()).filter(Boolean));
 const isShippingDiscountType = (value = '') => ['shipping_full', 'shipping_partial'].includes(normalizeKey(value));
+const normalizeUsageAudience = (value = '') => {
+    const normalized = String(value || '').trim().toLowerCase();
+    return ['men', 'women', 'kids'].includes(normalized) ? normalized : '';
+};
 
 const isCategoryStale = (category = {}) => {
     const refreshedAt = category?.autopilot_refreshed_at ? new Date(category.autopilot_refreshed_at).getTime() : 0;
@@ -441,16 +445,18 @@ const setCachedPersonalizedOfferIds = (viewerKey = '', ids = []) => {
     });
 };
 
-const loadHydratedProductsByIds = async (ids = []) => {
+const loadHydratedProductsByIds = async (ids = [], { usageAudience = '' } = {}) => {
     const productIds = uniqueIds(ids);
     if (!productIds.length) return [];
     const placeholders = productIds.map(() => '?').join(',');
+    const normalizedUsageAudience = normalizeUsageAudience(usageAudience);
     const [rows] = await db.execute(
         `SELECT *
          FROM products
          WHERE id IN (${placeholders})
-           AND LOWER(COALESCE(status, '')) = 'active'`,
-        productIds
+           AND LOWER(COALESCE(status, '')) = 'active'
+           ${normalizedUsageAudience ? 'AND LOWER(COALESCE(usage_audience, \'\')) = ?' : ''}`,
+        normalizedUsageAudience ? [...productIds, normalizedUsageAudience] : productIds
     );
     const Product = require('../models/Product');
     const hydrated = await Product.hydrateProductsByIds(rows || [], { connection: db });
@@ -458,7 +464,24 @@ const loadHydratedProductsByIds = async (ids = []) => {
     return productIds.map((id) => byId.get(String(id))).filter(Boolean);
 };
 
-const getAutopilotProductsForCategory = async (category, { viewerKey = '', page = 1, limit = AUTOPILOT_MAX_PRODUCTS } = {}) => {
+const getAutopilotVisibleIds = async (ids = [], { usageAudience = '' } = {}) => {
+    const productIds = uniqueIds(ids);
+    if (!productIds.length) return [];
+    const placeholders = productIds.map(() => '?').join(',');
+    const normalizedUsageAudience = normalizeUsageAudience(usageAudience);
+    const [rows] = await db.execute(
+        `SELECT id
+         FROM products
+         WHERE id IN (${placeholders})
+           AND LOWER(COALESCE(status, '')) = 'active'
+           ${normalizedUsageAudience ? 'AND LOWER(COALESCE(usage_audience, \'\')) = ?' : ''}`,
+        normalizedUsageAudience ? [...productIds, normalizedUsageAudience] : productIds
+    );
+    const visible = new Set((rows || []).map((row) => String(row.id || '').trim()).filter(Boolean));
+    return productIds.filter((id) => visible.has(String(id)));
+};
+
+const getAutopilotProductsForCategory = async (category, { viewerKey = '', page = 1, limit = AUTOPILOT_MAX_PRODUCTS, usageAudience = '' } = {}) => {
     if (!isAutopilotEnabledCategory(category)) return null;
     const refreshedCategory = await refreshCategoryAutopilotCatalog(category.id, { force: false });
     const catalog = parseJsonSafe(refreshedCategory?.autopilot_catalog_json, null)
@@ -486,10 +509,11 @@ const getAutopilotProductsForCategory = async (category, { viewerKey = '', page 
         }
         orderedIds = uniqueIds([...personalizedIds, ...orderedIds]);
     }
+    orderedIds = await getAutopilotVisibleIds(orderedIds, { usageAudience });
     const total = orderedIds.length;
     const offset = Math.max(0, (Number(page || 1) - 1) * Number(limit || AUTOPILOT_MAX_PRODUCTS));
     const pagedIds = orderedIds.slice(offset, offset + Math.max(1, Number(limit || AUTOPILOT_MAX_PRODUCTS)));
-    const products = await loadHydratedProductsByIds(pagedIds);
+    const products = await loadHydratedProductsByIds(pagedIds, { usageAudience });
     return {
         products,
         total,
@@ -500,7 +524,7 @@ const getAutopilotProductsForCategory = async (category, { viewerKey = '', page 
     };
 };
 
-const applyAutopilotStats = async (categories = []) => {
+const applyAutopilotStats = async (categories = [], { usageAudience = '' } = {}) => {
     const next = [];
     for (const category of (Array.isArray(categories) ? categories : [])) {
         if (!isAutopilotEnabledCategory(category)) {
@@ -513,7 +537,7 @@ const applyAutopilotStats = async (categories = []) => {
             || parseJsonSafe(category.autopilot_catalog_json, {});
         next.push({
             ...category,
-            product_count: uniqueIds(catalog?.productIds || []).length,
+            product_count: (await getAutopilotVisibleIds(catalog?.productIds || [], { usageAudience })).length,
             autopilot_refreshed_at: refreshed?.autopilot_refreshed_at || category.autopilot_refreshed_at
         });
     }

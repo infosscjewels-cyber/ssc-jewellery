@@ -107,7 +107,7 @@ class Cart {
         const [rows] = await db.execute(
             `SELECT 
                 ci.user_id, ci.product_id, ci.variant_id, ci.quantity,
-                p.title, p.media, p.categories, p.mrp, p.discount_price, p.status, p.weight_kg as product_weight_kg, p.track_quantity as product_track_quantity, p.quantity as product_quantity,
+                p.title, p.media, p.categories, p.sub_category, p.mrp, p.discount_price, p.status, p.weight_kg as product_weight_kg, p.track_quantity as product_track_quantity, p.quantity as product_quantity,
                 p.track_low_stock as product_track_low_stock, p.low_stock_threshold as product_low_stock_threshold,
                 pv.id as resolved_variant_id, pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg, pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity,
                 pv.track_low_stock as variant_track_low_stock, pv.low_stock_threshold as variant_low_stock_threshold
@@ -146,6 +146,7 @@ class Cart {
                 title: r.title,
                 status,
                 categories: parseCategories(r.categories),
+                subCategory: String(r.sub_category || '').trim(),
                 imageUrl,
                 price: Number(price),
                 compareAt: Number(r.variant_price || r.mrp || 0),

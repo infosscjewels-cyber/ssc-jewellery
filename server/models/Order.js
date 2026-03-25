@@ -69,6 +69,16 @@ const parseJsonSafe = (value) => {
         return null;
     }
 };
+const parseStringArray = (value) => {
+    const parsed = parseJsonSafe(value);
+    if (Array.isArray(parsed)) {
+        return parsed.map((entry) => String(entry || '').trim()).filter(Boolean);
+    }
+    if (Array.isArray(value)) {
+        return value.map((entry) => String(entry || '').trim()).filter(Boolean);
+    }
+    return [];
+};
 
 const toSubunits = (amount) => Math.round(Number(amount || 0) * 100);
 const fromSubunits = (subunits) => Number(subunits || 0) / 100;
@@ -361,6 +371,7 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
         const { productId, variantId, quantity } = selected;
         const [rows] = await connection.execute(
             `SELECT p.id as product_id, p.title as product_title, p.status as product_status, p.tax_config_id,
+                    p.categories as product_categories, p.sub_category as product_sub_category,
                     p.mrp, p.discount_price as product_discount_price, p.track_quantity as product_track_quantity,
                     p.quantity as product_quantity, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg, p.polish_warranty_months,
                     pv.id as variant_id, pv.product_id as variant_product_id, pv.variant_title,
@@ -412,6 +423,8 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
         const originalPrice = Number(row.variant_price || row.mrp || price);
         const lineTotal = price * quantity;
         const itemWeight = Number(row.variant_weight_kg || row.product_weight_kg || 0);
+        const categoryNames = parseStringArray(row.product_categories);
+        const subCategory = String(row.product_sub_category || '').trim();
         totalWeightKg += itemWeight * quantity;
         const imageUrl = row.variant_image_url || getPrimaryMediaUrl(row.product_media) || null;
         orderItems.push({
@@ -438,6 +451,10 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
                 lineTotal,
                 imageUrl,
                     sku: row.variant_sku || row.product_sku || null,
+                    subCategory,
+                    categories: categoryNames,
+                    categoryNames,
+                    primaryCategoryName: categoryNames[0] || '',
                     polishWarrantyMonths: Number(row.polish_warranty_months || 6),
                     taxConfigId: row.tax_config_id || null,
                 weightKg: itemWeight,
@@ -646,6 +663,7 @@ class Order {
             const [cartRows] = await connection.execute(
                 `SELECT ci.quantity, ci.product_id, ci.variant_id,
                         p.title as product_title, p.status as product_status, p.tax_config_id,
+                        p.categories as product_categories, p.sub_category as product_sub_category,
                         p.mrp, p.discount_price as product_discount_price, p.weight_kg as product_weight_kg,
                         p.track_quantity as product_track_quantity, p.quantity as product_quantity,
                         pv.id as resolved_variant_id, pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price, pv.weight_kg as variant_weight_kg,
@@ -687,6 +705,8 @@ class Order {
                     row.variant_discount_price || row.variant_price || row.product_discount_price || row.mrp || 0
                 );
                 const itemWeight = Number(row.variant_weight_kg || row.product_weight_kg || 0);
+                const categoryNames = parseStringArray(row.product_categories);
+                const subCategory = String(row.product_sub_category || '').trim();
 
                 subtotal += unitPrice * quantity;
                 totalWeightKg += itemWeight * quantity;
@@ -697,6 +717,8 @@ class Order {
                     taxConfigId: row.tax_config_id || null,
                     title: row.product_title || 'Product',
                     variantTitle: row.variant_title || null,
+                    subCategory,
+                    categoryNames,
                     quantity,
                     price: unitPrice,
                     lineTotal: roundMoney(unitPrice * quantity)
@@ -786,6 +808,8 @@ class Order {
                     variantId: item.variantId || '',
                     title: item.title || 'Product',
                     variantTitle: item.variantTitle || null,
+                    subCategory: item.subCategory || '',
+                    categoryNames: Array.isArray(item.categoryNames) ? item.categoryNames : [],
                     quantity: item.quantity,
                     price: item.price,
                     lineTotal: item.lineTotal,
@@ -826,6 +850,7 @@ class Order {
             const [cartRows] = await connection.execute(
                 `SELECT ci.product_id, ci.variant_id, ci.quantity,
                         p.title as product_title, p.status as product_status, p.tax_config_id,
+                        p.categories as product_categories, p.sub_category as product_sub_category,
                         p.mrp, p.discount_price as product_discount_price, p.track_quantity as product_track_quantity,
                         p.quantity as product_quantity, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg, p.polish_warranty_months,
                         pv.id as resolved_variant_id, pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price,
@@ -867,6 +892,8 @@ class Order {
                 );
                 const lineTotal = price * quantity;
                 const itemWeight = Number(row.variant_weight_kg || row.product_weight_kg || 0);
+                const categoryNames = parseStringArray(row.product_categories);
+                const subCategory = String(row.product_sub_category || '').trim();
                 totalWeightKg += itemWeight * quantity;
 
                 if (!skipStockDeduction) {
@@ -932,6 +959,10 @@ class Order {
                         variantId: row.variant_id || '',
                         title: row.product_title || '',
                         variantTitle: row.variant_title || null,
+                        subCategory,
+                        categories: categoryNames,
+                        categoryNames,
+                        primaryCategoryName: categoryNames[0] || '',
                         variantOptions: row.variant_options ? (
                             typeof row.variant_options === 'string'
                                 ? (() => {

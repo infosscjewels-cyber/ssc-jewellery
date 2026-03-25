@@ -232,7 +232,8 @@ class Product {
             const autopilotResult = await getAutopilotProductsForCategory(autopilotCategory, {
                 viewerKey,
                 page,
-                limit
+                limit,
+                usageAudience
             }).catch(() => null);
             if (autopilotResult) {
                 return {
@@ -899,11 +900,33 @@ class Product {
                 ORDER BY c.name ASC
         `;
         const [rows] = await db.execute(query);
+        const [subCategoryRows] = await db.execute(
+            `SELECT c.id AS category_id, p.sub_category
+             FROM categories c
+             LEFT JOIN product_categories pc ON c.id = pc.category_id
+             LEFT JOIN products p ON p.id = pc.product_id
+             WHERE LOWER(COALESCE(p.status, '')) = 'active'
+               AND COALESCE(TRIM(p.sub_category), '') <> ''
+               ${normalizedUsageAudience ? `AND p.usage_audience = ${db.escape(normalizedUsageAudience)}` : ''}
+             ORDER BY c.id ASC, p.sub_category ASC`
+        );
+        const availableSubCategoriesByCategory = new Map();
+        (subCategoryRows || []).forEach((row) => {
+            const key = Number(row?.category_id || 0);
+            if (!key) return;
+            if (!availableSubCategoriesByCategory.has(key)) {
+                availableSubCategoriesByCategory.set(key, []);
+            }
+            availableSubCategoriesByCategory.get(key).push(row?.sub_category);
+        });
         const { applyAutopilotStats } = require('../services/categoryAutopilotService');
-        const categories = await applyAutopilotStats(rows);
+        const categories = await applyAutopilotStats(rows, { usageAudience: normalizedUsageAudience });
         const normalizedCategories = categories.map((category) => ({
             ...category,
-            subCategories: Product.normalizeSubCategoryList(category?.subcategories_json)
+            subCategories: Product.normalizeSubCategoryList(category?.subcategories_json),
+            availableSubCategories: Product.normalizeSubCategoryList(
+                availableSubCategoriesByCategory.get(Number(category?.id || 0)) || []
+            )
         }));
         return publicOnly ? normalizedCategories.filter((category) => Product.shouldExposeCategoryPublicly(category)) : normalizedCategories;
     }

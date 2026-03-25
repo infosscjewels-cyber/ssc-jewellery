@@ -377,9 +377,24 @@ const buildAttemptSnapshot = async ({
     userId,
     summary = null
 } = {}) => {
+    const parseCategoryNames = (value) => {
+        if (Array.isArray(value)) {
+            return value.map((entry) => String(entry || '').trim()).filter(Boolean);
+        }
+        if (typeof value === 'string') {
+            try {
+                const parsed = JSON.parse(value);
+                return Array.isArray(parsed) ? parsed.map((entry) => String(entry || '').trim()).filter(Boolean) : [];
+            } catch {
+                return [];
+            }
+        }
+        return [];
+    };
     const [cartRows] = await db.execute(
         `SELECT ci.product_id, ci.variant_id, ci.quantity,
                 p.title as product_title, p.status as product_status,
+                p.categories as product_categories, p.sub_category as product_sub_category,
                 p.mrp, p.discount_price as product_discount_price, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg,
                 pv.id as resolved_variant_id, pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price,
                 pv.sku as variant_sku, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg, pv.variant_options
@@ -407,6 +422,8 @@ const buildAttemptSnapshot = async ({
         const originalPrice = Number(row.variant_price || row.mrp || unitPrice);
         const lineTotal = Number((quantity * unitPrice).toFixed(2));
         const itemWeight = Number(row.variant_weight_kg || row.product_weight_kg || 0);
+        const categoryNames = parseCategoryNames(row.product_categories);
+        const subCategory = String(row.product_sub_category || '').trim();
         let imageUrl = row.variant_image_url || null;
         if (!imageUrl && row.product_media) {
             try {
@@ -421,6 +438,10 @@ const buildAttemptSnapshot = async ({
             variantId: row.variant_id || '',
             title: row.product_title || 'Product',
             variantTitle: row.variant_title || '',
+            subCategory: subCategory || '',
+            categories: categoryNames,
+            categoryNames,
+            primaryCategoryName: categoryNames[0] || '',
             variantOptions: row.variant_options ? (() => {
                 try {
                     return typeof row.variant_options === 'string' ? JSON.parse(row.variant_options) : row.variant_options;

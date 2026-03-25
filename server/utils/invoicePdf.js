@@ -226,6 +226,7 @@ const getItems = (order = {}) => {
         const taxRatePercent = toNumber(item.tax_rate_percent ?? snapshot.taxRatePercent, 0);
         const taxAmount = toNumber(item.tax_amount ?? snapshot.taxAmount, 0);
         const variantTitle = item.variant_title || snapshot.variantTitle || '';
+        const subCategory = item.sub_category || item.subCategory || snapshot.subCategory || snapshot.sub_category || '';
         const variantOptions = stringifyVariantOptions(snapshot.variantOptions || item.variant_options || item.variantOptions);
         const resolvedTaxRatePercent = taxRatePercent > 0
             ? taxRatePercent
@@ -236,6 +237,7 @@ const getItems = (order = {}) => {
         return {
             name: String(item.title || snapshot.title || 'Item'),
             variantLine: [variantTitle, variantOptions].filter(Boolean).join(' | '),
+            subCategoryLine: subCategory ? `Sub Category: ${subCategory}` : '',
             warrantyLine: polishWarrantyMonths > 0 ? `Polish Warranty: ${polishWarrantyMonths} months` : '',
             qty,
             unitPriceMrp: mrpUnit,
@@ -403,7 +405,7 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
     };
 
     items.forEach((item, idx) => {
-        const itemText = [item.name, item.variantLine, item.warrantyLine].filter(Boolean).join('\n');
+        const itemText = [item.name, item.variantLine, item.subCategoryLine, item.warrantyLine].filter(Boolean).join('\n');
         const itemTextHeight = textHeight(doc, itemText, table.cols.name.width, 9, fonts);
         const discountParts = showTaxColumns ? buildDiscountCellParts(item) : null;
         const discountTextHeight = showTaxColumns
