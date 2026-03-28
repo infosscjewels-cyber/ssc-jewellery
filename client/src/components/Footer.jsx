@@ -1,11 +1,39 @@
 import { useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Instagram, Youtube, Facebook, Mail, MapPin, MessageCircle, Home, Store, Info, PhoneCall, HelpCircle, User, Package, LogIn, FileText, ShieldCheck, Truck, RefreshCw, Copyright, Search as SearchIcon } from 'lucide-react';
+import { Instagram, Youtube, Facebook, Mail, MapPin, MessageCircle, Home, Store, Info, PhoneCall, HelpCircle, User, Package, LogIn, FileText, ShieldCheck, Truck, RefreshCw, Copyright, Search as SearchIcon, BadgeCheck, Lock, Server, PackageCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
+
+const TRUST_ITEMS = [
+    {
+        title: 'Verified Store',
+        description: 'Genuine and trusted platform',
+        icon: BadgeCheck
+    },
+    {
+        title: 'SSL Protected',
+        description: 'Secure encrypted browsing',
+        icon: ShieldCheck
+    },
+    {
+        title: 'Secure Checkout',
+        description: 'Safe payment experience',
+        icon: Lock
+    },
+    {
+        title: 'Protected Servers',
+        description: 'Reliable and secure hosting',
+        icon: Server
+    },
+    {
+        title: 'Trusted Delivery',
+        description: 'Safe packing and dispatch',
+        icon: PackageCheck
+    }
+];
 
 export default function Footer() {
     const { user } = useAuth();
@@ -74,6 +102,40 @@ export default function Footer() {
                         <p className="text-sm text-white/70">
                             Premium Impon jewellery crafted with care. Discover timeless designs and elegant collections.
                         </p>
+                        <div className="space-y-3 text-sm text-white/70">
+                            <div className="flex items-start gap-2">
+                                <MapPin size={16} className="text-accent mt-0.5 shrink-0" />
+                                <span>Registered Address: {company.address || 'Address not set'}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Mail size={16} className="text-accent shrink-0" />
+                                {company.supportEmail ? (
+                                    <a href={`mailto:${company.supportEmail}`} className="text-white/60 hover:text-accent break-all">{company.supportEmail}</a>
+                                ) : (
+                                    <span className="text-white/40">Email not set</span>
+                                )}
+                            </div>
+                            <div className="flex items-start gap-2">
+                                <MessageCircle size={16} className="text-[#25D366] mt-0.5 shrink-0" />
+                                {footerWhatsappNumbers.length ? (
+                                    <div className="flex flex-col">
+                                        {footerWhatsappNumbers.map((number) => (
+                                            <a
+                                                key={number}
+                                                href={`https://wa.me/${String(number).replace(/\D/g, '')}`}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="text-white/60 hover:text-[#25D366]"
+                                            >
+                                                {number}
+                                            </a>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <span className="text-white/40">WhatsApp not set</span>
+                                )}
+                            </div>
+                        </div>
                         {hasSocial && (
                             <div className="flex items-center gap-3">
                                 {company.instagramUrl && (
@@ -163,40 +225,27 @@ export default function Footer() {
                 </div>
 
                 <div className="mt-10 border-t border-white/10 pt-8 grid grid-cols-1 md:grid-cols-4 gap-6 text-sm text-white/70">
-                    <div className="flex items-start gap-2">
-                        <MapPin size={16} className="text-accent mt-0.5" />
-                        <span>Registered Address: {company.address || 'Address not set'}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <Mail size={16} className="text-accent" />
-                        {company.supportEmail ? (
-                            <a href={`mailto:${company.supportEmail}`} className="text-white/60 hover:text-accent">{company.supportEmail}</a>
-                        ) : (
-                            <span className="text-white/40">Email not set</span>
-                        )}
-                    </div>
-                    <div className="flex items-start gap-2">
-                        <MessageCircle size={16} className="text-[#25D366] mt-0.5" />
-                        {footerWhatsappNumbers.length ? (
-                            <div className="flex flex-col">
-                                {footerWhatsappNumbers.map((number) => (
-                                    <a
-                                        key={number}
-                                        href={`https://wa.me/${String(number).replace(/\D/g, '')}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-white/60 hover:text-[#25D366]"
-                                    >
-                                        {number}
-                                    </a>
-                                ))}
-                            </div>
-                        ) : (
-                            <span className="text-white/40">WhatsApp not set</span>
-                        )}
+                    <div className="md:col-span-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mb-2">
+                        {TRUST_ITEMS.map((item) => {
+                            const Icon = item.icon;
+                            return (
+                                <div
+                                    key={item.title}
+                                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 flex items-start gap-3"
+                                >
+                                    <div className="shrink-0 rounded-xl bg-accent/10 p-2 text-accent">
+                                        <Icon size={18} />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-semibold text-white">{item.title}</p>
+                                        <p className="mt-1 text-xs text-white/60">{item.description}</p>
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                     {Boolean(String(company.gstNumber || '').trim()) && (
-                        <div className="flex items-center gap-2">
+                        <div className="md:col-span-4 flex items-center gap-2">
                             <FileText size={16} className="text-accent" />
                             <span className="text-white/60">
                                 GSTIN: <span className="font-semibold text-white/80">{String(company.gstNumber || '').trim()}</span>

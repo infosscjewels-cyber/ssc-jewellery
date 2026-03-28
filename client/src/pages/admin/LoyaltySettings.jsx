@@ -699,7 +699,8 @@ export default function LoyaltySettings({ onBack }) {
         if (String(templateId || '') === DEFAULT_POPUP_TEMPLATE_ID) {
             setPopupForm((prev) => ({
                 ...prev,
-                ...DEFAULT_POPUP_TEMPLATE_PAYLOAD
+                ...DEFAULT_POPUP_TEMPLATE_PAYLOAD,
+                isActive: true
             }));
             setPopupTemplateName(DEFAULT_POPUP_TEMPLATE_NAME);
             toast.success(`Template loaded: ${DEFAULT_POPUP_TEMPLATE_NAME}`);
@@ -709,12 +710,14 @@ export default function LoyaltySettings({ onBack }) {
         if (!Number.isFinite(id) || id <= 0) return;
         const template = popupTemplates.find((entry) => Number(entry?.id) === id);
         if (!template?.payload) return;
+        const nextTemplatePayload = sanitizePopupTemplatePayload(template.payload, {
+            preserveIsActive: false,
+            validCouponCodes: popupCouponOptions.map((row) => row.code)
+        });
         setPopupForm((prev) => ({
             ...prev,
-            ...sanitizePopupTemplatePayload(template.payload, {
-                preserveIsActive: false,
-                validCouponCodes: popupCouponOptions.map((row) => row.code)
-            })
+            ...nextTemplatePayload,
+            isActive: nextTemplatePayload?.couponCode ? true : (nextTemplatePayload?.isActive === false ? false : true)
         }));
         setPopupTemplateName(String(template.templateName || getDefaultTemplateName()));
         toast.success(`Template loaded: ${template.templateName || 'Unnamed template'}`);
