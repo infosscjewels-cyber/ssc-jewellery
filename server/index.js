@@ -93,7 +93,8 @@ const {
     buildSitemapXml,
     initSeoAutomation,
     loadSitemapEntries,
-    renderRouteHtml
+    renderRouteHtml,
+    startSeoRefreshScheduler
 } = require('./services/seoService');
 const {
     refreshEnabledCategoryAutopilotCatalogs
@@ -547,6 +548,9 @@ const initBackgroundJobs = () => {
     scheduleCommunicationRetryProcessing();
     scheduleCommunicationRetryMaintenance();
     scheduleCategoryAutopilotRefresh();
+    if (isProduction) {
+        startSeoRefreshScheduler();
+    }
     startAbandonedCartRecoveryScheduler({ onJourneyUpdate: broadcastJourneyUpdate });
     startAbandonedCartMaintenanceScheduler({ onJourneyUpdate: broadcastJourneyUpdate });
 };

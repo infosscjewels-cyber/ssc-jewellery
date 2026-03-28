@@ -32,7 +32,8 @@ const state = {
     rulesModule: null,
     templateHtml: null,
     sitemapEntries: null,
-    sitemapLoadedAt: null
+    sitemapLoadedAt: null,
+    refreshSchedulerHandle: null
 };
 
 const CLIENT_PUBLIC_ROOT = path.resolve(__dirname, '../../client/public');
@@ -48,8 +49,15 @@ const parseJsonSafe = (value, fallback = null) => {
 };
 
 const normalizeText = (value = '') => String(value || '').trim();
+const DEFAULT_REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const normalizeBaseUrl = (value = '') => String(value || '').trim().replace(/\/+$/, '');
+const isDisabledFlag = (value = '') => ['false', '0', 'no', 'off', 'disabled'].includes(String(value || '').trim().toLowerCase());
+
+const parsePositiveInteger = (value, fallback) => {
+    const parsed = Number.parseInt(String(value ?? '').trim(), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
 
 const getBaseUrl = () => normalizeBaseUrl(
     process.env.APP_BASE_URL
@@ -657,6 +665,40 @@ const shouldWarmOnBoot = () => {
     return !['false', '0', 'no', 'off'].includes(raw);
 };
 
+const getSeoRefreshSchedulerConfig = () => {
+    const enabledRaw = String(process.env.SEO_SCHEDULER_ENABLED || '').trim();
+    const intervalMs = parsePositiveInteger(
+        process.env.SEO_REFRESH_INTERVAL_MS || process.env.SEO_SCHEDULER_INTERVAL_MS,
+        DEFAULT_REFRESH_INTERVAL_MS
+    );
+
+    return {
+        enabled: enabledRaw ? !isDisabledFlag(enabledRaw) : true,
+        intervalMs
+    };
+};
+
+const startSeoRefreshScheduler = () => {
+    if (!state.initialized) {
+        console.log('SEO: refresh scheduler skipped because automation is not initialized');
+        return null;
+    }
+    if (state.refreshSchedulerHandle) return state.refreshSchedulerHandle;
+
+    const config = getSeoRefreshSchedulerConfig();
+    if (!config.enabled || config.intervalMs <= 0) {
+        console.log('SEO: refresh scheduler disabled');
+        return null;
+    }
+
+    state.refreshSchedulerHandle = setInterval(() => {
+        queueFullRefresh('scheduled_interval');
+    }, config.intervalMs);
+
+    console.log(`SEO: refresh scheduler started (${config.intervalMs}ms interval)`);
+    return state.refreshSchedulerHandle;
+};
+
 const initSeoAutomation = async () => {
     if (state.initialized) return;
     await ensureSeoArtifactsRoot();
@@ -698,6 +740,7 @@ const renderRouteHtml = async (pathname = '/') => {
 
 module.exports = {
     initSeoAutomation,
+    startSeoRefreshScheduler,
     renderRouteHtml,
     queueStaticRefresh,
     queueFullRefresh,
@@ -714,6 +757,7 @@ module.exports = {
         renderSeoHead,
         injectSeo,
         getSeoArtifactsRoot,
-        artifactPathForRoute
+        artifactPathForRoute,
+        getSeoRefreshSchedulerConfig
     }
 };

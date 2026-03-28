@@ -52,3 +52,28 @@ test('seo head injection replaces title/canonical and preserves html shell', () 
     assert.match(injected, /application\/ld\+json/);
     assert.match(injected, /<div id="root"><\/div>/);
 });
+
+test('seo refresh scheduler config defaults to weekly and respects env overrides', () => {
+    const { getSeoRefreshSchedulerConfig } = seoService.__test;
+    const previousEnabled = process.env.SEO_SCHEDULER_ENABLED;
+    const previousInterval = process.env.SEO_REFRESH_INTERVAL_MS;
+
+    delete process.env.SEO_SCHEDULER_ENABLED;
+    delete process.env.SEO_REFRESH_INTERVAL_MS;
+    assert.deepEqual(getSeoRefreshSchedulerConfig(), {
+        enabled: true,
+        intervalMs: 7 * 24 * 60 * 60 * 1000
+    });
+
+    process.env.SEO_SCHEDULER_ENABLED = 'false';
+    process.env.SEO_REFRESH_INTERVAL_MS = '86400000';
+    assert.deepEqual(getSeoRefreshSchedulerConfig(), {
+        enabled: false,
+        intervalMs: 86400000
+    });
+
+    if (previousEnabled == null) delete process.env.SEO_SCHEDULER_ENABLED;
+    else process.env.SEO_SCHEDULER_ENABLED = previousEnabled;
+    if (previousInterval == null) delete process.env.SEO_REFRESH_INTERVAL_MS;
+    else process.env.SEO_REFRESH_INTERVAL_MS = previousInterval;
+});
