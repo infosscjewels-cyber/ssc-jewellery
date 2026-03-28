@@ -70,10 +70,10 @@ export default function CategoryModal({ isOpen, onClose, onConfirm, isLoading, i
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose}></div>
 
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm relative z-10 overflow-hidden animate-in zoom-in-95">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[calc(100vh-2rem)] relative z-10 overflow-hidden animate-in zoom-in-95 flex flex-col">
                 <div className="h-2 w-full bg-primary"></div>
 
-                <div className="p-6">
+                <div className="p-6 overflow-y-auto flex-1">
                     <div className="flex items-center gap-3 mb-6">
                         <div className="p-3 rounded-full bg-primary/10 text-primary">
                             <FolderPlus size={24} />
