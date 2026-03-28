@@ -56,6 +56,7 @@ const TIER_ICON_CONFIG = {
 const NAV_SEARCH_SEED_KEY = 'nav_search_seed_v1';
 const MAX_SEARCH_RESULTS = 8;
 const SEARCH_SEED_LIMIT = 60;
+const CUSTOM_ORDER_URL = 'https://rzp.io/rzp/sscjewels/custom';
 
 const readSeedCache = () => {
     try {
@@ -573,16 +574,27 @@ export default function Navbar() {
 
                             <div
                                 ref={megaMenuRef}
-                                className={`absolute left-0 top-full mt-4 w-[380px] max-w-[90vw] rounded-2xl border border-gray-100 bg-white shadow-2xl transition-all duration-200 ${
+                                className={`absolute left-0 top-full mt-4 w-[760px] max-w-[92vw] rounded-2xl border border-gray-100 bg-white shadow-2xl transition-all duration-200 ${
                                     isMegaOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 -translate-y-2 pointer-events-none'
                                 }`}
                             >
-                                <div className="p-4 max-h-[calc(100vh-8rem)] overflow-visible">
+                                <div className="p-4 max-h-[calc(100vh-8rem)] overflow-hidden">
                                     <div className="flex items-center justify-between px-2">
                                         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Browse Categories</p>
-                                        <Link to="/shop" className="text-xs font-semibold text-accent-deep hover:text-primary transition-colors">
-                                            View All
-                                        </Link>
+                                        <div className="flex items-center gap-3">
+                                            <a
+                                                href={CUSTOM_ORDER_URL}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                onClick={() => setIsMegaOpen(false)}
+                                                className="text-xs font-semibold text-accent-deep hover:text-primary transition-colors"
+                                            >
+                                                Custom Order
+                                            </a>
+                                            <Link to="/shop" className="text-xs font-semibold text-accent-deep hover:text-primary transition-colors">
+                                                View All
+                                            </Link>
+                                        </div>
                                     </div>
                                     <div className="relative mt-4">
                                         {isLoadingCategories && (
@@ -602,22 +614,15 @@ export default function Navbar() {
                                             </div>
                                         )}
                                         {!isLoadingCategories && megaMenuCategories.length > 0 && (
-                                            <div className="rounded-2xl border border-gray-100 bg-white p-2 shadow-sm">
-                                                <div className="space-y-1">
+                                            <div className="rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
+                                                <div className="grid max-h-[calc(100vh-16rem)] grid-cols-1 gap-2 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3">
                                                     {megaMenuCategories.map((category) => {
                                                         const categoryName = category.name;
                                                         const categoryId = category?.id ?? categoryName;
-                                                        const hasSubCategories = category.subCategories.length > 0;
-                                                        const isActiveCategory = selectedMegaCategory?.name === categoryName && showMegaSubCategoryPane;
                                                         return (
                                                             <div
                                                                 key={`cat-${categoryId}`}
-                                                                className={`group flex items-center gap-2 rounded-xl px-2 py-2 transition-colors ${isActiveCategory ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
-                                                                onMouseEnter={() => {
-                                                                    if (hasSubCategories) {
-                                                                        openMegaSubCategoryPane(categoryName);
-                                                                    }
-                                                                }}
+                                                                className="group rounded-xl border border-transparent p-2 transition-colors hover:border-gray-100 hover:bg-gray-50"
                                                             >
                                                                 <Link
                                                                     to={buildCategoryStorePath(categoryName)}
@@ -639,88 +644,44 @@ export default function Navbar() {
                                                                         )}
                                                                     </div>
                                                                 </Link>
-                                                                {hasSubCategories ? (
-                                                                    <button
-                                                                        type="button"
-                                                                        aria-label={`Open ${categoryName} sub categories`}
-                                                                        onClick={() => openMegaSubCategoryPane(categoryName)}
-                                                                        className={`flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${
-                                                                            isActiveCategory
-                                                                                ? 'border-primary/20 bg-primary/5 text-primary'
-                                                                                : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-primary'
-                                                                        }`}
-                                                                    >
-                                                                        <ChevronRight size={16} />
-                                                                    </button>
-                                                                ) : null}
                                                             </div>
                                                         );
                                                     })}
                                                 </div>
                                             </div>
                                         )}
-                                        {showMegaSubCategoryPane && (
-                                            <div className="absolute left-full top-0 ml-3 w-[320px] rounded-2xl border border-gray-100 bg-white p-5 shadow-2xl">
-                                                <div className="flex items-center justify-between gap-4">
-                                                    <div>
-                                                        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Sub Categories</p>
-                                                        <h3 className="mt-2 text-lg font-bold text-gray-900">{selectedMegaCategory.name}</h3>
-                                                    </div>
-                                                    <Link
-                                                        to={buildCategoryStorePath(selectedMegaCategory.name)}
-                                                        onClick={() => setIsMegaOpen(false)}
-                                                        className="text-xs font-semibold text-accent-deep hover:text-primary transition-colors"
-                                                    >
-                                                        View
-                                                    </Link>
+                                        {usageAudienceItems.length > 0 && (
+                                            <>
+                                                <div className="mt-8 flex items-center justify-between">
+                                                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Browse by Usage</p>
                                                 </div>
-                                                <div className="mt-4 space-y-1">
-                                                    {selectedMegaCategory.subCategories.map((subCategory) => (
+                                                <div className="mt-5 grid grid-cols-2 lg:grid-cols-3 gap-4">
+                                                    {usageAudienceItems.map((item) => (
                                                         <Link
-                                                            key={`${selectedMegaCategory.id || selectedMegaCategory.name}-${subCategory}`}
-                                                            to={buildCategoryStorePath(selectedMegaCategory.name, { subCategory })}
+                                                            key={`usage-${item.key}`}
+                                                            to={`/shop?usageAudience=${encodeURIComponent(item.key)}`}
                                                             onClick={() => setIsMegaOpen(false)}
-                                                            className="group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-primary"
+                                                            className="group flex items-center gap-3 rounded-xl border border-transparent p-3 transition-all hover:border-gray-100 hover:bg-gray-50"
                                                         >
-                                                            <span>{subCategory}</span>
-                                                            <ChevronRight size={15} className="text-gray-300 group-hover:text-primary" />
+                                                            <div className="h-12 w-12 rounded-full bg-gray-100 shadow-inner overflow-hidden shrink-0">
+                                                                <img
+                                                                    src={item.imageUrl}
+                                                                    alt={item.label}
+                                                                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                                                />
+                                                            </div>
+                                                            <div className="flex flex-col min-w-0">
+                                                                <span className="text-sm font-semibold text-gray-800 group-hover:text-primary transition-colors">
+                                                                    {item.label}
+                                                                </span>
+                                                                <span className="text-xs text-gray-400">Shop {item.label.toLowerCase()}</span>
+                                                            </div>
                                                         </Link>
                                                     ))}
                                                 </div>
-                                            </div>
+                                            </>
                                         )}
                                     </div>
-                                    {usageAudienceItems.length > 0 && (
-                                        <>
-                                            <div className="mt-8 flex items-center justify-between">
-                                                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Browse by Usage</p>
-                                            </div>
-                                            <div className="mt-5 grid grid-cols-2 lg:grid-cols-3 gap-4">
-                                                {usageAudienceItems.map((item) => (
-                                                    <Link
-                                                        key={`usage-${item.key}`}
-                                                        to={`/shop?usageAudience=${encodeURIComponent(item.key)}`}
-                                                        onClick={() => setIsMegaOpen(false)}
-                                                        className="group flex items-center gap-3 rounded-xl border border-transparent p-3 transition-all hover:border-gray-100 hover:bg-gray-50"
-                                                    >
-                                                        <div className="h-12 w-12 rounded-full bg-gray-100 shadow-inner overflow-hidden shrink-0">
-                                                            <img
-                                                                src={item.imageUrl}
-                                                                alt={item.label}
-                                                                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                                                            />
-                                                        </div>
-                                                        <div className="flex flex-col min-w-0">
-                                                            <span className="text-sm font-semibold text-gray-800 group-hover:text-primary transition-colors">
-                                                                {item.label}
-                                                            </span>
-                                                            <span className="text-xs text-gray-400">Shop {item.label.toLowerCase()}</span>
-                                                        </div>
-                                                    </Link>
-                                                ))}
-                                            </div>
-                                        </>
-                                    )}
                                 </div>
                             </div>
                         </div>
@@ -943,6 +904,15 @@ export default function Navbar() {
                                     {link.name}
                                 </Link>
                             ))}
+                            <a
+                                href={CUSTOM_ORDER_URL}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block w-full border-b border-gray-100 py-3 text-left text-lg font-medium text-gray-600"
+                                onClick={() => setIsOpen(false)}
+                            >
+                                Custom Order
+                            </a>
                         </>
                     )}
                     {mobileMenuView === 'shop' && (
@@ -972,6 +942,18 @@ export default function Navbar() {
                                 >
                                     View all products
                                 </Link>
+                                <a
+                                    href={CUSTOM_ORDER_URL}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="block rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700"
+                                    onClick={() => {
+                                        setIsOpen(false);
+                                        setMobileMenuView('main');
+                                    }}
+                                >
+                                    Custom Order
+                                </a>
                                 <div className="max-h-[calc(100vh-22rem)] space-y-2 overflow-y-auto pr-1">
                                     {megaMenuCategories.map((category) => (
                                         <button

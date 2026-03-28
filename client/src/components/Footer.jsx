@@ -7,6 +7,8 @@ import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSit
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
 
+const CUSTOM_ORDER_URL = 'https://rzp.io/rzp/sscjewels/custom';
+
 const TRUST_ITEMS = [
     {
         title: 'Verified Store',
@@ -186,6 +188,7 @@ export default function Footer() {
                         <div className="space-y-2">
                             <Link to="/" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><Home size={14} className="text-white/40" />Home</Link>
                             <Link to="/shop" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><Store size={14} className="text-white/40" />Shop</Link>
+                            <a href={CUSTOM_ORDER_URL} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><Store size={14} className="text-white/40" />Custom Order</a>
                             <Link to="/about" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><Info size={14} className="text-white/40" />About</Link>
                             <Link to="/contact" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><PhoneCall size={14} className="text-white/40" />Contact</Link>
                             <Link to="/faq" className="flex items-center gap-2 text-sm text-white/80 hover:text-accent transition-colors"><HelpCircle size={14} className="text-white/40" />FAQs</Link>
