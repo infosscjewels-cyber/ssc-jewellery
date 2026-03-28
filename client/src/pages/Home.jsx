@@ -1188,8 +1188,8 @@ export default function Home() {
                             <div className="w-14 h-14 bg-primary/30 rounded-full flex items-center justify-center mb-4 group-hover:bg-accent/20 transition-colors">
                                 <Truck size={28} className="text-accent group-hover:scale-110 transition-transform duration-300" />
                             </div>
-                            <h3 className="text-white font-bold text-lg mb-2">Pan India Delivery</h3>
-                            <p className="text-gray-400 text-sm">Fast shipping across all pin codes</p>
+                            <h3 className="text-white font-bold text-lg mb-2">Worldwide Shipping Available</h3>
+                            <p className="text-gray-400 text-sm">Shipping available worldwide</p>
                         </div>
 
                         {/* 2. Custom Designs */}
@@ -1216,8 +1216,8 @@ export default function Home() {
                             <div className="w-14 h-14 bg-primary/30 rounded-full flex items-center justify-center mb-4 group-hover:bg-accent/20 transition-colors">
                                 <ShieldCheck size={28} className="text-accent group-hover:scale-110 transition-transform duration-300" />
                             </div>
-                            <h3 className="text-white font-bold text-lg mb-2">12 Months Warranty</h3>
-                            <p className="text-gray-400 text-sm">Upto 12 months polish warranty</p>
+                            <h3 className="text-white font-bold text-lg mb-2">6-12 Months Warranty</h3>
+                            <p className="text-gray-400 text-sm">6 to 12 months polish warranty on selected collections</p>
                         </div>
 
                         {/* 4. Material Quality */}
@@ -1234,7 +1234,7 @@ export default function Home() {
                             <p className="text-gray-400 text-sm">High Quality Brass, Copper & Mixed Alloys</p>
                         </div>
 
-                        {/* 5. Support */}
+                        {/* 5. Collection Range */}
                         <div className="bg-white/5 backdrop-blur-sm border border-white/10 p-6 rounded-2xl flex flex-col items-center text-center hover-glow group cursor-default max-w-xs mx-auto w-full transition-colors hover:bg-white/10 relative overflow-hidden">
                              {/* [NEW] Green Tick on Hover */}
                              <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-2 group-hover:translate-y-0 p-1.5 bg-green-500/20 rounded-full">
@@ -1242,10 +1242,10 @@ export default function Home() {
                             </div>
 
                             <div className="w-14 h-14 bg-primary/30 rounded-full flex items-center justify-center mb-4 group-hover:bg-accent/20 transition-colors">
-                                <Headphones size={28} className="text-accent group-hover:scale-110 transition-transform duration-300" />
+                                <Sparkles size={28} className="text-accent group-hover:scale-110 transition-transform duration-300" />
                             </div>
-                            <h3 className="text-white font-bold text-lg mb-2">Premium Support</h3>
-                            <p className="text-gray-400 text-sm">Dedicated assistance for all your queries</p>
+                            <h3 className="text-white font-bold text-lg mb-2">Wide Range of Collections</h3>
+                            <p className="text-gray-400 text-sm">Designs for every occasion</p>
                         </div>
 
                     </div>
@@ -1267,8 +1267,14 @@ export default function Home() {
               {/* --- BEST SELLERS --- */}
             <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface [content-visibility:auto] [contain-intrinsic-size:1px_900px]">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
-                    <div>
-                        <h2 className="text-3xl font-serif text-primary">Best Sellers</h2>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex w-full items-center gap-3 md:gap-4">
+                            <h2 className="text-3xl font-serif text-primary">Best Sellers</h2>
+                            <div
+                                aria-hidden="true"
+                                className="h-[8px] min-w-[72px] flex-1 rounded-full bg-[radial-gradient(circle,_rgba(180,83,9,0.72)_1.6px,_transparent_1.6px)] bg-[length:16px_8px] bg-left bg-repeat-x"
+                            />
+                        </div>
                         <p className="text-gray-500 mt-2">Our most loved pieces, curated for you</p>
                     </div>
                     <Link
@@ -1338,8 +1344,14 @@ export default function Home() {
             {/* --- NEW ARRIVALS --- */}
             <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface [content-visibility:auto] [contain-intrinsic-size:1px_900px]">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
-                    <div>
-                        <h2 className="text-3xl font-serif text-primary">New Arrivals</h2>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex w-full items-center gap-3 md:gap-4">
+                            <h2 className="text-3xl font-serif text-primary">New Arrivals</h2>
+                            <div
+                                aria-hidden="true"
+                                className="h-[8px] min-w-[72px] flex-1 rounded-full bg-[radial-gradient(circle,_rgba(180,83,9,0.72)_1.6px,_transparent_1.6px)] bg-[length:16px_8px] bg-left bg-repeat-x"
+                            />
+                        </div>
                         <p className="text-gray-500 mt-2">Fresh additions handpicked for you</p>
                     </div>
                     <Link
@@ -1436,8 +1448,14 @@ export default function Home() {
                         return (
                             <>
                                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
-                                    <div>
-                                        <h2 className="text-3xl font-serif text-primary">{title}</h2>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex w-full items-center gap-3 md:gap-4">
+                                            <h2 className="text-3xl font-serif text-primary">{title}</h2>
+                                            <div
+                                                aria-hidden="true"
+                                                className="h-[8px] min-w-[72px] flex-1 rounded-full bg-[radial-gradient(circle,_rgba(180,83,9,0.72)_1.6px,_transparent_1.6px)] bg-[length:16px_8px] bg-left bg-repeat-x"
+                                            />
+                                        </div>
                                         <p className="text-gray-500 mt-2">{subtitle}</p>
                                     </div>
                                     <Link
@@ -1503,8 +1521,14 @@ export default function Home() {
             {/* --- OFFERS --- */}
             <section className="container mx-auto px-6 md:px-4 py-6 md:py-8 tier-surface [content-visibility:auto] [contain-intrinsic-size:1px_900px]">
                 <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-8">
-                    <div>
-                        <h2 className="text-3xl font-serif text-primary">Offers</h2>
+                    <div className="min-w-0 flex-1">
+                        <div className="flex w-full items-center gap-3 md:gap-4">
+                            <h2 className="text-3xl font-serif text-primary">Offers</h2>
+                            <div
+                                aria-hidden="true"
+                                className="h-[8px] min-w-[72px] flex-1 rounded-full bg-[radial-gradient(circle,_rgba(180,83,9,0.72)_1.6px,_transparent_1.6px)] bg-[length:16px_8px] bg-left bg-repeat-x"
+                            />
+                        </div>
                         <p className="text-gray-500 mt-2">Auto-curated products with active discounts</p>
                     </div>
                     <Link

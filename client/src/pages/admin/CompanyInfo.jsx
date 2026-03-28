@@ -24,6 +24,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { useCustomers } from '../../context/CustomerContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
+import { usePublicCompanyInfo } from '../../hooks/usePublicSiteShell';
 import { getGstRateSplit } from '../../utils/gst';
 import {
     clearStoredPrinterPreference,
@@ -115,6 +116,7 @@ export default function CompanyInfo() {
     const toast = useToast();
     const { user: currentUser } = useAuth();
     const { users, refreshUsers } = useCustomers();
+    const { applyCompanyInfo } = usePublicCompanyInfo();
     const refreshUsersRef = useRef(refreshUsers);
     const [form, setForm] = useState(DEFAULT_FORM);
     const [isLoading, setIsLoading] = useState(true);
@@ -357,7 +359,24 @@ export default function CompanyInfo() {
             const data = await uploader(file);
             const assetUrl = String(data?.url || '').trim();
             if (!assetUrl) throw new Error('Upload did not return an asset URL');
-            setForm((prev) => ({ ...prev, [field]: assetUrl }));
+            const nextPayload = { ...form, [field]: assetUrl };
+            const saved = await adminService.updateCompanyInfo({
+                ...nextPayload,
+                gstNumber: String(nextPayload.gstNumber || '').trim().toUpperCase(),
+                postalCode: String(nextPayload.postalCode || '').trim(),
+                latitude: String(nextPayload.latitude || '').trim(),
+                longitude: String(nextPayload.longitude || '').trim(),
+                razorpayEmiMinAmount: Number(nextPayload.razorpayEmiMinAmount || 0),
+                razorpayStartingTenureMonths: Number(nextPayload.razorpayStartingTenureMonths || 0)
+            });
+            const nextCompany = {
+                ...DEFAULT_FORM,
+                ...(saved?.company || {}),
+                razorpayKeySecret: '',
+                razorpayWebhookSecret: ''
+            };
+            setForm(nextCompany);
+            applyCompanyInfo(saved?.company || {});
             toast.success(successMessage);
         } catch (error) {
             toast.error(error?.message || errorMessage);

@@ -72,10 +72,31 @@ export default function About() {
                         />
                     </div>
                     <h1 className="text-3xl md:text-4xl font-serif text-primary">About {company.displayName || 'SSC Impon Jewellery'}</h1>
-                    <p className="mt-3 text-sm text-gray-600 leading-relaxed">
-                        {company.displayName || 'SSC Impon Jewellery'} is focused on artificial and fashion jewellery designed for everyday elegance and festive occasions.
-                        Our collections are curated for style, comfort, and affordability while maintaining quality standards in finishing.
-                    </p>
+                    <div className="mt-3 space-y-4 text-sm leading-relaxed text-gray-600">
+                        <p>
+                            Sri Sai Collections, now known online as SSC Jewels, began its journey in 2000 with a vision to bring customised,
+                            order-based imitation jewellery to customers in a more accessible way.
+                        </p>
+                        <p>
+                            Over the years, SSC Jewels has grown into a trusted online jewellery destination, reaching nearly two lakh customers
+                            through digital and social media platforms such as Instagram, Facebook, and YouTube. From the beginning, the brand
+                            has focused on offering elegant, beautifully finished jewellery designed to match customer preferences and modern trends.
+                        </p>
+                        <p>
+                            Our collections are crafted using quality base metals such as brass, copper, zinc, and mixed alloy metals, and are
+                            finished as premium one gram gold polished jewellery. Each piece is created with attention to detail to ensure an
+                            elegant look and refined finish.
+                        </p>
+                        <p>
+                            We take pride in delivering stylish, customised jewellery with a commitment to quality and customer satisfaction.
+                            Many of our products also come with a polish warranty ranging from 6 months to 1 year, reflecting our confidence
+                            in the finish and workmanship of our collections.
+                        </p>
+                        <p>
+                            At SSC Jewels, we continue to blend tradition, craftsmanship, and modern online convenience to bring premium
+                            imitation jewellery to customers everywhere.
+                        </p>
+                    </div>
                     <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
                             <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Our Promise</p>

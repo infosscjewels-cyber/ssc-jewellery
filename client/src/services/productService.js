@@ -3,7 +3,7 @@ import { fetchWithRetry } from '../utils/fetchRetry';
 
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 const SEARCH_CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
-const CATEGORY_STATS_CACHE_KEY = 'category_stats_cache_v1';
+const CATEGORY_STATS_CACHE_KEY = 'category_stats_cache_v2';
 const API_URL = import.meta.env.PROD 
   ? '/api/products' 
   : 'http://localhost:5000/api/products';

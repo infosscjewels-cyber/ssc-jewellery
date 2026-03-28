@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, Heart, Search, Medal, Crown, Gem } from 'lucide-react';
+import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, ChevronRight, Heart, Search, Medal, Crown, Gem } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { productService } from '../services/productService';
@@ -103,6 +103,7 @@ export default function Navbar() {
     const [isOpen, setIsOpen] = useState(false);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const [isMegaOpen, setIsMegaOpen] = useState(false);
+    const [mobileMenuView, setMobileMenuView] = useState('main');
     const { categories, isLoadingCategories, refreshCategories } = usePublicCategories();
     const userMenuRef = useRef(null);
     const megaMenuRef = useRef(null);
@@ -120,6 +121,14 @@ export default function Navbar() {
     const [isSearchLoading, setIsSearchLoading] = useState(false);
     const subCategoriesEnabled = companyInfo?.subCategoriesEnabled === true;
     const [activeMegaCategory, setActiveMegaCategory] = useState('');
+    const [mobileSelectedCategory, setMobileSelectedCategory] = useState('');
+    const [mobileShopFilters, setMobileShopFilters] = useState({
+        usageAudience: '',
+        subCategory: '',
+        minPrice: '',
+        maxPrice: '',
+        inStockOnly: false
+    });
 
    
 
@@ -154,6 +163,7 @@ export default function Navbar() {
         setIsUserMenuOpen(false);
         setIsMegaOpen(false);
         setIsOpen(false);
+        setMobileMenuView('main');
         setIsSearchOpen(false);
     }, [location.pathname]);
 
@@ -396,28 +406,107 @@ export default function Navbar() {
             { key: 'kids', label: 'Kids', imageUrl: companyInfo?.usageAudienceKidsImageUrl || '' }
         ].filter((item) => item.imageUrl);
     }, [companyInfo?.usageAudienceEnabled, companyInfo?.usageAudienceKidsImageUrl, companyInfo?.usageAudienceMenImageUrl, companyInfo?.usageAudienceWomenImageUrl]);
+    const usageAudienceFilterOptions = useMemo(() => (
+        companyInfo?.usageAudienceEnabled === true
+            ? [
+                { key: 'men', label: 'Men' },
+                { key: 'women', label: 'Women' },
+                { key: 'kids', label: 'Kids' }
+            ]
+            : []
+    ), [companyInfo?.usageAudienceEnabled]);
     const megaMenuCategories = useMemo(() => (
         (Array.isArray(categories) ? categories : []).map((category) => ({
             ...category,
             name: String(category?.name || '').trim(),
-            subCategories: Array.isArray(category?.subCategories)
-                ? category.subCategories.filter((entry) => String(entry || '').trim())
+            subCategories: Array.isArray(category?.availableSubCategories)
+                ? category.availableSubCategories.filter((entry) => String(entry || '').trim())
                 : []
         })).filter((category) => category.name)
     ), [categories]);
+    const hasMegaSubCategories = useMemo(
+        () => subCategoriesEnabled && megaMenuCategories.some((category) => category.subCategories.length > 0),
+        [megaMenuCategories, subCategoriesEnabled]
+    );
     const selectedMegaCategory = useMemo(() => {
         const fallback = megaMenuCategories[0] || null;
         if (!activeMegaCategory) return fallback;
         return megaMenuCategories.find((category) => category.name === activeMegaCategory) || fallback;
     }, [activeMegaCategory, megaMenuCategories]);
+    const selectedMegaCategoryHasSubCategories = Boolean(selectedMegaCategory?.subCategories?.length);
+    const showMegaSubCategoryPane = hasMegaSubCategories && selectedMegaCategoryHasSubCategories;
+    const mobileSelectedCategoryEntry = useMemo(
+        () => megaMenuCategories.find((category) => category.name === mobileSelectedCategory) || null,
+        [megaMenuCategories, mobileSelectedCategory]
+    );
+    const mobileSelectedSubCategories = Array.isArray(mobileSelectedCategoryEntry?.subCategories)
+        ? mobileSelectedCategoryEntry.subCategories
+        : [];
 
     useEffect(() => {
-        if (!isMegaOpen || !subCategoriesEnabled) return;
+        if (!isMegaOpen || !hasMegaSubCategories) return;
         if (selectedMegaCategory?.name) return;
-        if (megaMenuCategories[0]?.name) {
-            setActiveMegaCategory(megaMenuCategories[0].name);
+        const firstCategoryWithSubCategories = megaMenuCategories.find((category) => category.subCategories.length > 0);
+        if (firstCategoryWithSubCategories?.name) {
+            setActiveMegaCategory(firstCategoryWithSubCategories.name);
         }
-    }, [isMegaOpen, subCategoriesEnabled, megaMenuCategories, selectedMegaCategory]);
+    }, [hasMegaSubCategories, isMegaOpen, megaMenuCategories, selectedMegaCategory]);
+    const openMegaSubCategoryPane = useCallback((categoryName = '') => {
+        const normalizedName = String(categoryName || '').trim();
+        if (!normalizedName) return;
+        setActiveMegaCategory(normalizedName);
+    }, []);
+    const buildCategoryStorePath = useCallback((categoryName = '', filters = {}) => {
+        const cleanCategoryName = String(categoryName || '').trim();
+        if (!cleanCategoryName) return '/shop';
+        const params = new URLSearchParams();
+        if (filters?.usageAudience) params.set('usageAudience', String(filters.usageAudience).trim());
+        if (filters?.subCategory) params.set('subCategory', String(filters.subCategory).trim());
+        if (filters?.minPrice !== '') params.set('minPrice', String(filters.minPrice).trim());
+        if (filters?.maxPrice !== '') params.set('maxPrice', String(filters.maxPrice).trim());
+        if (filters?.inStockOnly) params.set('inStockOnly', 'true');
+        const query = params.toString();
+        return `/shop/${encodeURIComponent(cleanCategoryName)}${query ? `?${query}` : ''}`;
+    }, []);
+    const resetMobileShopFilters = useCallback((nextCategory = '') => {
+        setMobileSelectedCategory(nextCategory);
+        setMobileShopFilters({
+            usageAudience: '',
+            subCategory: '',
+            minPrice: '',
+            maxPrice: '',
+            inStockOnly: false
+        });
+    }, []);
+    const handleMobileCategorySelect = useCallback((categoryName = '') => {
+        const normalizedName = String(categoryName || '').trim();
+        if (!normalizedName) return;
+        if (mobileSelectedCategory !== normalizedName) {
+            resetMobileShopFilters(normalizedName);
+        }
+        setMobileMenuView('filters');
+    }, [mobileSelectedCategory, resetMobileShopFilters]);
+    const handleMobileFilterChange = useCallback((key, value) => {
+        setMobileShopFilters((prev) => {
+            const nextValue = key === 'inStockOnly' ? Boolean(value) : value;
+            const next = { ...prev, [key]: nextValue };
+            if (key !== 'subCategory') {
+                const subCategories = Array.isArray(mobileSelectedCategoryEntry?.subCategories)
+                    ? mobileSelectedCategoryEntry.subCategories
+                    : [];
+                if (next.subCategory && !subCategories.includes(next.subCategory)) {
+                    next.subCategory = '';
+                }
+            }
+            return next;
+        });
+    }, [mobileSelectedCategoryEntry]);
+    const handleMobileOpenCategory = useCallback(() => {
+        if (!mobileSelectedCategory) return;
+        navigate(buildCategoryStorePath(mobileSelectedCategory, mobileShopFilters));
+        setIsOpen(false);
+        setMobileMenuView('main');
+    }, [buildCategoryStorePath, mobileSelectedCategory, mobileShopFilters, navigate]);
     const handleCartClick = () => {
         setIsUserMenuOpen(false);
         setIsMegaOpen(false);
@@ -484,25 +573,25 @@ export default function Navbar() {
 
                             <div
                                 ref={megaMenuRef}
-                                className={`absolute left-1/2 top-full mt-6 ${subCategoriesEnabled ? 'w-[980px]' : 'w-[760px]'} max-w-[90vw] -translate-x-1/2 rounded-2xl border border-gray-100 bg-white shadow-2xl transition-all duration-200 ${
+                                className={`absolute left-0 top-full mt-4 w-[380px] max-w-[90vw] rounded-2xl border border-gray-100 bg-white shadow-2xl transition-all duration-200 ${
                                     isMegaOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 -translate-y-2 pointer-events-none'
                                 }`}
                             >
-                                <div className="p-6 max-h-[calc(100vh-8rem)] overflow-y-auto">
-                                    <div className="flex items-center justify-between">
+                                <div className="p-4 max-h-[calc(100vh-8rem)] overflow-visible">
+                                    <div className="flex items-center justify-between px-2">
                                         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Browse Categories</p>
                                         <Link to="/shop" className="text-xs font-semibold text-accent-deep hover:text-primary transition-colors">
                                             View All
                                         </Link>
                                     </div>
-                                    <div className={`mt-5 ${subCategoriesEnabled ? 'grid grid-cols-[280px_minmax(0,1fr)] gap-6 items-start' : 'grid grid-cols-2 lg:grid-cols-3 gap-4'}`}>
+                                    <div className="relative mt-4">
                                         {isLoadingCategories && (
-                                            <div className={`${subCategoriesEnabled ? 'lg:col-span-2' : 'col-span-2 lg:col-span-3'} text-sm text-gray-500`}>
+                                            <div className="px-2 py-3 text-sm text-gray-500">
                                                 Loading categories...
                                             </div>
                                         )}
                                         {!isLoadingCategories && megaMenuCategories.length === 0 && (
-                                            <div className={`${subCategoriesEnabled ? 'lg:col-span-2' : 'col-span-2 lg:col-span-3'}`}>
+                                            <div>
                                                 <EmptyState
                                                     image={emptyIllustration}
                                                     alt="No categories available"
@@ -512,25 +601,28 @@ export default function Navbar() {
                                                 />
                                             </div>
                                         )}
-                                        {!isLoadingCategories && subCategoriesEnabled && (
-                                            <>
-                                                <div className="rounded-2xl border border-gray-100 bg-gray-50/70 p-3 max-h-[420px] overflow-y-auto">
-                                                    <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-widest text-gray-400">Categories</p>
-                                                    <div className="space-y-1">
-                                                        {megaMenuCategories.map((category) => {
-                                                            const categoryName = category.name;
-                                                            const categoryId = category?.id ?? categoryName;
-                                                            const isActiveCategory = selectedMegaCategory?.name === categoryName;
-                                                            return (
-                                                                <button
-                                                                    key={`cat-${categoryId}`}
-                                                                    type="button"
-                                                                    onMouseEnter={() => setActiveMegaCategory(categoryName)}
-                                                                    onFocus={() => setActiveMegaCategory(categoryName)}
-                                                                    onClick={() => setActiveMegaCategory(categoryName)}
-                                                                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors ${
-                                                                        isActiveCategory ? 'bg-white shadow-sm ring-1 ring-gray-100' : 'hover:bg-white/80'
-                                                                    }`}
+                                        {!isLoadingCategories && megaMenuCategories.length > 0 && (
+                                            <div className="rounded-2xl border border-gray-100 bg-white p-2 shadow-sm">
+                                                <div className="space-y-1">
+                                                    {megaMenuCategories.map((category) => {
+                                                        const categoryName = category.name;
+                                                        const categoryId = category?.id ?? categoryName;
+                                                        const hasSubCategories = category.subCategories.length > 0;
+                                                        const isActiveCategory = selectedMegaCategory?.name === categoryName && showMegaSubCategoryPane;
+                                                        return (
+                                                            <div
+                                                                key={`cat-${categoryId}`}
+                                                                className={`group flex items-center gap-2 rounded-xl px-2 py-2 transition-colors ${isActiveCategory ? 'bg-gray-50' : 'hover:bg-gray-50'}`}
+                                                                onMouseEnter={() => {
+                                                                    if (hasSubCategories) {
+                                                                        openMegaSubCategoryPane(categoryName);
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <Link
+                                                                    to={buildCategoryStorePath(categoryName)}
+                                                                    onClick={() => setIsMegaOpen(false)}
+                                                                    className="flex min-w-0 flex-1 items-center gap-3"
                                                                 >
                                                                     <div className="h-11 w-11 rounded-full bg-gray-100 shadow-inner overflow-hidden shrink-0">
                                                                         <img
@@ -541,87 +633,62 @@ export default function Navbar() {
                                                                         />
                                                                     </div>
                                                                     <div className="min-w-0 flex-1">
-                                                                        <p className="truncate text-sm font-semibold text-gray-800">{categoryName}</p>
+                                                                        <p className="truncate text-sm font-semibold text-gray-800 group-hover:text-primary">{categoryName}</p>
                                                                         {typeof category.product_count === 'number' && (
                                                                             <p className="text-xs text-gray-400">{category.product_count} items</p>
                                                                         )}
                                                                     </div>
-                                                                    <ChevronDown size={16} className={`shrink-0 text-gray-300 transition-transform ${isActiveCategory ? '-rotate-90' : ''}`} />
-                                                                </button>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                                <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm min-h-[320px] max-h-[420px] overflow-y-auto">
-                                                    {selectedMegaCategory ? (
-                                                        <>
-                                                            <div className="flex items-center justify-between gap-4">
-                                                                <div>
-                                                                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Sub Categories</p>
-                                                                    <h3 className="mt-2 text-lg font-bold text-gray-900">{selectedMegaCategory.name}</h3>
-                                                                </div>
-                                                                <Link
-                                                                    to={`/shop/${encodeURIComponent(selectedMegaCategory.name)}`}
-                                                                    onClick={() => setIsMegaOpen(false)}
-                                                                    className="text-xs font-semibold text-accent-deep hover:text-primary transition-colors"
-                                                                >
-                                                                    View Category
                                                                 </Link>
+                                                                {hasSubCategories ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        aria-label={`Open ${categoryName} sub categories`}
+                                                                        onClick={() => openMegaSubCategoryPane(categoryName)}
+                                                                        className={`flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${
+                                                                            isActiveCategory
+                                                                                ? 'border-primary/20 bg-primary/5 text-primary'
+                                                                                : 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-primary'
+                                                                        }`}
+                                                                    >
+                                                                        <ChevronRight size={16} />
+                                                                    </button>
+                                                                ) : null}
                                                             </div>
-                                                            {selectedMegaCategory.subCategories.length > 0 ? (
-                                                                <div className="mt-5 grid grid-cols-2 gap-x-8 gap-y-3">
-                                                                    {selectedMegaCategory.subCategories.map((subCategory) => (
-                                                                        <Link
-                                                                            key={`${selectedMegaCategory.id || selectedMegaCategory.name}-${subCategory}`}
-                                                                            to={`/shop/${encodeURIComponent(selectedMegaCategory.name)}?subCategory=${encodeURIComponent(subCategory)}`}
-                                                                            onClick={() => setIsMegaOpen(false)}
-                                                                            className="group inline-flex items-center gap-2 py-1 text-sm font-medium text-gray-700 transition-colors hover:text-primary"
-                                                                        >
-                                                                            <span className="text-gray-300 transition-colors group-hover:text-primary">/</span>
-                                                                            {subCategory}
-                                                                        </Link>
-                                                                    ))}
-                                                                </div>
-                                                            ) : (
-                                                                <div className="mt-6 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-400">
-                                                                    No subcategories added yet for this category.
-                                                                </div>
-                                                            )}
-                                                        </>
-                                                    ) : null}
+                                                        );
+                                                    })}
                                                 </div>
-                                            </>
+                                            </div>
                                         )}
-                                        {!isLoadingCategories && !subCategoriesEnabled && megaMenuCategories.map((category) => {
-                                            const categoryName = category.name;
-                                            if (!categoryName) return null;
-                                            const categoryId = category?.id ?? categoryName;
-                                            return (
-                                            <Link
-                                                key={`cat-${categoryId}`}
-                                                to={`/shop/${encodeURIComponent(categoryName)}`}
-                                                onClick={() => setIsMegaOpen(false)}
-                                                className="group flex items-center gap-3 rounded-xl border border-transparent p-3 transition-all hover:border-gray-100 hover:bg-gray-50"
-                                            >
-                                                <div className="h-12 w-12 rounded-full bg-gray-100 shadow-inner overflow-hidden">
-                                                    <img
-                                                        src={category?.image_url || '/placeholder_banner.jpg'}
-                                                        alt={categoryName}
-                                                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                                                        onError={(e) => { e.currentTarget.src = '/placeholder_banner.jpg'; }}
-                                                    />
+                                        {showMegaSubCategoryPane && (
+                                            <div className="absolute left-full top-0 ml-3 w-[320px] rounded-2xl border border-gray-100 bg-white p-5 shadow-2xl">
+                                                <div className="flex items-center justify-between gap-4">
+                                                    <div>
+                                                        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Sub Categories</p>
+                                                        <h3 className="mt-2 text-lg font-bold text-gray-900">{selectedMegaCategory.name}</h3>
+                                                    </div>
+                                                    <Link
+                                                        to={buildCategoryStorePath(selectedMegaCategory.name)}
+                                                        onClick={() => setIsMegaOpen(false)}
+                                                        className="text-xs font-semibold text-accent-deep hover:text-primary transition-colors"
+                                                    >
+                                                        View
+                                                    </Link>
                                                 </div>
-                                                <div className="flex flex-col">
-                                                    <span className="text-sm font-semibold text-gray-800 group-hover:text-primary transition-colors">
-                                                        {categoryName}
-                                                    </span>
-                                                    {typeof category.product_count === 'number' && (
-                                                        <span className="text-xs text-gray-400">{category.product_count} items</span>
-                                                    )}
+                                                <div className="mt-4 space-y-1">
+                                                    {selectedMegaCategory.subCategories.map((subCategory) => (
+                                                        <Link
+                                                            key={`${selectedMegaCategory.id || selectedMegaCategory.name}-${subCategory}`}
+                                                            to={buildCategoryStorePath(selectedMegaCategory.name, { subCategory })}
+                                                            onClick={() => setIsMegaOpen(false)}
+                                                            className="group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-primary"
+                                                        >
+                                                            <span>{subCategory}</span>
+                                                            <ChevronRight size={15} className="text-gray-300 group-hover:text-primary" />
+                                                        </Link>
+                                                    ))}
                                                 </div>
-                                            </Link>
-                                            );
-                                        })}
+                                            </div>
+                                        )}
                                     </div>
                                     {usageAudienceItems.length > 0 && (
                                         <>
@@ -799,9 +866,9 @@ export default function Navbar() {
 
             {/* Mobile Menu */}
             <div className={`md:hidden absolute top-full left-0 w-full bg-white shadow-xl transition-all duration-300 overflow-hidden ${
-                isOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'
+                isOpen ? 'max-h-[calc(100vh-5rem)] opacity-100' : 'max-h-0 opacity-0'
             }`}>
-                <div className="flex flex-col p-6 space-y-4 text-center">
+                <div className="flex max-h-[calc(100vh-5rem)] flex-col space-y-4 overflow-y-auto p-6 text-center">
                     <div className="relative text-left" ref={mobileSearchRef}>
                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                         <input
@@ -856,23 +923,176 @@ export default function Navbar() {
                         )}
                     </div>
 
-                    <Link 
-                        to="/shop"
-                        className={`text-lg font-medium py-2 border-b border-gray-100 ${isShopActive() ? 'text-accent-deep font-bold' : 'text-gray-600'}`}
-                        onClick={() => setIsOpen(false)}
-                    >
-                        Shop
-                    </Link>
-                    {navLinks.map((link) => (
-                        <Link 
-                            key={link.name} 
-                            to={link.path}
-                            className={`text-lg font-medium py-2 border-b border-gray-100 ${isActive(link.path) ? 'text-accent-deep font-bold' : 'text-gray-600'}`}
-                            onClick={() => setIsOpen(false)}
-                        >
-                            {link.name}
-                        </Link>
-                    ))}
+                    {mobileMenuView === 'main' && (
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => setMobileMenuView('shop')}
+                                className={`flex items-center justify-between rounded-2xl border border-gray-100 bg-gray-50/60 px-4 py-3 text-left text-lg font-medium ${isShopActive() ? 'text-accent-deep' : 'text-gray-700'}`}
+                            >
+                                <span>Shop</span>
+                                <ChevronRight size={18} className="text-gray-400" />
+                            </button>
+                            {navLinks.map((link) => (
+                                <Link 
+                                    key={link.name} 
+                                    to={link.path}
+                                    className={`block w-full border-b border-gray-100 py-3 text-left text-lg font-medium ${isActive(link.path) ? 'text-accent-deep font-bold' : 'text-gray-600'}`}
+                                    onClick={() => setIsOpen(false)}
+                                >
+                                    {link.name}
+                                </Link>
+                            ))}
+                        </>
+                    )}
+                    {mobileMenuView === 'shop' && (
+                        <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 text-left">
+                            <div className="flex items-center gap-3 border-b border-gray-100 pb-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setMobileMenuView('main')}
+                                    className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600"
+                                    aria-label="Back to main menu"
+                                >
+                                    <ChevronRight size={16} className="rotate-180" />
+                                </button>
+                                <div>
+                                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Shop</p>
+                                    <h3 className="text-base font-bold text-gray-900">Choose Category</h3>
+                                </div>
+                            </div>
+                            <div className="mt-4 space-y-4">
+                                <Link
+                                    to="/shop"
+                                    className="block rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700"
+                                    onClick={() => {
+                                        setIsOpen(false);
+                                        setMobileMenuView('main');
+                                    }}
+                                >
+                                    View all products
+                                </Link>
+                                <div className="max-h-[calc(100vh-22rem)] space-y-2 overflow-y-auto pr-1">
+                                    {megaMenuCategories.map((category) => (
+                                        <button
+                                            key={`mobile-cat-${category.id || category.name}`}
+                                            type="button"
+                                            onClick={() => handleMobileCategorySelect(category.name)}
+                                            className="flex w-full items-center justify-between rounded-xl border border-gray-200 bg-white px-3 py-3 text-left text-gray-700 transition-colors hover:border-primary/20 hover:bg-primary/5 hover:text-primary"
+                                        >
+                                            <span className="text-sm font-semibold">{category.name}</span>
+                                            <ChevronRight size={16} className="text-gray-300" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {mobileMenuView === 'filters' && mobileSelectedCategoryEntry && (
+                        <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 text-left">
+                            <div className="flex items-center gap-3 border-b border-gray-100 pb-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setMobileMenuView('shop')}
+                                    className="flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600"
+                                    aria-label="Back to categories"
+                                >
+                                    <ChevronRight size={16} className="rotate-180" />
+                                </button>
+                                <div className="min-w-0">
+                                    <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Filters</p>
+                                    <h3 className="truncate text-base font-bold text-gray-900">{mobileSelectedCategoryEntry.name}</h3>
+                                </div>
+                            </div>
+                            <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Category Filters</p>
+                                        <h4 className="mt-1 text-sm font-bold text-gray-900">{mobileSelectedCategoryEntry.name}</h4>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => resetMobileShopFilters(mobileSelectedCategoryEntry.name)}
+                                        className="text-xs font-semibold text-gray-500 hover:text-primary"
+                                    >
+                                        Clear
+                                    </button>
+                                </div>
+                                <div className="mt-4 space-y-3">
+                                    {usageAudienceFilterOptions.length > 0 && (
+                                        <div>
+                                            <label className="mb-1 block text-xs font-semibold uppercase tracking-widest text-gray-400">Usage Audience</label>
+                                            <select
+                                                value={mobileShopFilters.usageAudience}
+                                                onChange={(e) => handleMobileFilterChange('usageAudience', e.target.value)}
+                                                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-accent"
+                                            >
+                                                <option value="">All audiences</option>
+                                                {usageAudienceFilterOptions.map((item) => (
+                                                    <option key={`usage-filter-${item.key}`} value={item.key}>{item.label}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+                                    {mobileSelectedSubCategories.length > 0 && (
+                                        <div>
+                                            <label className="mb-1 block text-xs font-semibold uppercase tracking-widest text-gray-400">Sub Category</label>
+                                            <select
+                                                value={mobileShopFilters.subCategory}
+                                                onChange={(e) => handleMobileFilterChange('subCategory', e.target.value)}
+                                                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-accent"
+                                            >
+                                                <option value="">All sub categories</option>
+                                                {mobileSelectedSubCategories.map((subCategory) => (
+                                                    <option key={`mobile-sub-${subCategory}`} value={subCategory}>{subCategory}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="mb-1 block text-xs font-semibold uppercase tracking-widest text-gray-400">Min Price</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={mobileShopFilters.minPrice}
+                                                onChange={(e) => handleMobileFilterChange('minPrice', e.target.value)}
+                                                placeholder="0"
+                                                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-accent"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="mb-1 block text-xs font-semibold uppercase tracking-widest text-gray-400">Max Price</label>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={mobileShopFilters.maxPrice}
+                                                onChange={(e) => handleMobileFilterChange('maxPrice', e.target.value)}
+                                                placeholder="Any"
+                                                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-700 outline-none focus:border-accent"
+                                            />
+                                        </div>
+                                    </div>
+                                    <label className="flex items-center justify-between rounded-xl border border-gray-200 px-3 py-2.5 text-sm font-medium text-gray-700">
+                                        <span>In stock only</span>
+                                        <input
+                                            type="checkbox"
+                                            checked={mobileShopFilters.inStockOnly}
+                                            onChange={(e) => handleMobileFilterChange('inStockOnly', e.target.checked)}
+                                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                        />
+                                    </label>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleMobileOpenCategory}
+                                    className="mt-4 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary/90"
+                                >
+                                    Open Category
+                                </button>
+                            </div>
+                        </div>
+                    )}
                     {effectiveUser ? (
                         <>
                             {showTierBadge && (
@@ -886,17 +1106,17 @@ export default function Navbar() {
                             )}
                             <Link
                                 to="/track-order"
-                                className="text-lg font-medium py-2 border-b border-gray-100 text-gray-600"
+                                className="block w-full border-b border-gray-100 py-3 text-left text-lg font-medium text-gray-600"
                                 onClick={() => setIsOpen(false)}
                             >
                                 Track Order
                             </Link>
-                            <button onClick={handleLogout} className="flex items-center justify-center gap-2 text-red-500 font-bold pt-4">
+                            <button onClick={handleLogout} className="flex w-full items-center gap-2 pt-4 text-left font-bold text-red-500">
                                 <LogOut size={20} /> Logout
                             </button>
                         </>
                     ) : (
-                        <Link to="/login" className="flex items-center justify-center gap-2 text-primary font-bold pt-4" onClick={() => setIsOpen(false)}>
+                        <Link to="/login" className="flex w-full items-center gap-2 pt-4 text-left font-bold text-primary" onClick={() => setIsOpen(false)}>
                             <User size={20} /> Login
                         </Link>
                     )}

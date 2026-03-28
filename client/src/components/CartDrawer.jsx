@@ -58,6 +58,7 @@ export default function CartDrawer() {
     );
     const canRenderDrawerWidget = !['/cart', '/checkout'].includes(String(location.pathname || '').toLowerCase());
     const storefrontOpen = companyInfo?.storefrontOpen !== false;
+    const subCategoriesEnabled = companyInfo?.subCategoriesEnabled === true;
     const isAtMaxQuantity = (item) => Boolean(item?.trackQuantity && Number(item?.availableQuantity || 0) > 0 && Number(item?.quantity || 0) >= Number(item?.availableQuantity || 0));
 
     useEffect(() => {
@@ -217,6 +218,9 @@ export default function CartDrawer() {
                                     )}
                                     {item.variantTitle && (
                                         <p className="text-xs text-gray-500 line-clamp-1">{item.variantTitle}</p>
+                                    )}
+                                    {subCategoriesEnabled && item.subCategory && (
+                                        <p className="text-[11px] text-gray-400 line-clamp-1">Sub Category: {item.subCategory}</p>
                                     )}
                                     <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                                         <p className="text-sm font-bold text-primary">₹{price.toLocaleString()}</p>

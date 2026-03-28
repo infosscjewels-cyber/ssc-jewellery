@@ -22,6 +22,7 @@ export default function ForgotPassword() {
   const [newPassword, setNewPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);  
+  const [isOtpVerified, setIsOtpVerified] = useState(false);
 
   const sentChannels = (delivery?.sent || []).filter(Boolean);
   const deliveryText = (() => {
@@ -44,6 +45,9 @@ export default function ForgotPassword() {
             throw new Error(res?.message || "Failed to send OTP");
         }
         setDelivery(res.delivery || null);
+        setOtp('');
+        setNewPassword('');
+        setIsOtpVerified(false);
         const currentChannels = Array.isArray(res?.delivery?.sent) ? res.delivery.sent.filter(Boolean) : [];
         toast.success(
           currentChannels.length
@@ -58,8 +62,36 @@ export default function ForgotPassword() {
     }
   };
 
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    const trimmedIdentifier = identifier.trim();
+    const trimmedOtp = otp.trim();
+    if (!trimmedIdentifier) return toast.error("Enter your registered email or mobile number");
+    if (!trimmedOtp) return toast.error("Enter the OTP");
+
+    setIsLoading(true);
+    try {
+      const res = await authService.verifyOtp({
+        identifier: trimmedIdentifier,
+        otp: trimmedOtp,
+        purpose: 'password_reset'
+      });
+      if (!res?.valid) {
+        throw new Error(res?.message || 'Invalid OTP');
+      }
+      setIsOtpVerified(true);
+      setStep(3);
+      toast.success("OTP verified");
+    } catch (error) {
+      toast.error(error?.message || "Failed to verify OTP");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleReset = async (e) => {
     e.preventDefault();
+    if (!isOtpVerified) return toast.error("Verify OTP before setting a new password");
     if (newPassword.length < 6) return toast.error("Password too short");
 
     setIsLoading(true);
@@ -110,8 +142,8 @@ export default function ForgotPassword() {
                     {isLoading ? <Loader2 className="animate-spin" /> : "Send OTP"}
                 </button>
             </form>
-        ) : (
-            <form onSubmit={handleReset} className="space-y-4 animate-fade-in">
+        ) : step === 2 ? (
+            <form onSubmit={handleVerifyOtp} className="space-y-4 animate-fade-in">
                 <div className="bg-green-50 p-3 rounded text-sm text-green-800 mb-2 border border-green-200">
                     OTP sent
                     {deliveryText ? <> via <b>{deliveryText}</b></> : null}
@@ -122,8 +154,20 @@ export default function ForgotPassword() {
                     className="input-field" 
                     value={otp} 
                     onChange={e => setOtp(e.target.value)} 
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
                     required 
                 />
+                <button type="submit" className="btn-primary w-full" disabled={isLoading}>
+                    {isLoading ? <Loader2 className="animate-spin" /> : "Verify OTP"}
+                </button>
+            </form>
+        ) : (
+            <form onSubmit={handleReset} className="space-y-4 animate-fade-in">
+                <div className="bg-green-50 p-3 rounded text-sm text-green-800 mb-2 border border-green-200">
+                    OTP verified for <b>{identifier.trim()}</b>
+                </div>
                 <div className="relative">
                     <input 
                         placeholder="New Password" 
@@ -131,6 +175,7 @@ export default function ForgotPassword() {
                         className="input-field pr-10" 
                         value={newPassword} 
                         onChange={e => setNewPassword(e.target.value)} 
+                        autoComplete="new-password"
                         required 
                     />
                     <button 

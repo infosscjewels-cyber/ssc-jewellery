@@ -104,30 +104,28 @@ const getPolicyContent = ({ merchantName, registeredOffice, jurisdiction, effect
             { heading: '3. Courier Delays', paragraphs: ['Company is not responsible for weather delays, logistic strikes, route disruptions, or remote area delays.'] },
             { heading: '4. Address Accuracy', paragraphs: ['Customer must provide correct full address, PIN code, and contact number. Wrong address may result in return-to-origin and re-shipping charges.'] },
             { heading: '5. Delivery Attempts', paragraphs: ['Courier will attempt delivery as per their policy. Repeated non-availability may lead to cancellation without refund of shipping charges.'] },
-            { heading: '6. Open Box Requirement', paragraphs: ['Customers must record uninterrupted video while opening package for defect claims.'] },
-            { heading: '7. Tampered Packages', paragraphs: ['If outer packaging appears tampered, record video immediately and inform support within 24 hours.'] },
+            { heading: '6. Open Parcel Video Requirement', paragraphs: ['For any parcel damage or damaged-product claim, the customer must record a 360-degree, continuous, uncut video from the sealed parcel stage until the package is fully opened and the product is clearly shown.'] },
+            { heading: '7. Damaged Parcel Reporting', paragraphs: ['If the parcel or product is found damaged at the time of opening, the required uncut video must be shared with the company on WhatsApp immediately after receipt for claim review. Claims without the required video proof will not be accepted.'] },
             { heading: '8. International Shipping (If Applicable)', paragraphs: ['Custom duties and taxes are borne by the customer.'] },
             { heading: '9. Refused Deliveries', paragraphs: ['If customer refuses delivery without valid reason, shipping charges are non-refundable.'] },
             { heading: '10. Risk Transfer', paragraphs: ['Risk transfers upon successful courier confirmation.'] },
-            { heading: '11. Lost in Transit', paragraphs: ['Investigation period depends on courier policy before replacement or refund.'] },
+            { heading: '11. Lost in Transit', paragraphs: ['Resolution for lost-in-transit shipments will be handled only after courier investigation as per courier partner policy.'] },
             { heading: '12. Partial Shipments', paragraphs: ['Orders may be shipped separately if required.'] }
         ]
     },
     refund: {
         title: 'Cancellation & Refund Policy',
         sections: [
-            { heading: '1. Order Cancellation', paragraphs: ['Cancellation is allowed only before dispatch. Cancellation is not allowed after shipping confirmation.'] },
-            { heading: '2. No Return Policy', paragraphs: ['Strictly no return unless manufacturing defect is verified.'] },
-            { heading: '3. Manufacturing Defect Claim', bullets: ['Open box video is mandatory.', 'Video must show sealed package.', 'Claim must be made within 24 hours of delivery.', 'No claim is entertained without video evidence.'] },
-            { heading: '4. Non-Eligible Refund Reasons', bullets: ['Change of mind', 'Color difference', 'Minor finishing variation', 'Urgency-related complaints', 'Courier delays'] },
-            { heading: '5. Duplicate / Excess Payment', paragraphs: ['Refund is processed after internal verification within 7 to 10 working days.'] },
-            { heading: '6. Failed Transaction Refunds', paragraphs: ['Customer must contact issuing bank first.'] },
-            { heading: '7. EMI Cancellation', paragraphs: ['For EMI-related cancellations, bank policies apply.'] },
-            { heading: '8. Refund Mode', paragraphs: ['Refund is processed only to the original payment method.'] },
-            { heading: '9. Return Condition', paragraphs: ['If approved, product must be unused and in original packaging.'] },
-            { heading: '10. Shipping Charges', paragraphs: ['Shipping charges are non-refundable unless defect is confirmed.'] },
-            { heading: '11. Fraudulent Claims', paragraphs: ['False claims will result in blacklisting and legal action.'] },
-            { heading: '12. Management Discretion', paragraphs: ['Refund decisions are solely at management discretion.'] }
+            { heading: '1. No Cancellation', paragraphs: ['Once an order is placed on the website, it cannot be cancelled under any circumstances. Once the sale is completed and payment is made, the transaction is final.'] },
+            { heading: '2. No Refund', paragraphs: ['The company does not allow refund under any circumstances for confirmed orders. Amount once paid for a successfully placed order is final and non-refundable.'] },
+            { heading: '3. No Exchange of Models', paragraphs: ['Once an order is placed, models cannot be changed, exchanged, or replaced with another design based on customer preference.'] },
+            { heading: '4. Damaged Product Replacement Only', paragraphs: ['If a customer receives a damaged product while opening the parcel, only replacement of the same model will be considered after verification. Refund, cancellation, return for cash, or exchange to another model will not be provided.'] },
+            { heading: '5. Mandatory Video Proof', bullets: ['A 360-degree parcel opening video is mandatory.', 'The video must be continuous and uncut from the sealed parcel stage until the product is clearly shown.', 'The video must be shared on the company WhatsApp number immediately after receiving and opening the parcel.', 'Claims without the required video proof will not be accepted.'] },
+            { heading: '6. Replacement Decision', paragraphs: ['After verification of the video proof, if the claim is found genuine, the customer will receive a replacement of the same model only.'] },
+            { heading: '7. Non-Eligible Claims', bullets: ['Change of mind', 'Design dislike after delivery', 'Request for another model', 'Minor colour or finishing variation', 'Delay in delivery', 'Any claim raised without the required uncut parcel opening video'] },
+            { heading: '8. Failed Transactions', paragraphs: ['If payment is debited but the order is not successfully created, the customer must first contact the issuing bank or payment provider. Such reversal timelines depend on banking and payment gateway systems.'] },
+            { heading: '9. Fraudulent Claims', paragraphs: ['False or manipulated damage claims, edited videos, or unsupported complaints may lead to rejection of the claim, blacklisting of the account, and legal action where necessary.'] },
+            { heading: '10. Management Decision', paragraphs: ['All claim verification and replacement decisions taken by the company management shall be final and binding.'] }
         ]
     },
     privacy: {

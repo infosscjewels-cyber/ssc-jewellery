@@ -61,7 +61,7 @@ export default function Footer() {
         : '';
     const footerWhatsappNumbers = [
         String(company.contactNumber || '').trim(),
-        '83001 28100'
+        '9500941350'
     ].filter(Boolean);
     const hasSocial = Boolean(company.instagramUrl || company.youtubeUrl || company.facebookUrl || whatsappLink);
 

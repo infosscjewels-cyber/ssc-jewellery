@@ -98,6 +98,7 @@ export default function CartPage() {
     const shouldShowProgress = !!freeProgress && !hasFreeShipping;
     const isShippingUnavailable = Boolean(shippingPreview?.isUnavailable);
     const storefrontOpen = companyInfo?.storefrontOpen !== false;
+    const subCategoriesEnabled = companyInfo?.subCategoriesEnabled === true;
 
     useEffect(() => {
         const layer = confettiLayerRef.current;
@@ -219,6 +220,9 @@ export default function CartPage() {
                                                     <>
                                                     <p className="text-base font-semibold text-gray-800 line-clamp-1">{item.title}</p>
                                                     {item.variantTitle && <p className="text-sm text-gray-500 line-clamp-1">{item.variantTitle}</p>}
+                                                    {subCategoriesEnabled && item.subCategory && (
+                                                        <p className="text-xs text-gray-400 line-clamp-1">Sub Category: {item.subCategory}</p>
+                                                    )}
                                                     {item.isOutOfStock && (
                                                         <span className="inline-flex mt-1 text-[10px] px-2 py-0.5 rounded-full bg-black text-white uppercase tracking-wide">
                                                             Out of Stock

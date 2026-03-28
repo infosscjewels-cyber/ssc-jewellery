@@ -124,25 +124,38 @@ export const getPreferredPrinterTransport = () => {
     return isLikelyMobilePrinterRuntime() ? 'bluetooth' : 'auto';
 };
 
-export const validateShippingLabelData = (order = {}, companyProfile = {}) => {
-    const shippingAddress = order?.shipping_address || order?.shippingAddress || {};
-    const shippingName = safeText(shippingAddress?.name || shippingAddress?.fullName || order?.customer_name || order?.customerName || '');
-    const shippingMobile = safeText(shippingAddress?.mobile || shippingAddress?.phone || order?.customer_mobile || order?.customerMobile || '');
-    const shippingLines = buildAddressLines(shippingAddress);
+export const validateFromLabelData = (companyProfile = {}, order = {}) => {
     const senderName = safeText(companyProfile?.displayName);
     const senderPhone = safeText(companyProfile?.contactNumber);
     const senderLines = buildAddressLines({ address: companyProfile?.address });
     const orderRef = safeText(order?.order_ref || order?.orderRef || order?.id);
+    const missing = [];
+    if (!senderName) missing.push('company name');
+    if (!senderPhone) missing.push('company contact number');
+    if (!senderLines.length) missing.push('company address');
+    return {
+        ok: missing.length === 0,
+        missing,
+        details: {
+            orderRef,
+            senderName,
+            senderPhone,
+            senderLines
+        }
+    };
+};
 
+export const validateToLabelData = (order = {}) => {
+    const shippingAddress = order?.shipping_address || order?.shippingAddress || {};
+    const shippingName = safeText(shippingAddress?.name || shippingAddress?.fullName || order?.customer_name || order?.customerName || '');
+    const shippingMobile = safeText(shippingAddress?.mobile || shippingAddress?.phone || order?.customer_mobile || order?.customerMobile || '');
+    const shippingLines = buildAddressLines(shippingAddress);
+    const orderRef = safeText(order?.order_ref || order?.orderRef || order?.id);
     const missing = [];
     if (!orderRef) missing.push('order reference');
     if (!shippingName) missing.push('recipient name');
     if (!shippingMobile) missing.push('recipient mobile');
     if (!shippingLines.length) missing.push('shipping address');
-    if (!senderName) missing.push('company name');
-    if (!senderPhone) missing.push('company contact number');
-    if (!senderLines.length) missing.push('company address');
-
     return {
         ok: missing.length === 0,
         missing,
@@ -150,10 +163,58 @@ export const validateShippingLabelData = (order = {}, companyProfile = {}) => {
             orderRef,
             shippingName,
             shippingMobile,
-            shippingLines,
-            senderName,
-            senderPhone,
-            senderLines
+            shippingLines
+        }
+    };
+};
+
+export const validateShippingLabelData = (order = {}, companyProfile = {}) => {
+    const fromValidation = validateFromLabelData(companyProfile, order);
+    const toValidation = validateToLabelData(order);
+    const missing = [...fromValidation.missing, ...toValidation.missing];
+    return {
+        ok: missing.length === 0,
+        missing,
+        details: {
+            ...fromValidation.details,
+            ...toValidation.details
+        }
+    };
+};
+
+export const buildFromLabelPayload = (companyProfile = {}, order = {}) => {
+    const validation = validateFromLabelData(companyProfile, order);
+    if (!validation.ok) {
+        throw new Error(`Missing from label data: ${validation.missing.join(', ')}`);
+    }
+    const { orderRef, senderName, senderPhone, senderLines } = validation.details;
+    return {
+        orderRef,
+        sender: {
+            name: senderName,
+            phone: senderPhone,
+            addressLines: senderLines
+        }
+    };
+};
+
+export const buildToLabelPayload = (order = {}) => {
+    const validation = validateToLabelData(order);
+    if (!validation.ok) {
+        throw new Error(`Missing to label data: ${validation.missing.join(', ')}`);
+    }
+    const {
+        orderRef,
+        shippingName,
+        shippingMobile,
+        shippingLines
+    } = validation.details;
+    return {
+        orderRef,
+        recipient: {
+            name: shippingName,
+            phone: shippingMobile,
+            addressLines: shippingLines
         }
     };
 };
@@ -190,6 +251,48 @@ export const buildShippingLabelPayload = (order = {}, companyProfile = {}) => {
 
 const escPosText = (text = '') => new TextEncoder().encode(`${safeText(text)}\n`);
 const escPosBytes = (...parts) => Uint8Array.from(parts.flatMap((part) => Array.from(part)));
+
+export const buildEscPosFromLabel = (payload = {}) => {
+    const body = [];
+    body.push(Uint8Array.from([0x1b, 0x40]));
+    body.push(Uint8Array.from([0x1b, 0x61, 0x01]));
+    body.push(Uint8Array.from([0x1d, 0x21, 0x11]));
+    body.push(escPosText('FROM'));
+    body.push(Uint8Array.from([0x1d, 0x21, 0x00]));
+    body.push(Uint8Array.from([0x1b, 0x61, 0x00]));
+    body.push(escPosText(payload?.sender?.name || ''));
+    body.push(escPosText(`Phone: ${payload?.sender?.phone || ''}`));
+    (payload?.sender?.addressLines || []).forEach((line) => body.push(escPosText(line)));
+    if (payload?.orderRef) {
+        body.push(escPosText(''));
+        body.push(Uint8Array.from([0x1b, 0x45, 0x01]));
+        body.push(escPosText(`Order Ref: ${payload.orderRef}`));
+        body.push(Uint8Array.from([0x1b, 0x45, 0x00]));
+    }
+    body.push(Uint8Array.from([0x1b, 0x64, 0x04]));
+    body.push(Uint8Array.from([0x1d, 0x56, 0x42, 0x00]));
+    return escPosBytes(...body);
+};
+
+export const buildEscPosToLabel = (payload = {}) => {
+    const body = [];
+    body.push(Uint8Array.from([0x1b, 0x40]));
+    body.push(Uint8Array.from([0x1b, 0x61, 0x01]));
+    body.push(Uint8Array.from([0x1d, 0x21, 0x11]));
+    body.push(escPosText('SHIP TO'));
+    body.push(Uint8Array.from([0x1d, 0x21, 0x00]));
+    body.push(Uint8Array.from([0x1b, 0x61, 0x00]));
+    body.push(escPosText(`Name: ${payload?.recipient?.name || ''}`));
+    body.push(escPosText(`Phone: ${payload?.recipient?.phone || ''}`));
+    (payload?.recipient?.addressLines || []).forEach((line) => body.push(escPosText(line)));
+    body.push(escPosText(''));
+    body.push(Uint8Array.from([0x1b, 0x45, 0x01]));
+    body.push(escPosText(`Order Ref: ${payload?.orderRef || ''}`));
+    body.push(Uint8Array.from([0x1b, 0x45, 0x00]));
+    body.push(Uint8Array.from([0x1b, 0x64, 0x04]));
+    body.push(Uint8Array.from([0x1d, 0x56, 0x42, 0x00]));
+    return escPosBytes(...body);
+};
 
 export const buildEscPosLabel = (payload = {}) => {
     const body = [];
@@ -467,9 +570,7 @@ const writeUsbInChunks = async (device, endpointNumber, bytes) => {
     }
 };
 
-export const printShippingLabel = async ({ order, companyProfile, forceReconnect = false, onProgress = null, transport = 'auto' } = {}) => {
-    const payload = buildShippingLabelPayload(order, companyProfile);
-    const labelBytes = buildEscPosLabel(payload);
+const printPreparedLabel = async ({ payload, labelBytes, forceReconnect = false, onProgress = null, transport = 'auto' } = {}) => {
     if (typeof onProgress === 'function') onProgress('connecting');
     const connection = await connectThermalPrinter({ forceReconnect, transport });
     if (typeof onProgress === 'function') onProgress('printing');
@@ -481,4 +582,22 @@ export const printShippingLabel = async ({ order, companyProfile, forceReconnect
         throw new Error('Unsupported printer transport');
     }
     return { printer: connection.printer, payload };
+};
+
+export const printFromLabel = async ({ order, companyProfile, forceReconnect = false, onProgress = null, transport = 'auto' } = {}) => {
+    const payload = buildFromLabelPayload(companyProfile, order);
+    const labelBytes = buildEscPosFromLabel(payload);
+    return printPreparedLabel({ payload, labelBytes, forceReconnect, onProgress, transport });
+};
+
+export const printToLabel = async ({ order, forceReconnect = false, onProgress = null, transport = 'auto' } = {}) => {
+    const payload = buildToLabelPayload(order);
+    const labelBytes = buildEscPosToLabel(payload);
+    return printPreparedLabel({ payload, labelBytes, forceReconnect, onProgress, transport });
+};
+
+export const printShippingLabel = async ({ order, companyProfile, forceReconnect = false, onProgress = null, transport = 'auto' } = {}) => {
+    const payload = buildShippingLabelPayload(order, companyProfile);
+    const labelBytes = buildEscPosLabel(payload);
+    return printPreparedLabel({ payload, labelBytes, forceReconnect, onProgress, transport });
 };

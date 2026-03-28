@@ -69,6 +69,7 @@ const buildItemFromProduct = (product, variant, quantity = 1) => {
         title: product.title,
         status: product.status || 'active',
         categories: Array.isArray(product.categories) ? product.categories : [],
+        subCategory: String(product.subCategory || product.sub_category || '').trim(),
         imageUrl,
         price,
         compareAt,
@@ -102,6 +103,7 @@ const loadGuestCart = () => {
             return {
                 ...item,
                 status: item?.status || 'active',
+                subCategory: String(item?.subCategory || item?.sub_category || '').trim(),
                 trackQuantity,
                 trackLowStock,
                 availableQuantity,

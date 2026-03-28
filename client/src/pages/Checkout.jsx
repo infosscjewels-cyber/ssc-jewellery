@@ -168,6 +168,7 @@ export default function Checkout() {
         [form.address]
     );
     const storefrontOpen = companyInfo?.storefrontOpen !== false;
+    const subCategoriesEnabled = companyInfo?.subCategoriesEnabled === true;
 
     const refreshAvailableCoupons = useCallback(async () => {
         const cartSubtotal = Number(subtotal || 0);
@@ -1217,6 +1218,9 @@ export default function Checkout() {
                                                     <div className="flex-1 min-w-0">
                                                         <p className="text-sm font-semibold text-gray-800 line-clamp-1">{item.title}</p>
                                                         {item.variantTitle && <p className="text-xs text-gray-500 line-clamp-1">{item.variantTitle}</p>}
+                                                        {subCategoriesEnabled && item.subCategory && (
+                                                            <p className="text-[11px] text-gray-400 line-clamp-1">Sub Category: {item.subCategory}</p>
+                                                        )}
                                                         {item.isOutOfStock && (
                                                             <span className="inline-flex mt-1 text-[10px] px-2 py-0.5 rounded-full bg-black text-white uppercase tracking-wide">
                                                                 Out of Stock
@@ -1535,6 +1539,11 @@ export default function Checkout() {
                                                 </div>
                                                 <div className="min-w-0">
                                                     <p className="text-sm text-gray-700 truncate">{item.title}</p>
+                                                    {subCategoriesEnabled && (item.sub_category || item.subCategory || item.item_snapshot?.subCategory) ? (
+                                                        <p className="text-[11px] text-gray-400 truncate">
+                                                            Sub Category: {item.sub_category || item.subCategory || item.item_snapshot?.subCategory}
+                                                        </p>
+                                                    ) : null}
                                                     <p className="text-xs text-gray-500">Qty: {Number(item.quantity || 0)}</p>
                                                 </div>
                                             </div>

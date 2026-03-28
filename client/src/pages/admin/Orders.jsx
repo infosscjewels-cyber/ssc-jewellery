@@ -12,7 +12,16 @@ import { getGstDisplayDetails } from '../../utils/gst';
 import Modal from '../../components/Modal';
 import { useAdminKPI } from '../../context/AdminKPIContext';
 import { useAuth } from '../../context/AuthContext';
-import { getPreferredPrinterTransport, getPrinterSupportState, printShippingLabel, validateShippingLabelData } from '../../utils/thermalLabelPrint';
+import {
+    configurePreferredPrinter,
+    getPreferredPrinterTransport,
+    getPrinterSupportState,
+    getStoredPrinterPreference,
+    printFromLabel,
+    printToLabel,
+    validateFromLabelData,
+    validateToLabelData
+} from '../../utils/thermalLabelPrint';
 
 const QUICK_RANGES = [
     { value: 'latest_10', label: 'Latest Orders (10)' },
@@ -254,9 +263,13 @@ export default function Orders({
     const [downloadingInvoiceId, setDownloadingInvoiceId] = useState(null);
     const [sendingInvoiceId, setSendingInvoiceId] = useState(null);
     const [printingLabelId, setPrintingLabelId] = useState(null);
+    const [printingLabelType, setPrintingLabelType] = useState('');
     const [companyProfile, setCompanyProfile] = useState(null);
     const printerSupport = useMemo(() => getPrinterSupportState(), []);
     const preferredPrinterTransport = useMemo(() => getPreferredPrinterTransport(), []);
+    const [preferredPrinter, setPreferredPrinter] = useState(() => getStoredPrinterPreference());
+    const [labelPrintModalOrder, setLabelPrintModalOrder] = useState(null);
+    const [isPrinterConnecting, setIsPrinterConnecting] = useState(false);
     const [selectedStatusCount, setSelectedStatusCount] = useState(0);
     const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 5), [page, totalPages]);
     const [confirmModal, setConfirmModal] = useState({
@@ -364,16 +377,17 @@ export default function Orders({
         const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
         return status === 'paid' || status === 'refunded';
     };
-    const getShippingLabelValidation = useCallback((order) => {
+    const getFromLabelValidation = useCallback((order) => {
         if (!companyProfile) {
             return { ok: false, missing: ['company profile'] };
         }
-        return validateShippingLabelData(order, companyProfile);
+        return validateFromLabelData(companyProfile, order);
     }, [companyProfile]);
-    const canPrintShippingLabel = useCallback((order) => {
+    const getToLabelValidation = useCallback((order) => validateToLabelData(order), []);
+    const canOpenShippingLabelModal = useCallback((order) => {
         if (isAttemptEntry(order)) return false;
-        return getShippingLabelValidation(order).ok;
-    }, [getShippingLabelValidation]);
+        return getFromLabelValidation(order).ok || getToLabelValidation(order).ok;
+    }, [getFromLabelValidation, getToLabelValidation]);
     const needsSettlementSync = (order) => {
         if (!order || isAttemptEntry(order)) return false;
         const paymentStatus = String(order?.payment_status || '').toLowerCase();
@@ -1038,43 +1052,89 @@ export default function Orders({
             setSendingInvoiceId(null);
         }
     };
-    const handlePrintShippingLabel = async (order, e = null) => {
+    const closeLabelPrintModal = useCallback(() => {
+        if (printingLabelId || isPrinterConnecting) return;
+        setLabelPrintModalOrder(null);
+    }, [isPrinterConnecting, printingLabelId]);
+
+    const handleOpenPrintLabelModal = (order, e = null) => {
         if (e) e.stopPropagation();
+        if (!order || isAttemptEntry(order)) return;
+        setLabelPrintModalOrder(order);
+    };
+
+    const handleConnectLabelPrinter = async (transport = preferredPrinterTransport) => {
         if (!printerSupport.supported) {
             toast.error(printerSupport.reason);
             return;
         }
-        const validation = getShippingLabelValidation(order);
+        setIsPrinterConnecting(true);
+        try {
+            const printer = await configurePreferredPrinter({ transport });
+            const storedPrinter = getStoredPrinterPreference();
+            setPreferredPrinter(storedPrinter);
+            const transportLabel = String(printer?.transport || transport).toLowerCase() === 'usb' ? 'USB' : 'Bluetooth';
+            toast.success(`${printer?.name || 'Printer'} paired over ${transportLabel}`);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to pair printer');
+        } finally {
+            setIsPrinterConnecting(false);
+        }
+    };
+
+    const handlePrintSingleLabel = async (type, order) => {
+        if (!printerSupport.supported) {
+            toast.error(printerSupport.reason);
+            return;
+        }
+        const validation = type === 'from' ? getFromLabelValidation(order) : getToLabelValidation(order);
         if (!validation.ok) {
-            toast.error(`Shipping label unavailable: missing ${validation.missing.join(', ')}`);
+            toast.error(`${type === 'from' ? 'From' : 'To'} label unavailable: missing ${validation.missing.join(', ')}`);
             return;
         }
         setPrintingLabelId(order.order_id || order.id);
+        setPrintingLabelType(type);
         try {
             let result;
             try {
-                result = await printShippingLabel({
-                    order,
-                    companyProfile,
-                    forceReconnect: false,
-                    transport: preferredPrinterTransport,
-                    onProgress: () => {}
-                });
+                result = type === 'from'
+                    ? await printFromLabel({
+                        order,
+                        companyProfile,
+                        forceReconnect: false,
+                        transport: preferredPrinterTransport,
+                        onProgress: () => {}
+                    })
+                    : await printToLabel({
+                        order,
+                        forceReconnect: false,
+                        transport: preferredPrinterTransport,
+                        onProgress: () => {}
+                    });
             } catch (error) {
-                result = await printShippingLabel({
-                    order,
-                    companyProfile,
-                    forceReconnect: true,
-                    transport: preferredPrinterTransport,
-                    onProgress: () => {}
-                }).catch(() => { throw error; });
+                result = type === 'from'
+                    ? await printFromLabel({
+                        order,
+                        companyProfile,
+                        forceReconnect: true,
+                        transport: preferredPrinterTransport,
+                        onProgress: () => {}
+                    }).catch(() => { throw error; })
+                    : await printToLabel({
+                        order,
+                        forceReconnect: true,
+                        transport: preferredPrinterTransport,
+                        onProgress: () => {}
+                    }).catch(() => { throw error; });
             }
             const transportLabel = String(result?.printer?.transport || '').toLowerCase() === 'usb' ? 'USB' : 'Bluetooth';
-            toast.success(`Shipping label printed for ${order.order_ref} via ${transportLabel}`);
+            setPreferredPrinter(getStoredPrinterPreference());
+            toast.success(`${type === 'from' ? 'From' : 'To'} label printed for ${order.order_ref} via ${transportLabel}`);
         } catch (error) {
-            toast.error(error?.message || 'Failed to print shipping label');
+            toast.error(error?.message || `Failed to print ${type} label`);
         } finally {
             setPrintingLabelId(null);
+            setPrintingLabelType('');
         }
     };
 
@@ -1913,6 +1973,20 @@ export default function Orders({
             cardBg: 'bg-gradient-to-br from-violet-50 to-white'
         }
     ]), [dynamicStatusLabel, dynamicStatusValue, effectiveMetrics]);
+    const activeLabelOrder = labelPrintModalOrder;
+    const activeLabelOrderId = activeLabelOrder?.order_id || activeLabelOrder?.id || '';
+    const activeFromValidation = activeLabelOrder ? getFromLabelValidation(activeLabelOrder) : { ok: false, missing: [] };
+    const activeToValidation = activeLabelOrder ? getToLabelValidation(activeLabelOrder) : { ok: false, missing: [] };
+    const supportedTransports = Array.isArray(printerSupport?.transports) ? printerSupport.transports : [];
+    const canPairBluetooth = supportedTransports.includes('bluetooth');
+    const canPairUsb = !String(preferredPrinterTransport).toLowerCase().includes('bluetooth') && supportedTransports.includes('usb');
+    const printerStatusLabel = preferredPrinter
+        ? `${preferredPrinter.deviceName || preferredPrinter.productName || 'Saved printer'} (${preferredPrinter.transport === 'usb' ? 'USB' : 'Bluetooth'})`
+        : (printerSupport.supported
+            ? (preferredPrinterTransport === 'bluetooth'
+                ? 'No paired printer yet. This device will use Bluetooth.'
+                : 'No paired printer yet. You can pair via Bluetooth or USB.')
+            : printerSupport.reason);
 
     return (
         <div className="animate-fade-in">
@@ -2223,12 +2297,12 @@ export default function Orders({
                                                     )}
                                                     <button
                                                         type="button"
-                                                        onClick={(e) => handlePrintShippingLabel(order, e)}
-                                                        disabled={printingLabelId === (order.order_id || order.id) || (!canPrintShippingLabel(order) && printerSupport.supported)}
+                                                        onClick={(e) => handleOpenPrintLabelModal(order, e)}
+                                                        disabled={printingLabelId === (order.order_id || order.id) || (!canOpenShippingLabelModal(order) && printerSupport.supported)}
                                                         className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-60"
-                                                        title={canPrintShippingLabel(order)
-                                                            ? 'Print shipping label'
-                                                            : 'Shipping label requires complete sender and receiver address details'}
+                                                        title={canOpenShippingLabelModal(order)
+                                                            ? 'Open label print options'
+                                                            : 'Label printing requires at least sender or receiver address details'}
                                                     >
                                                         <Printer size={14} />
                                                     </button>
@@ -2342,12 +2416,12 @@ export default function Orders({
                                         )}
                                         <button
                                             type="button"
-                                            onClick={(e) => handlePrintShippingLabel(order, e)}
-                                            disabled={printingLabelId === (order.order_id || order.id) || (!canPrintShippingLabel(order) && printerSupport.supported)}
+                                            onClick={(e) => handleOpenPrintLabelModal(order, e)}
+                                            disabled={printingLabelId === (order.order_id || order.id) || (!canOpenShippingLabelModal(order) && printerSupport.supported)}
                                             className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-60"
-                                            title={canPrintShippingLabel(order)
-                                                ? 'Print shipping label'
-                                                : 'Shipping label requires complete sender and receiver address details'}
+                                            title={canOpenShippingLabelModal(order)
+                                                ? 'Open label print options'
+                                                : 'Label printing requires at least sender or receiver address details'}
                                         >
                                             <Printer size={14} />
                                         </button>
@@ -3331,6 +3405,120 @@ export default function Orders({
                                 >
                                     {isCreatingManualOrder ? 'Creating...' : 'Create Order'}
                                 </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
+            {activeLabelOrder && createPortal(
+                <div className="fixed inset-0 z-[190] flex items-center justify-center p-4 animate-fade-in">
+                    <div
+                        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                        onClick={closeLabelPrintModal}
+                    />
+                    <div className="relative z-10 w-full max-w-2xl overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl">
+                        <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gray-400">Printer Labels</p>
+                                <h3 className="mt-2 text-xl font-semibold text-gray-900">Order {activeLabelOrder.order_ref}</h3>
+                                <p className="mt-1 text-sm text-gray-500">Print sender and recipient labels separately so each label stays readable.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={closeLabelPrintModal}
+                                disabled={Boolean(printingLabelId) || isPrinterConnecting}
+                                className="rounded-xl border border-gray-200 p-2 text-gray-500 hover:bg-gray-50 disabled:opacity-60"
+                                aria-label="Close label print modal"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="grid gap-5 px-6 py-6 md:grid-cols-[1.2fr_0.8fr]">
+                            <div className="space-y-4">
+                                <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-4">
+                                    <div className="flex items-start gap-3">
+                                        <div className="mt-0.5 rounded-xl bg-violet-100 p-2 text-violet-700">
+                                            <Printer size={18} />
+                                        </div>
+                                        <div className="flex-1">
+                                            <p className="text-sm font-semibold text-gray-900">Printer Status</p>
+                                            <p className="mt-1 text-sm text-gray-600">{printerStatusLabel}</p>
+                                            <p className="mt-2 text-xs text-gray-500">
+                                                {preferredPrinter
+                                                    ? 'If the saved printer is offline, pair again before printing.'
+                                                    : 'No printer is paired yet. Pair once here and reuse it from order print actions.'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50/70 p-4">
+                                    <p className="text-sm font-semibold text-gray-900">Pair Printer</p>
+                                    <div className="flex flex-wrap gap-2">
+                                        {canPairBluetooth && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleConnectLabelPrinter('bluetooth')}
+                                                disabled={!printerSupport.supported || isPrinterConnecting || Boolean(printingLabelId)}
+                                                className="inline-flex items-center rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-60"
+                                            >
+                                                {isPrinterConnecting ? 'Pairing...' : 'Pair via Bluetooth'}
+                                            </button>
+                                        )}
+                                        {canPairUsb && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleConnectLabelPrinter('usb')}
+                                                disabled={!printerSupport.supported || isPrinterConnecting || Boolean(printingLabelId)}
+                                                className="inline-flex items-center rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-60"
+                                            >
+                                                {isPrinterConnecting ? 'Pairing...' : 'Pair via USB'}
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="grid gap-3 text-xs text-gray-500 md:grid-cols-2">
+                                        <div className="rounded-xl border border-gray-200 bg-white p-3">
+                                            <p className="font-semibold text-gray-700">Bluetooth guidance</p>
+                                            <p className="mt-1">Turn on the printer, place it in pairing mode, keep it nearby, and select it when the browser prompt opens.</p>
+                                        </div>
+                                        <div className="rounded-xl border border-gray-200 bg-white p-3">
+                                            <p className="font-semibold text-gray-700">USB guidance</p>
+                                            <p className="mt-1">Connect the printer with a cable first, then choose it from the browser's USB device picker.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="space-y-4">
+                                <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                                    <p className="text-sm font-semibold text-gray-900">Print From Label</p>
+                                    <p className="mt-1 text-xs text-gray-500">Always uses the saved company info.</p>
+                                    {!activeFromValidation.ok && (
+                                        <p className="mt-2 text-xs text-red-600">Missing: {activeFromValidation.missing.join(', ')}</p>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePrintSingleLabel('from', activeLabelOrder)}
+                                        disabled={!activeFromValidation.ok || printingLabelId === activeLabelOrderId || isPrinterConnecting}
+                                        className="mt-4 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent hover:bg-primary-light disabled:opacity-60"
+                                    >
+                                        {printingLabelId === activeLabelOrderId && printingLabelType === 'from' ? 'Printing...' : 'Print From Label'}
+                                    </button>
+                                </div>
+                                <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                                    <p className="text-sm font-semibold text-gray-900">Print To Label</p>
+                                    <p className="mt-1 text-xs text-gray-500">Always uses the saved order address snapshot.</p>
+                                    {!activeToValidation.ok && (
+                                        <p className="mt-2 text-xs text-red-600">Missing: {activeToValidation.missing.join(', ')}</p>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePrintSingleLabel('to', activeLabelOrder)}
+                                        disabled={!activeToValidation.ok || printingLabelId === activeLabelOrderId || isPrinterConnecting}
+                                        className="mt-4 w-full rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/10 disabled:opacity-60"
+                                    >
+                                        {printingLabelId === activeLabelOrderId && printingLabelType === 'to' ? 'Printing...' : 'Print To Label'}
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>

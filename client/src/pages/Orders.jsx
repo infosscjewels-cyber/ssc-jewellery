@@ -126,6 +126,16 @@ const getItemCategoryLabel = (item) => {
     }
     return '';
 };
+const getItemSubCategoryLabel = (item) => {
+    const snapshot = getItemSnapshot(item);
+    const rawValue = item?.sub_category
+        || item?.subCategory
+        || snapshot?.subCategory
+        || snapshot?.sub_category
+        || snapshot?.subCategoryName
+        || snapshot?.sub_category_name;
+    return rawValue ? String(rawValue).trim() : '';
+};
 const getItemSku = (item) => {
     const snapshot = getItemSnapshot(item);
     return item?.sku || snapshot?.sku || '';
@@ -565,6 +575,9 @@ export default function Orders() {
                                             </p>
                                             {getItemCategoryLabel(item) && (
                                                 <p className="text-[11px] text-gray-400 line-clamp-1">Category: {getItemCategoryLabel(item)}</p>
+                                            )}
+                                            {getItemSubCategoryLabel(item) && (
+                                                <p className="text-[11px] text-gray-400 line-clamp-1">Sub Category: {getItemSubCategoryLabel(item)}</p>
                                             )}
                                             <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                                                 <p className="text-xs text-gray-700 font-semibold">₹{getItemUnitPrice(item).toLocaleString()}</p>

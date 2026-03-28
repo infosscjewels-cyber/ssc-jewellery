@@ -36,10 +36,13 @@ export const authService = {
     return { ...data, ok: res.ok, status: res.status };
   },
   verifyOtp: async (mobile, otp) => {
+    const payload = typeof mobile === 'object'
+      ? mobile
+      : { mobile, otp };
     const res = await fetch(`${API_URL}/verify-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mobile, otp })
+      body: JSON.stringify(payload)
     });
     return handleResponse(res);
   },
