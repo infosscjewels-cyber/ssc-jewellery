@@ -206,6 +206,29 @@ const isCouponCurrentlyValid = (coupon = {}) => {
     return true;
 };
 
+const sanitizePopupTemplatePayload = (payload = {}, { preserveIsActive = false, fallbackIsActive = false, validCouponCodes = [] } = {}) => {
+    const next = payload && typeof payload === 'object' ? { ...payload } : {};
+    if (!preserveIsActive) {
+        delete next.isActive;
+    }
+    const normalizedCouponCode = String(next.couponCode || '').trim().toUpperCase();
+    if (normalizedCouponCode) {
+        const allowed = Array.isArray(validCouponCodes) ? validCouponCodes.map((code) => String(code || '').trim().toUpperCase()) : [];
+        if (!allowed.includes(normalizedCouponCode)) {
+            next.couponCode = '';
+            next.isActive = false;
+        } else {
+            next.couponCode = normalizedCouponCode;
+            if (preserveIsActive && next.isActive === undefined) {
+                next.isActive = fallbackIsActive;
+            }
+        }
+    } else if (preserveIsActive && next.isActive === undefined) {
+        next.isActive = fallbackIsActive;
+    }
+    return next;
+};
+
 const normalizeCategoryOptions = (value) => {
     const rows = Array.isArray(value) ? value : [];
     const mapped = rows.map((row) => {
@@ -306,21 +329,6 @@ export default function LoyaltySettings({ onBack }) {
             adminService.getLoyaltyCoupons({ page: 1, limit: 500, search: '', sourceType: 'all' }).catch(() => ({ coupons: [] }))
         ]);
 
-        const popup = popupData?.popup || null;
-        setPopupForm({
-            isActive: Boolean(popup?.isActive),
-            title: popup?.title || '',
-            summary: popup?.summary || '',
-            content: popup?.content || '',
-            encouragement: popup?.encouragement || '',
-            imageUrl: popup?.imageUrl || '',
-            audioUrl: popup?.audioUrl || '',
-            buttonLabel: popup?.buttonLabel || 'Shop Now',
-            buttonLink: popup?.buttonLink || '/shop',
-            couponCode: popup?.couponCode || '',
-            endsAt: toDateInput(popup?.endsAt)
-        });
-
         const templates = Array.isArray(templateData?.templates) ? templateData.templates : [];
         setPopupTemplates(templates);
         if (!popupTemplateName) {
@@ -338,9 +346,29 @@ export default function LoyaltySettings({ onBack }) {
             }))
             .filter((row) => row.code);
         setPopupCouponOptions(popupEligible);
-        if (popup?.couponCode && !popupEligible.some((row) => row.code === String(popup.couponCode).toUpperCase())) {
-            setPopupForm((prev) => ({ ...prev, couponCode: '' }));
-        }
+        const popup = popupData?.popup || null;
+        const sanitizedPopup = sanitizePopupTemplatePayload({
+            isActive: Boolean(popup?.isActive),
+            title: popup?.title || '',
+            summary: popup?.summary || '',
+            content: popup?.content || '',
+            encouragement: popup?.encouragement || '',
+            imageUrl: popup?.imageUrl || '',
+            audioUrl: popup?.audioUrl || '',
+            buttonLabel: popup?.buttonLabel || 'Shop Now',
+            buttonLink: popup?.buttonLink || '/shop',
+            couponCode: popup?.couponCode || '',
+            endsAt: toDateInput(popup?.endsAt)
+        }, {
+            preserveIsActive: true,
+            fallbackIsActive: Boolean(popup?.isActive),
+            validCouponCodes: popupEligible.map((row) => row.code)
+        });
+        setPopupForm({
+            ...getDefaultPopupForm(),
+            ...sanitizedPopup,
+            isActive: Boolean(sanitizedPopup?.isActive)
+        });
     }, [popupTemplateName]);
 
     useEffect(() => {
@@ -683,7 +711,10 @@ export default function LoyaltySettings({ onBack }) {
         if (!template?.payload) return;
         setPopupForm((prev) => ({
             ...prev,
-            ...template.payload
+            ...sanitizePopupTemplatePayload(template.payload, {
+                preserveIsActive: false,
+                validCouponCodes: popupCouponOptions.map((row) => row.code)
+            })
         }));
         setPopupTemplateName(String(template.templateName || getDefaultTemplateName()));
         toast.success(`Template loaded: ${template.templateName || 'Unnamed template'}`);
@@ -743,20 +774,26 @@ export default function LoyaltySettings({ onBack }) {
                 if (isPersistedTemplateSelection(selectedPopupTemplateId)) {
                     templateRes = await adminService.updateLoyaltyPopupTemplate(selectedPopupTemplateId, {
                         templateName,
-                        payload: {
+                        payload: sanitizePopupTemplatePayload({
                             ...popupForm,
                             ...payload,
                             endsAt: popupForm.endsAt || ''
-                        }
+                        }, {
+                            preserveIsActive: false,
+                            validCouponCodes: popupCouponOptions.map((row) => row.code)
+                        })
                     });
                 } else {
                     templateRes = await adminService.createLoyaltyPopupTemplate({
                         templateName,
-                        payload: {
+                        payload: sanitizePopupTemplatePayload({
                             ...popupForm,
                             ...payload,
                             endsAt: popupForm.endsAt || ''
-                        }
+                        }, {
+                            preserveIsActive: false,
+                            validCouponCodes: popupCouponOptions.map((row) => row.code)
+                        })
                     });
                 }
                 const savedTemplate = templateRes?.template || null;
