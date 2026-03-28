@@ -45,7 +45,6 @@ export const AuthProvider = ({ children }) => {
                         // Hydrate immediately from cache so navbar tier/profile render instantly.
                         if (parsedStoredUser && typeof parsedStoredUser === 'object') {
                             if (!cancelled) setUser(parsedStoredUser);
-                            if (!cancelled) setLoading(false);
                         }
 
                         // Refresh latest profile + loyalty in background and merge into auth state.

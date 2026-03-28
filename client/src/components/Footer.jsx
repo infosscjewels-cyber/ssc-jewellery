@@ -7,7 +7,7 @@ import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSit
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
 
-const CUSTOM_ORDER_URL = 'https://rzp.io/rzp/sscjewels/custom';
+const CUSTOM_ORDER_URL = String(import.meta.env.VITE_CUSTOM_ORDER_URL || 'https://rzp.io/rzp/sscjewels').trim();
 
 const TRUST_ITEMS = [
     {

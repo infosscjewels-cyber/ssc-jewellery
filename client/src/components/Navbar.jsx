@@ -56,7 +56,7 @@ const TIER_ICON_CONFIG = {
 const NAV_SEARCH_SEED_KEY = 'nav_search_seed_v1';
 const MAX_SEARCH_RESULTS = 8;
 const SEARCH_SEED_LIMIT = 60;
-const CUSTOM_ORDER_URL = 'https://rzp.io/rzp/sscjewels/custom';
+const CUSTOM_ORDER_URL = String(import.meta.env.VITE_CUSTOM_ORDER_URL || 'https://rzp.io/rzp/sscjewels').trim();
 
 const readSeedCache = () => {
     try {
