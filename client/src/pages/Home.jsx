@@ -447,38 +447,61 @@ export default function Home() {
         }
     }, []);
 
+    const fetchSmartCategoryProducts = useCallback(async (categoryName, setProducts) => {
+        const loadProducts = async (forceRefresh = false) => {
+            const data = await productService.getProducts(
+                1,
+                categoryName,
+                'active',
+                'manual',
+                10,
+                null,
+                '',
+                '',
+                forceRefresh ? { forceRefresh: true } : {}
+            );
+            return Array.isArray(data?.products) ? data.products : [];
+        };
+
+        const initialProducts = await loadProducts(false);
+        if (initialProducts.length > 0) {
+            setProducts(initialProducts);
+            return;
+        }
+
+        const refreshedProducts = await loadProducts(true);
+        setProducts(refreshedProducts);
+    }, []);
+
     const fetchBestSellers = useCallback(async () => {
         try {
-            const data = await productService.getProducts(1, 'Best Sellers', 'active', 'manual', 10);
-            setBestSellers(data.products || []);
+            await fetchSmartCategoryProducts('Best Sellers', setBestSellers);
         } catch (err) {
             console.error("Best sellers load failed", err);
         } finally {
             setIsLoadingBest(false);
         }
-    }, []);
+    }, [fetchSmartCategoryProducts]);
 
     const fetchNewArrivals = useCallback(async () => {
         try {
-            const data = await productService.getProducts(1, 'New Arrivals', 'active', 'manual', 10);
-            setNewArrivals(data.products || []);
+            await fetchSmartCategoryProducts('New Arrivals', setNewArrivals);
         } catch (err) {
             console.error("New arrivals load failed", err);
         } finally {
             setIsLoadingNewArrivals(false);
         }
-    }, []);
+    }, [fetchSmartCategoryProducts]);
 
     const fetchOffers = useCallback(async () => {
         try {
-            const data = await productService.getProducts(1, 'Offers', 'active', 'manual', 10);
-            setOffersProducts(data.products || []);
+            await fetchSmartCategoryProducts('Offers', setOffersProducts);
         } catch (err) {
             console.error("Offers load failed", err);
         } finally {
             setIsLoadingOffers(false);
         }
-    }, []);
+    }, [fetchSmartCategoryProducts]);
 
     const fetchBottomCarouselCards = useCallback(async () => {
         try {
@@ -626,6 +649,15 @@ export default function Home() {
 
                 return next.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
             });
+
+            if (action === 'sync_all') {
+                productService.clearProductsCache({ category: 'Best Sellers', status: 'active', sort: 'manual', limit: 10 });
+                productService.clearProductsCache({ category: 'New Arrivals', status: 'active', sort: 'manual', limit: 10 });
+                productService.clearProductsCache({ category: 'Offers', status: 'active', sort: 'manual', limit: 10 });
+                fetchBestSellers();
+                fetchNewArrivals();
+                fetchOffers();
+            }
 
             if ((action === 'reorder' || action === 'autopilot') && categoryName === 'best sellers') {
                 productService.clearProductsCache({ category: 'Best Sellers', status: 'active', sort: 'manual', limit: 10 });
