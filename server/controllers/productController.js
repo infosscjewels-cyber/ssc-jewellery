@@ -8,6 +8,7 @@ const {
     queueProductDelete,
     queueProductRefresh
 } = require('../services/seoService');
+const { refreshEnabledCategoryAutopilotCatalogs } = require('../services/categoryAutopilotService');
 
 // --- Helper to parse JSON safely ---
 const safeParse = (data, fallback = []) => {
@@ -139,6 +140,17 @@ const emitProductUpdatesForIds = async (req, productIds = []) => {
         const product = await Product.findById(productId);
         if (!product) continue;
         emitProductEvent(req, 'product:update', product);
+    }
+};
+
+const refreshSmartCategoryCatalogs = async () => {
+    try {
+        await refreshEnabledCategoryAutopilotCatalogs({
+            force: true,
+            staleOnly: false
+        });
+    } catch (error) {
+        console.error('Forced smart-category autopilot refresh failed:', error?.message || error);
     }
 };
 
@@ -318,6 +330,7 @@ const createProduct = async (req, res) => {
 
         const newProduct = await Product.create(productData);
         const createdProduct = await Product.findById(newProduct.id);
+        await refreshSmartCategoryCatalogs();
         emitProductEvent(req, 'product:create', createdProduct || newProduct);
         notifyClients(req, 'refresh:categories', { action: 'sync_all' });
         queueProductRefresh({
@@ -338,6 +351,7 @@ const deleteProduct = async (req, res) => {
         const existingProduct = await Product.findById(req.params.id).catch(() => null);
         const existingCategories = asArray(existingProduct?.categories, { allowSingleString: true });
         await Product.delete(req.params.id);
+        await refreshSmartCategoryCatalogs();
         notifyClients(req, 'product:delete', { id: req.params.id }); // [NEW] Notify Sync
         notifyClients(req, 'refresh:categories', { action: 'sync_all' });
         queueProductDelete({
@@ -431,6 +445,7 @@ const updateProduct = async (req, res) => {
         await Product.update(id, productData);
         // 2. [FIX] Fetch the FRESH updated product from DB (ensures we get new Variant IDs)
         const updatedProduct = await Product.findById(id);
+        await refreshSmartCategoryCatalogs();
         emitProductEvent(req, 'product:update', updatedProduct);
         notifyClients(req, 'refresh:categories', { action: 'sync_all' });
         const nextCategories = asArray(updatedProduct?.categories, { allowSingleString: true });
@@ -536,6 +551,7 @@ const manageCategoryProduct = async (req, res) => {
             return res.status(400).json({ message: 'Invalid action' });
         }
         await Product.manageCategoryProduct(req.params.id, productId, action);
+        await refreshSmartCategoryCatalogs();
         // [FIX] Fetch Name
         const catName = await Product.getCategoryName(req.params.id);
         const updatedProduct = await Product.findById(productId);
@@ -580,6 +596,7 @@ const manageCategoryProductsBulk = async (req, res) => {
         }
 
         const affectedProductIds = await Product.manageCategoryProductsBulk(req.params.id, productIds, action);
+        await refreshSmartCategoryCatalogs();
         const catName = await Product.getCategoryName(req.params.id);
         notifyClients(req, 'product:category_change', {
             bulk: true,
