@@ -25,6 +25,7 @@ import { hasUnavailableCheckoutItems } from '../utils/checkoutAvailability';
 import { normalizePaymentFailureReason } from '../utils/paymentFailure';
 import { computeShippingPreview } from '../utils/shippingPreview';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
+import { getAllowedShippingStates, isAllowedShippingState, isValidIndianPincode, lookupStateByPincode, normalizePincodeInput, resolveAllowedStateName } from '../utils/addressValidation';
 import StorefrontClosed from './StorefrontClosed';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
@@ -72,7 +73,7 @@ const isValidEmailInput = (value = '') => {
 
 const isValidMobileInput = (value = '') => /^\d{10,14}$/.test(String(value || '').replace(/\D/g, ''));
 
-const isValidZipInput = (value = '') => /^[0-9A-Za-z\-\s]{3,12}$/.test(String(value || '').trim());
+const isValidZipInput = (value = '') => isValidIndianPincode(value);
 
 const formatLongDate = (value) => {
     if (!value) return 'No expiry';
@@ -167,8 +168,11 @@ export default function Checkout() {
         () => (hasCompleteAddress(form.address) ? form.address : null),
         [form.address]
     );
+    const shippingZip = form.address.zip;
+    const billingZip = form.billingAddress.zip;
     const storefrontOpen = companyInfo?.storefrontOpen !== false;
     const subCategoriesEnabled = companyInfo?.subCategoriesEnabled === true;
+    const availableStates = useMemo(() => getAllowedShippingStates(zones), [zones]);
 
     const refreshAvailableCoupons = useCallback(async () => {
         const cartSubtotal = Number(subtotal || 0);
@@ -209,10 +213,52 @@ export default function Checkout() {
             name: user.name || '',
             email: user.email || '',
             mobile: user.mobile || '',
-            address: { ...emptyAddress, ...(user.address || {}) },
-            billingAddress: { ...emptyAddress, ...(user.billingAddress || user.address || {}) }
+            address: {
+                ...emptyAddress,
+                ...(user.address || {}),
+                state: resolveAllowedStateName(availableStates, user?.address?.state) || ''
+            },
+            billingAddress: {
+                ...emptyAddress,
+                ...(user.billingAddress || user.address || {}),
+                state: resolveAllowedStateName(availableStates, user?.billingAddress?.state || user?.address?.state) || ''
+            }
         });
-    }, [user]);
+    }, [user, availableStates]);
+
+    useEffect(() => {
+        if (!availableStates.length) return undefined;
+        const addressControllers = {
+            address: new AbortController(),
+            billingAddress: new AbortController()
+        };
+        const runLookup = async (section) => {
+            const pin = normalizePincodeInput(section === 'address' ? shippingZip : billingZip);
+            if (!isValidIndianPincode(pin)) return;
+            try {
+                const detectedState = await lookupStateByPincode(pin, availableStates, {
+                    signal: addressControllers[section].signal
+                });
+                if (!detectedState) return;
+                setForm((prev) => {
+                    if (normalizePincodeInput(prev?.[section]?.zip || '') !== pin) return prev;
+                    if (prev?.[section]?.state === detectedState) return prev;
+                    return {
+                        ...prev,
+                        [section]: { ...prev[section], state: detectedState }
+                    };
+                });
+            } catch {
+                // Ignore PIN lookup failures and keep manual state selection available.
+            }
+        };
+        runLookup('address');
+        runLookup('billingAddress');
+        return () => {
+            addressControllers.address.abort();
+            addressControllers.billingAddress.abort();
+        };
+    }, [availableStates, billingZip, shippingZip]);
 
     useEffect(() => {
         if (!user || !couponFromQuery) return;
@@ -401,16 +447,19 @@ export default function Checkout() {
         setForm((prev) => ({ ...prev, [name]: nextValue }));
     };
 
-    const handleAddressChange = (section, field, value) => {
+    const handleAddressChange = useCallback((section, field, value) => {
         let nextValue = value;
         if (field === 'zip') {
-            nextValue = String(value || '').replace(/[^0-9A-Za-z\-\s]/g, '').slice(0, 12);
+            nextValue = normalizePincodeInput(value);
+        }
+        if (field === 'state') {
+            nextValue = resolveAllowedStateName(availableStates, value);
         }
         setForm((prev) => ({
             ...prev,
             [section]: { ...prev[section], [field]: nextValue }
         }));
-    };
+    }, [availableStates]);
 
     const handleSave = async () => {
         if (isSaving) return;
@@ -657,10 +706,11 @@ export default function Checkout() {
             if (!String(source.line1 || '').trim()) errors[`${prefix}Line1`] = 'Street address is required';
             if (!String(source.city || '').trim()) errors[`${prefix}City`] = 'City is required';
             if (!String(source.state || '').trim()) errors[`${prefix}State`] = 'State is required';
-            if (!isValidZipInput(source.zip)) errors[`${prefix}Zip`] = 'Enter a valid zip code';
+            else if (!isAllowedShippingState(availableStates, source.state)) errors[`${prefix}State`] = 'Select a valid state';
+            if (!isValidZipInput(source.zip)) errors[`${prefix}Zip`] = 'Enter a valid 6-digit PIN code';
         });
         return errors;
-    }, [form]);
+    }, [availableStates, form]);
     const hasFormValidationErrors = Object.keys(fieldErrors).length > 0;
     const selectedCouponForInput = useMemo(
         () => availableCoupons.find((entry) => String(entry.code || '').toUpperCase() === String(coupon || '').trim().toUpperCase()) || null,
@@ -952,15 +1002,15 @@ export default function Checkout() {
                                         <p className="text-sm text-gray-500">Update your billing and shipping addresses.</p>
                                     </div>
                                     {!editing ? (
-                                        <button onClick={() => setEditing(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                                        <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">
                                             <Edit3 size={16} /> Edit
                                         </button>
                                     ) : (
                                         <div className="flex items-center gap-2">
-                                            <button onClick={() => setEditing(false)} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-500 hover:bg-gray-50">
+                                            <button type="button" onClick={() => setEditing(false)} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-500 hover:bg-gray-50">
                                                 Cancel
                                             </button>
-                                            <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 rounded-xl bg-primary text-accent text-sm font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60">
+                                            <button type="button" onClick={handleSave} disabled={isSaving} className="px-4 py-2 rounded-xl bg-primary text-accent text-sm font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60">
                                                 {isSaving ? 'Saving...' : 'Save'}
                                             </button>
                                         </div>
@@ -1033,19 +1083,23 @@ export default function Checkout() {
                                                     placeholder="City"
                                                     className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingCity ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 />
-                                                <input
-                                                    value={form.billingAddress.state}
+                                                <select
+                                                    value={resolveAllowedStateName(availableStates, form.billingAddress.state) || ''}
                                                     onChange={(e) => handleAddressChange('billingAddress', 'state', e.target.value)}
-                                                    disabled={!editing}
-                                                    placeholder="State"
+                                                    disabled={!editing || availableStates.length === 0}
                                                     className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingState ? 'border-red-400 bg-red-50/30' : ''}`}
-                                                />
+                                                >
+                                                    <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
+                                                    {availableStates.map((state) => (
+                                                        <option key={`billing-state-${state}`} value={state}>{state}</option>
+                                                    ))}
+                                                </select>
                                             </div>
                                             <input
                                                 value={form.billingAddress.zip}
                                                 onChange={(e) => handleAddressChange('billingAddress', 'zip', e.target.value)}
                                                 disabled={!editing}
-                                                placeholder="Zip"
+                                                placeholder="PIN code"
                                                 className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingZip ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
                                             {attemptedPay && (fieldErrors.billingLine1 || fieldErrors.billingCity || fieldErrors.billingState || fieldErrors.billingZip) && (
@@ -1073,19 +1127,23 @@ export default function Checkout() {
                                                     placeholder="City"
                                                     className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingCity ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 />
-                                                <input
-                                                    value={form.address.state}
+                                                <select
+                                                    value={resolveAllowedStateName(availableStates, form.address.state) || ''}
                                                     onChange={(e) => handleAddressChange('address', 'state', e.target.value)}
-                                                    disabled={!editing}
-                                                    placeholder="State"
+                                                    disabled={!editing || availableStates.length === 0}
                                                     className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingState ? 'border-red-400 bg-red-50/30' : ''}`}
-                                                />
+                                                >
+                                                    <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
+                                                    {availableStates.map((state) => (
+                                                        <option key={`shipping-state-${state}`} value={state}>{state}</option>
+                                                    ))}
+                                                </select>
                                             </div>
                                             <input
                                                 value={form.address.zip}
                                                 onChange={(e) => handleAddressChange('address', 'zip', e.target.value)}
                                                 disabled={!editing}
-                                                placeholder="Zip"
+                                                placeholder="PIN code"
                                                 className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingZip ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
                                             {attemptedPay && (fieldErrors.shippingLine1 || fieldErrors.shippingCity || fieldErrors.shippingState || fieldErrors.shippingZip) && (

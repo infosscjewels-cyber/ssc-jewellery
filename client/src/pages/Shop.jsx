@@ -720,7 +720,7 @@ export default function Shop() {
                 <div className="container mx-auto px-4 py-3 flex items-center gap-2 text-xs md:text-sm text-gray-500">
                     <Link to="/" className="hover:text-primary"><Home size={14} /></Link>
                     <span>/</span>
-                    <span className="font-bold text-gray-800">Store</span>
+                    <span className="font-bold text-gray-800">Shop</span>
                 </div>
             </div>
 

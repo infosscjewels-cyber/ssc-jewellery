@@ -297,7 +297,11 @@ export default function ProductCard({ product, displayCategory = '' }) {
         <div className={`group relative tier-card-surface rounded-2xl border border-gray-100 hover:shadow-xl hover:border-accent/30 transition-all duration-300 transform hover:-translate-y-1 cursor-pointer transform-gpu isolate ${isOutOfStock ? 'grayscale opacity-80' : ''}`}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
-            onClick={() => navigate(`/product/${product.id}`)}
+            onClick={() => navigate(`/product/${product.id}`, {
+                state: {
+                    breadcrumbCategory: resolvedCategoryLabel
+                }
+            })}
         >
             {/* --- RIBBONS --- */}
             <div className="absolute top-0 left-0 z-20 flex flex-col items-start gap-1 rounded-tl-2xl overflow-hidden">

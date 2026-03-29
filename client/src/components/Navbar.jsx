@@ -90,6 +90,15 @@ const getPriceLabel = (product = {}) => {
     return 'View Product';
 };
 
+const normalizeFilterValue = (value) => {
+    if (value == null) return '';
+    if (typeof value === 'boolean') return value;
+    const text = String(value).trim();
+    if (!text) return '';
+    if (text === 'undefined' || text === 'null') return '';
+    return text;
+};
+
 export default function Navbar() {
     const { user, logout } = useAuth();
     const { itemCount, openCart } = useCart();
@@ -460,11 +469,15 @@ export default function Navbar() {
     const buildCategoryStorePath = useCallback((categoryName = '', filters = {}) => {
         const cleanCategoryName = String(categoryName || '').trim();
         if (!cleanCategoryName) return '/shop';
+        const usageAudience = normalizeFilterValue(filters?.usageAudience);
+        const subCategory = normalizeFilterValue(filters?.subCategory);
+        const minPrice = normalizeFilterValue(filters?.minPrice);
+        const maxPrice = normalizeFilterValue(filters?.maxPrice);
         const params = new URLSearchParams();
-        if (filters?.usageAudience) params.set('usageAudience', String(filters.usageAudience).trim());
-        if (filters?.subCategory) params.set('subCategory', String(filters.subCategory).trim());
-        if (filters?.minPrice !== '') params.set('minPrice', String(filters.minPrice).trim());
-        if (filters?.maxPrice !== '') params.set('maxPrice', String(filters.maxPrice).trim());
+        if (usageAudience) params.set('usageAudience', usageAudience);
+        if (subCategory) params.set('subCategory', subCategory);
+        if (minPrice) params.set('minPrice', minPrice);
+        if (maxPrice) params.set('maxPrice', maxPrice);
         if (filters?.inStockOnly) params.set('inStockOnly', 'true');
         const query = params.toString();
         return `/shop/${encodeURIComponent(cleanCategoryName)}${query ? `?${query}` : ''}`;
@@ -489,7 +502,7 @@ export default function Navbar() {
     }, [mobileSelectedCategory, resetMobileShopFilters]);
     const handleMobileFilterChange = useCallback((key, value) => {
         setMobileShopFilters((prev) => {
-            const nextValue = key === 'inStockOnly' ? Boolean(value) : value;
+            const nextValue = key === 'inStockOnly' ? Boolean(value) : normalizeFilterValue(value);
             const next = { ...prev, [key]: nextValue };
             if (key !== 'subCategory') {
                 const subCategories = Array.isArray(mobileSelectedCategoryEntry?.subCategories)

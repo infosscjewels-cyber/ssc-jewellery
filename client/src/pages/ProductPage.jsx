@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
     Heart, ShoppingCart, Share2, ChevronDown, ChevronUp, Minus, Plus,
     AlertTriangle, Check, ArrowRight, Home, ShieldCheck, Truck,
@@ -211,6 +211,7 @@ const getPrimaryCategoryName = (categoriesInput) => {
 
 export default function ProductPage() {
     const { id } = useParams();
+    const location = useLocation();
     const navigate = useNavigate();
     const { socket } = useSocket();
     const { items, addItem, updateQuantity } = useCart();
@@ -523,7 +524,7 @@ export default function ProductPage() {
             } catch (err) {
                 console.error(err);
                 toast.error("Failed to load product");
-                navigate('/store');
+                navigate('/shop');
             } finally {
                 setLoading(false);
             }
@@ -866,7 +867,7 @@ export default function ProductPage() {
     // Status Check: Product must be active. If tracking is on, qty must be > 0.
     const isOutOfStock = product.status !== 'active' || (!!shouldTrackQty && currentQty <= 0);
     const isLowStock = !isOutOfStock && !!shouldTrackLowStock && currentQty <= stockThreshold;
-    const breadcrumbCategory = getPrimaryCategoryName(product?.categories);
+    const breadcrumbCategory = String(location.state?.breadcrumbCategory || '').trim() || getPrimaryCategoryName(product?.categories);
     const currentYoutubeKey = String(videoModal?.item?.videoId || videoModal?.item?.url || '').trim();
     const youtubeAspect = currentYoutubeKey ? youtubeAspectCache[currentYoutubeKey] : null;
     const fallbackYoutubeRatio = videoModal?.item?.isPortrait ? (9 / 16) : (16 / 9);
@@ -885,7 +886,7 @@ export default function ProductPage() {
                 <div className="container mx-auto px-4 py-3 flex items-center gap-2 text-xs md:text-sm text-gray-500">
                     <Link to="/" className="hover:text-primary"><Home size={14} /></Link>
                     <span>/</span>
-                    <Link to="/store" className="hover:text-primary">Store</Link>
+                    <Link to="/shop" className="hover:text-primary">Shop</Link>
                     {breadcrumbCategory && (
                         <>
                             <span>/</span>

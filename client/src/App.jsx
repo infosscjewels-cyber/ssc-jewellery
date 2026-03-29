@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, Outlet, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, Link, useLocation, useParams } from 'react-router-dom';
 import { lazy, Suspense, useEffect } from 'react';
 import { ToastProvider } from './context/ToastContext';
 import { AuthProvider } from './context/AuthContext';
@@ -87,6 +87,17 @@ const StorefrontGate = ({ children }) => {
   return isStorefrontLaunchEnabled() ? children : <ComingSoon />;
 };
 
+const LegacyStoreRedirect = () => {
+  const location = useLocation();
+  return <Navigate to={`/shop${location.search}`} replace />;
+};
+
+const LegacyStoreCategoryRedirect = () => {
+  const { category = '' } = useParams();
+  const location = useLocation();
+  return <Navigate to={`/shop/${encodeURIComponent(category)}${location.search}`} replace />;
+};
+
 // [UPDATED] Public Layout
 // Changed 'pt-20 md:pt-24' to 'pt-[74px]'
 // This perfectly matches the initial height of the Navbar (72px + border)
@@ -171,6 +182,8 @@ function App() {
               {/* Public Routes */}
               <Route element={<RedirectAdminToDashboard><StorefrontGate><PublicLayout /></StorefrontGate></RedirectAdminToDashboard>}>
                 <Route path="/" element={<Home />} />
+                <Route path="/store" element={<LegacyStoreRedirect />} />
+                <Route path="/store/:category" element={<LegacyStoreCategoryRedirect />} />
                 <Route path="/shop" element={<Shop />} />
                 <Route path="/shop/:category" element={<CategoryStore />} />
                 <Route path="/about" element={<About />} />

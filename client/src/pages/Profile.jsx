@@ -17,8 +17,10 @@ import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { authService } from '../services/authService';
 import { useMyOrders } from '../context/OrderContext';
+import { useShipping } from '../context/ShippingContext';
 import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpendKey } from '../utils/tierFormat';
 import { formatMissingProfileFields } from '../utils/membershipUnlock';
+import { getAllowedShippingStates, isAllowedShippingState, isValidIndianPincode, lookupStateByPincode, normalizePincodeInput, resolveAllowedStateName } from '../utils/addressValidation';
 import ordersIllustration from '../assets/orders.svg';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
@@ -99,6 +101,7 @@ const getOrderSavings = (order = {}) => {
 
 export default function Profile() {
     const { user, updateUser } = useAuth();
+    const { zones } = useShipping();
     const toast = useToast();
     const [activeTab, setActiveTab] = useState('profile');
     const [isEditing, setIsEditing] = useState(false);
@@ -120,6 +123,9 @@ export default function Profile() {
         limit: 10,
         duration: 'all'
     });
+    const availableStates = useMemo(() => getAllowedShippingStates(zones), [zones]);
+    const shippingZip = form.address.zip;
+    const billingZip = form.billingAddress.zip;
 
     useEffect(() => {
         if (!user) return;
@@ -129,14 +135,22 @@ export default function Profile() {
             email: user.email || '',
             mobile: user.mobile || '',
             dob: user.dob || '',
-            address: { ...emptyAddress, ...(user.address || {}) },
-            billingAddress: { ...emptyAddress, ...(user.billingAddress || user.address || {}) },
+            address: {
+                ...emptyAddress,
+                ...(user.address || {}),
+                state: resolveAllowedStateName(availableStates, user?.address?.state) || ''
+            },
+            billingAddress: {
+                ...emptyAddress,
+                ...(user.billingAddress || user.address || {}),
+                state: resolveAllowedStateName(availableStates, user?.billingAddress?.state || user?.address?.state) || ''
+            },
         });
         const addr = { ...emptyAddress, ...(user.address || {}) };
         const billing = { ...emptyAddress, ...(user.billingAddress || user.address || {}) };
         const isSame = JSON.stringify(addr) === JSON.stringify(billing);
         setSameAsBilling(isSame);
-    }, [user]);
+    }, [availableStates, user]);
 
     useEffect(() => {
         if (!user) return;
@@ -151,9 +165,12 @@ export default function Profile() {
     };
 
     const handleAddressChange = (section, field, value) => {
+        const nextValue = field === 'zip'
+            ? normalizePincodeInput(value)
+            : (field === 'state' ? resolveAllowedStateName(availableStates, value) : value);
         setForm((prev) => ({
             ...prev,
-            [section]: { ...prev[section], [field]: value },
+            [section]: { ...prev[section], [field]: nextValue },
         }));
     };
 
@@ -190,8 +207,50 @@ export default function Profile() {
         }));
     }, [sameAsBilling, form.billingAddress]);
 
+    useEffect(() => {
+        if (!availableStates.length) return undefined;
+        const addressControllers = {
+            address: new AbortController(),
+            billingAddress: new AbortController()
+        };
+        const runLookup = async (section) => {
+            const pin = normalizePincodeInput(section === 'address' ? shippingZip : billingZip);
+            if (!isValidIndianPincode(pin)) return;
+            try {
+                const detectedState = await lookupStateByPincode(pin, availableStates, {
+                    signal: addressControllers[section].signal
+                });
+                if (!detectedState) return;
+                setForm((prev) => {
+                    if (normalizePincodeInput(prev?.[section]?.zip || '') !== pin) return prev;
+                    if (prev?.[section]?.state === detectedState) return prev;
+                    return {
+                        ...prev,
+                        [section]: { ...prev[section], state: detectedState }
+                    };
+                });
+            } catch {
+                // Ignore lookup errors and let the user select from the allowed states list.
+            }
+        };
+        if (!sameAsBilling) runLookup('address');
+        runLookup('billingAddress');
+        return () => {
+            addressControllers.address.abort();
+            addressControllers.billingAddress.abort();
+        };
+    }, [availableStates, billingZip, sameAsBilling, shippingZip]);
+
     const handleSave = async () => {
         if (isSaving) return;
+        if (!isValidIndianPincode(form.address.zip) || !isValidIndianPincode(form.billingAddress.zip)) {
+            toast.error('Enter a valid 6-digit PIN code for both addresses');
+            return;
+        }
+        if (!isAllowedShippingState(availableStates, form.address.state) || !isAllowedShippingState(availableStates, form.billingAddress.state)) {
+            toast.error('Select a valid state from the available list');
+            return;
+        }
         setIsSaving(true);
         try {
             const res = await authService.updateProfile({
@@ -226,8 +285,16 @@ export default function Profile() {
             email: user.email || '',
             mobile: user.mobile || '',
             dob: user.dob || '',
-            address: { ...emptyAddress, ...(user.address || {}) },
-            billingAddress: { ...emptyAddress, ...(user.billingAddress || user.address || {}) },
+            address: {
+                ...emptyAddress,
+                ...(user.address || {}),
+                state: resolveAllowedStateName(availableStates, user?.address?.state) || ''
+            },
+            billingAddress: {
+                ...emptyAddress,
+                ...(user.billingAddress || user.address || {}),
+                state: resolveAllowedStateName(availableStates, user?.billingAddress?.state || user?.address?.state) || ''
+            },
         });
     };
 
@@ -550,19 +617,23 @@ export default function Profile() {
                                                             placeholder="City"
                                                             className="input-field disabled:bg-gray-50"
                                                         />
-                                                        <input
-                                                            value={form.billingAddress.state}
+                                                        <select
+                                                            value={resolveAllowedStateName(availableStates, form.billingAddress.state) || ''}
                                                             onChange={(e) => handleAddressChange('billingAddress', 'state', e.target.value)}
-                                                            disabled={!isEditing}
-                                                            placeholder="State"
+                                                            disabled={!isEditing || availableStates.length === 0}
                                                             className="input-field disabled:bg-gray-50"
-                                                        />
+                                                        >
+                                                            <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
+                                                            {availableStates.map((state) => (
+                                                                <option key={`profile-billing-state-${state}`} value={state}>{state}</option>
+                                                            ))}
+                                                        </select>
                                                     </div>
                                                     <input
                                                         value={form.billingAddress.zip}
                                                         onChange={(e) => handleAddressChange('billingAddress', 'zip', e.target.value)}
                                                         disabled={!isEditing}
-                                                        placeholder="Zip"
+                                                        placeholder="PIN code"
                                                         className="input-field disabled:bg-gray-50"
                                                     />
                                                 </div>
@@ -601,19 +672,23 @@ export default function Profile() {
                                                             placeholder="City"
                                                             className="input-field disabled:bg-gray-50"
                                                         />
-                                                        <input
-                                                            value={form.address.state}
+                                                        <select
+                                                            value={resolveAllowedStateName(availableStates, form.address.state) || ''}
                                                             onChange={(e) => handleAddressChange('address', 'state', e.target.value)}
-                                                            disabled={!isEditing || sameAsBilling}
-                                                            placeholder="State"
+                                                            disabled={!isEditing || sameAsBilling || availableStates.length === 0}
                                                             className="input-field disabled:bg-gray-50"
-                                                        />
+                                                        >
+                                                            <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
+                                                            {availableStates.map((state) => (
+                                                                <option key={`profile-shipping-state-${state}`} value={state}>{state}</option>
+                                                            ))}
+                                                        </select>
                                                     </div>
                                                     <input
                                                         value={form.address.zip}
                                                         onChange={(e) => handleAddressChange('address', 'zip', e.target.value)}
                                                         disabled={!isEditing || sameAsBilling}
-                                                        placeholder="Zip"
+                                                        placeholder="PIN code"
                                                         className="input-field disabled:bg-gray-50"
                                                     />
                                                 </div>

@@ -7,6 +7,7 @@ const jwt = require('jsonwebtoken');
 const { getUserLoyaltyStatus, issueBirthdayCouponForUser } = require('../services/loyaltyService');
 const { sendEmailCommunication, sendWhatsapp } = require('../services/communications/communicationService');
 const { emitToUserAudiences } = require('../utils/socketAudience');
+const { normalizeAndValidateAddress } = require('../utils/addressValidation');
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '').trim();
 if (!JWT_SECRET) {
@@ -570,7 +571,7 @@ exports.login = async (req, res) => {
         const token = generateToken(user);
         res.json({ message: 'Login successful', token, user: User.toSafePayload(user) });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        res.status(Number(error?.statusCode || 500)).json({ message: error.message });
     }
 };
 
@@ -675,16 +676,6 @@ exports.updateProfile = async (req, res) => {
         const { name, email, mobile, password, address, billingAddress, profileImage, dob, birthdayOfferClaimedYear } = req.body;
         const safeName = sanitize(name);
         const safeEmail = email ? sanitize(email).toLowerCase() : '';
-        const normalizeAddress = (value) => {
-            if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-            return {
-                line1: String(value.line1 || '').trim(),
-                city: String(value.city || '').trim(),
-                state: String(value.state || '').trim(),
-                zip: String(value.zip || '').trim()
-            };
-        };
-
         if (name !== undefined && typeof name !== 'string') {
             return res.status(400).json({ message: 'Name must be a string' });
         }
@@ -713,14 +704,12 @@ exports.updateProfile = async (req, res) => {
             return res.status(400).json({ message: 'Password too short (min 6 chars).' });
         }
 
-        const normalizedAddress = address === undefined ? undefined : normalizeAddress(address);
-        if (address !== undefined && normalizedAddress === null) {
-            return res.status(400).json({ message: 'Address must be an object' });
-        }
-        const normalizedBillingAddress = billingAddress === undefined ? undefined : normalizeAddress(billingAddress);
-        if (billingAddress !== undefined && normalizedBillingAddress === null) {
-            return res.status(400).json({ message: 'Billing address must be an object' });
-        }
+        const normalizedAddress = address === undefined
+            ? undefined
+            : await normalizeAndValidateAddress(address, { fieldLabel: 'Address' });
+        const normalizedBillingAddress = billingAddress === undefined
+            ? undefined
+            : await normalizeAndValidateAddress(billingAddress, { fieldLabel: 'Billing address' });
 
         // 1. Check if mobile is already taken by ANOTHER user
         if (mobile) {

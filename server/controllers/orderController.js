@@ -18,6 +18,7 @@ const { verifyInvoiceShareToken, buildInvoiceShareUrl } = require('../services/i
 const { reassessUserTier } = require('../services/loyaltyService');
 const { emitToOrderAudiences } = require('../utils/socketAudience');
 const { emitProductEvent } = require('./productController');
+const { normalizeAndValidateAddress } = require('../utils/addressValidation');
 
 const toSubunit = (amount) => Math.round(Number(amount || 0) * 100);
 const ATTEMPT_TTL_MINUTES = 30;
@@ -150,22 +151,9 @@ const parseAddressObject = (value) => {
     }
 };
 
-const normalizeAddressPayload = (value = null, { fieldLabel = 'Address' } = {}) => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        throw new Error(`${fieldLabel} must be an object`);
-    }
-    const line1 = String(value.line1 || '').trim();
-    const city = String(value.city || '').trim();
-    const state = String(value.state || '').trim();
-    const zip = String(value.zip || '').trim();
-    if (!line1 || !city || !state || !zip) {
-        throw new Error(`${fieldLabel} fields are required`);
-    }
-    if (!/^[0-9A-Za-z\\-\\s]{3,12}$/.test(zip)) {
-        throw new Error(`${fieldLabel} zip code is invalid`);
-    }
-    return { line1, city, state, zip };
-};
+const normalizeAddressPayload = async (value = null, { fieldLabel = 'Address' } = {}) => (
+    normalizeAndValidateAddress(value, { fieldLabel })
+);
 
 const parseCategoryScopeIds = (coupon = null) => {
     if (!coupon) return [];
@@ -530,8 +518,8 @@ const createRazorpayOrder = async (req, res) => {
         await assertStorefrontOpenForCheckout();
         const userId = req.user.id;
         const { billingAddress, shippingAddress, notes, couponCode } = req.body || {};
-        const safeShippingAddress = normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' });
-        const safeBillingAddress = normalizeAddressPayload(billingAddress, { fieldLabel: 'Billing address' });
+        const safeShippingAddress = await normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' });
+        const safeBillingAddress = await normalizeAddressPayload(billingAddress, { fieldLabel: 'Billing address' });
         if (notes !== undefined && (typeof notes !== 'object' || Array.isArray(notes))) {
             return res.status(400).json({ message: 'Notes must be an object' });
         }
@@ -1390,7 +1378,7 @@ const validateRecoveryCoupon = async (req, res) => {
             return res.status(400).json({ message: 'Coupon code is required' });
         }
         const { shippingAddress = null } = req.body || {};
-        const safeShippingAddress = shippingAddress ? normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' }) : null;
+        const safeShippingAddress = shippingAddress ? await normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' }) : null;
         const summary = await Order.getCheckoutSummary(userId, {
             shippingAddress: safeShippingAddress,
             couponCode: code,
@@ -1412,7 +1400,7 @@ const getAvailableCoupons = async (req, res) => {
     try {
         const userId = req.user.id;
         const { shippingAddress = null } = req.body || {};
-        const safeShippingAddress = shippingAddress ? normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' }) : null;
+        const safeShippingAddress = shippingAddress ? await normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' }) : null;
         const coupons = await Order.getAvailableCoupons(userId, { shippingAddress: safeShippingAddress });
         return res.json({ coupons });
     } catch (error) {
@@ -1450,7 +1438,7 @@ const getAdminManualPreview = async (req, res) => {
         if (!user || String(user.role || '').toLowerCase() !== 'customer') {
             return res.status(404).json({ message: 'Customer not found' });
         }
-        const shippingAddress = normalizeAddressPayload(req.body?.shippingAddress, { fieldLabel: 'Shipping address' });
+        const shippingAddress = await normalizeAddressPayload(req.body?.shippingAddress, { fieldLabel: 'Shipping address' });
         const couponCode = String(req.body?.couponCode || '').trim().toUpperCase() || null;
         const useCustomerCart = req.body?.useCustomerCart === true || String(req.body?.useCustomerCart || '').toLowerCase() === 'true';
         const quote = useCustomerCart
@@ -1645,7 +1633,7 @@ const getCheckoutSummary = async (req, res) => {
         }
         const code = String(req.body?.couponCode || '').trim().toUpperCase() || null;
         const { shippingAddress = null } = req.body || {};
-        const safeShippingAddress = shippingAddress ? normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' }) : null;
+        const safeShippingAddress = shippingAddress ? await normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' }) : null;
         const summary = await Order.getCheckoutSummary(userId, {
             shippingAddress: safeShippingAddress,
             couponCode: code
@@ -2257,8 +2245,8 @@ const createAdminManualOrder = async (req, res) => {
         if (!user || String(user.role || '').toLowerCase() !== 'customer') {
             return res.status(404).json({ message: 'Customer not found' });
         }
-        const shippingAddress = normalizeAddressPayload(req.body?.shippingAddress, { fieldLabel: 'Shipping address' });
-        const billingAddress = normalizeAddressPayload(req.body?.billingAddress, { fieldLabel: 'Billing address' });
+        const shippingAddress = await normalizeAddressPayload(req.body?.shippingAddress, { fieldLabel: 'Shipping address' });
+        const billingAddress = await normalizeAddressPayload(req.body?.billingAddress, { fieldLabel: 'Billing address' });
         const couponCode = String(req.body?.couponCode || '').trim().toUpperCase() || null;
         const useCustomerCart = req.body?.useCustomerCart === true || String(req.body?.useCustomerCart || '').toLowerCase() === 'true';
         const items = Array.isArray(req.body?.items) ? req.body.items : [];

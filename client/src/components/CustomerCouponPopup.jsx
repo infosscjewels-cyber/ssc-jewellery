@@ -68,17 +68,19 @@ export default function CustomerCouponPopup() {
         return window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
     });
     const scratchCanvasRef = useRef(null);
-    const isCustomer = !!user && String(user.role || '').toLowerCase() === 'customer';
+    const userId = String(user?.id || '').trim();
+    const userRole = String(user?.role || '').toLowerCase();
+    const isCustomer = Boolean(userId) && userRole === 'customer';
 
     const storageKey = useMemo(() => {
         if (!popup?.key) return '';
-        const owner = user?.id ? `user:${user.id}` : 'guest';
+        const owner = userId ? `user:${userId}` : 'guest';
         return `customer-popup-dismissed:${owner}:${popup.key}`;
-    }, [popup?.key, user?.id]);
+    }, [popup?.key, userId]);
 
     const loadPopupData = useCallback(async () => {
         if (loading) return;
-        if (user && !isCustomer) return;
+        if (userId && !isCustomer) return;
         try {
             const data = isCustomer
                 ? await orderService.getCustomerPopupData()
@@ -91,7 +93,7 @@ export default function CustomerCouponPopup() {
                 setShowGiftIntro(false);
                 return;
             }
-            const owner = user?.id ? `user:${user.id}` : 'guest';
+            const owner = userId ? `user:${userId}` : 'guest';
             const key = `customer-popup-dismissed:${owner}:${nextPopup.key || ''}`;
             if (nextPopup.key && localStorage.getItem(key) === '1') {
                 setPopup(nextPopup);
@@ -109,7 +111,7 @@ export default function CustomerCouponPopup() {
         } catch {
             // ignore popup fetch errors
         }
-    }, [isCustomer, loading, user]);
+    }, [isCustomer, loading, userId]);
 
     useEffect(() => {
         if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
@@ -126,7 +128,7 @@ export default function CustomerCouponPopup() {
 
     useEffect(() => {
         if (loading) return;
-        if (user && !isCustomer) return;
+        if (userId && !isCustomer) return;
         let active = true;
         const timer = setTimeout(async () => {
             if (!active) return;
@@ -136,7 +138,7 @@ export default function CustomerCouponPopup() {
             active = false;
             clearTimeout(timer);
         };
-    }, [isCustomer, loadPopupData, loading, user]);
+    }, [isCustomer, loadPopupData, loading, userId]);
 
     useEffect(() => {
         if (!socket) return;
