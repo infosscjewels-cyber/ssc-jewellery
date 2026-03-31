@@ -17,13 +17,85 @@ const QUICK_RANGES = [
     { value: 'last_90_days', label: 'Last 90 Days' },
     { value: 'custom', label: 'Custom Range' }
 ];
+const DAILY_TREND_PAGE_SIZE = 6;
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+const KPI_CARD_THEMES = {
+    gold: {
+        shell: 'bg-amber-950 border-amber-400/80',
+        label: 'text-amber-100',
+        value: 'text-white',
+        icon: 'text-amber-300',
+        accent: 'text-amber-200',
+        subtext: 'text-amber-100/80'
+    },
+    emerald: {
+        shell: 'bg-slate-900 border-slate-500/70',
+        label: 'text-slate-100',
+        value: 'text-white',
+        icon: 'text-slate-300',
+        accent: 'text-slate-200',
+        subtext: 'text-slate-100/80'
+    },
+    sky: {
+        shell: 'bg-teal-950 border-teal-500/70',
+        label: 'text-teal-100',
+        value: 'text-white',
+        icon: 'text-teal-300',
+        accent: 'text-teal-200',
+        subtext: 'text-teal-100/80'
+    },
+    violet: {
+        shell: 'bg-fuchsia-950 border-fuchsia-500/70',
+        label: 'text-fuchsia-100',
+        value: 'text-white',
+        icon: 'text-fuchsia-300',
+        accent: 'text-fuchsia-200',
+        subtext: 'text-fuchsia-100/80'
+    },
+    amber: {
+        shell: 'bg-yellow-900 border-yellow-500/70',
+        label: 'text-yellow-100',
+        value: 'text-white',
+        icon: 'text-yellow-300',
+        accent: 'text-yellow-200',
+        subtext: 'text-yellow-100/80'
+    },
+    rose: {
+        shell: 'bg-red-950 border-red-500/70',
+        label: 'text-red-100',
+        value: 'text-white',
+        icon: 'text-red-300',
+        accent: 'text-red-200',
+        subtext: 'text-red-100/80'
+    },
+    cyan: {
+        shell: 'bg-indigo-950 border-indigo-500/70',
+        label: 'text-indigo-100',
+        value: 'text-white',
+        icon: 'text-indigo-300',
+        accent: 'text-indigo-200',
+        subtext: 'text-indigo-100/80'
+    }
+};
+const toRangeDays = ({ quickRange = 'last_30_days', startDate = '', endDate = '' } = {}) => {
+    if (quickRange === 'last_7_days') return 7;
+    if (quickRange === 'last_90_days') return 90;
+    if (quickRange === 'latest_10') return 30;
+    if (quickRange === 'custom') {
+        const start = startDate ? new Date(`${startDate}T00:00:00`) : null;
+        const end = endDate ? new Date(`${endDate}T00:00:00`) : null;
+        if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 30;
+        const diff = Math.ceil((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+        return Math.max(1, Math.min(90, diff));
+    }
+    return 30;
+};
 
 const priorityStyles = {
-    high: 'bg-red-50 text-red-700 border-red-200',
-    medium: 'bg-amber-50 text-amber-700 border-amber-200',
-    low: 'bg-blue-50 text-blue-700 border-blue-200'
+    high: 'bg-red-950 text-red-100 border-red-700',
+    medium: 'bg-amber-950 text-amber-100 border-amber-700',
+    low: 'bg-slate-900 text-slate-100 border-slate-700'
 };
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 700;
@@ -93,6 +165,9 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const [goalCelebration, setGoalCelebration] = useState({ active: false, title: '' });
     const [showGoalSaveSpark, setShowGoalSaveSpark] = useState(false);
     const [syncTick, setSyncTick] = useState(0);
+    const [advancedAnalyticsEnabled, setAdvancedAnalyticsEnabled] = useState(true);
+    const [isAnalyticsModeSaving, setIsAnalyticsModeSaving] = useState(false);
+    const [abandonedInsights, setAbandonedInsights] = useState(null);
     const forceRefreshRef = useRef(false);
     const hasTrackedFilterChangeRef = useRef(false);
     const startDateInputRef = useRef(null);
@@ -172,7 +247,11 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         'user:delete': queueForcedRefresh,
         'coupon:changed': queueForcedRefresh,
         'abandoned_cart:journey:update': queueForcedRefresh,
-        'abandoned_cart:recovered': queueForcedRefresh
+        'abandoned_cart:recovered': queueForcedRefresh,
+        'company:info_update': ({ company } = {}) => {
+            if (!company || typeof company !== 'object') return;
+            setAdvancedAnalyticsEnabled(company.advancedAnalyticsEnabled !== false);
+        }
     });
 
     useEffect(() => {
@@ -196,18 +275,24 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             let lastError = null;
             for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt += 1) {
                 try {
-                    const response = await adminService.getDashboardInsights({
-                        quickRange,
-                        startDate: quickRange === 'custom' ? startDate : '',
-                        endDate: quickRange === 'custom' ? endDate : '',
-                        comparisonMode,
-                        status: statusFilter,
-                        paymentMode,
-                        sourceChannel,
-                        forceRefresh: shouldForceRefresh
-                    });
+                    const [response, companyData, abandonedData] = await Promise.all([
+                        adminService.getDashboardInsights({
+                            quickRange,
+                            startDate: quickRange === 'custom' ? startDate : '',
+                            endDate: quickRange === 'custom' ? endDate : '',
+                            comparisonMode,
+                            status: statusFilter,
+                            paymentMode,
+                            sourceChannel,
+                            forceRefresh: shouldForceRefresh
+                        }),
+                        adminService.getCompanyInfo(),
+                        adminService.getAbandonedCartInsights(toRangeDays({ quickRange, startDate, endDate }))
+                    ]);
                     if (!cancelled) {
                         setData(response || null);
+                        setAdvancedAnalyticsEnabled(companyData?.company?.advancedAnalyticsEnabled !== false);
+                        setAbandonedInsights(abandonedData?.insights || null);
                         setLoadError('');
                         setIsLoading(false);
                     }
@@ -311,26 +396,22 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     }, [trendGranularity, trends]);
     const trendDailyPages = useMemo(() => {
         if (trendGranularity !== 'daily') return [];
-        const grouped = new Map();
-        trendSeries.forEach((entry) => {
-            const key = String(entry?.date || '').slice(0, 7);
-            if (!/^\d{4}-\d{2}$/.test(key)) return;
-            const rows = grouped.get(key) || [];
-            rows.push(entry);
-            grouped.set(key, rows);
-        });
-        return [...grouped.entries()].map(([key, rows]) => {
-            const [year] = key.split('-');
-            const labelDate = new Date(`${key}-01T00:00:00`);
-            const label = Number.isNaN(labelDate.getTime())
-                ? key
-                : `${labelDate.toLocaleString('en-IN', { month: 'long' })} ${year}`;
-            return {
-                key,
+        const sortedRows = [...trendSeries].sort((a, b) => String(a?.date || '').localeCompare(String(b?.date || '')));
+        const pages = [];
+        for (let index = 0; index < sortedRows.length; index += DAILY_TREND_PAGE_SIZE) {
+            const rows = sortedRows.slice(index, index + DAILY_TREND_PAGE_SIZE);
+            const firstDate = String(rows[0]?.date || '');
+            const lastDate = String(rows[rows.length - 1]?.date || '');
+            const label = rows.length
+                ? `${formatPrettyDate(firstDate)} - ${formatPrettyDate(lastDate)}`
+                : '';
+            pages.push({
+                key: `${firstDate}:${lastDate}:${index}`,
                 label,
-                rows: rows.sort((a, b) => String(a?.date || '').localeCompare(String(b?.date || '')))
-            };
-        }).sort((a, b) => a.key.localeCompare(b.key));
+                rows
+            });
+        }
+        return pages;
     }, [trendGranularity, trendSeries]);
     useEffect(() => {
         if (trendGranularity !== 'daily') {
@@ -341,7 +422,14 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             setTrendPageIndex(0);
             return;
         }
-        setTrendPageIndex((prev) => Math.min(Math.max(0, prev), trendDailyPages.length - 1));
+        const todayKey = new Date().toISOString().slice(0, 10);
+        const todayPageIndex = trendDailyPages.findIndex((page) =>
+            (page.rows || []).some((entry) => String(entry?.date || '') === todayKey)
+        );
+        setTrendPageIndex((prev) => {
+            if (todayPageIndex >= 0) return todayPageIndex;
+            return Math.min(Math.max(0, prev), trendDailyPages.length - 1);
+        });
     }, [trendDailyPages, trendGranularity]);
     const trendVisibleSeries = trendGranularity === 'daily'
         ? (trendDailyPages[trendPageIndex]?.rows || [])
@@ -359,11 +447,11 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     };
     const getTierBadgeClasses = (tier = 'regular') => {
         const value = String(tier || 'regular').toLowerCase();
-        if (value === 'platinum') return 'bg-sky-100 text-sky-800';
-        if (value === 'gold') return 'bg-yellow-100 text-yellow-800';
-        if (value === 'silver') return 'bg-slate-100 text-slate-700';
-        if (value === 'bronze') return 'bg-amber-100 text-amber-800';
-        return 'bg-gray-100 text-gray-600';
+        if (value === 'platinum') return 'bg-sky-950 text-sky-100';
+        if (value === 'gold') return 'bg-yellow-900 text-yellow-100';
+        if (value === 'silver') return 'bg-slate-800 text-slate-100';
+        if (value === 'bronze') return 'bg-amber-950 text-amber-100';
+        return 'bg-gray-800 text-gray-100';
     };
     const tierLabel = (tier = 'regular') => {
         const value = String(tier || 'regular').toLowerCase();
@@ -385,16 +473,22 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         || (products.topSellers || []).length > 0
         || (customers.topCustomers || []).length > 0
     );
-
-    const cards = [
-        { label: 'Final Sales', value: formatCurrency(overview.netSales), icon: IndianRupee, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_net_sales', cardClass: 'bg-emerald-50 border-emerald-100', iconClass: 'text-emerald-700' },
-        { label: 'Total Sales', value: formatCurrency(overview.grossSales), icon: TrendingUp, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_gross_sales', cardClass: 'bg-sky-50 border-sky-100', iconClass: 'text-sky-700' },
-        { label: 'Orders', value: Number(overview.totalOrders || 0).toLocaleString('en-IN'), icon: ShoppingBag, target: { tab: 'orders', status: statusFilter || 'all' }, widgetId: 'kpi_orders', cardClass: 'bg-violet-50 border-violet-100', iconClass: 'text-violet-700' },
-        { label: 'Average order value', value: formatCurrency(overview.averageOrderValue), icon: Activity, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_aov', cardClass: 'bg-amber-50 border-amber-100', iconClass: 'text-amber-700' },
-        { label: 'Cancelled', value: Number(overview.cancelledOrders || 0).toLocaleString('en-IN'), icon: AlertTriangle, target: { tab: 'orders', status: 'cancelled' }, widgetId: 'kpi_cancelled_orders', cardClass: 'bg-red-50 border-red-100', iconClass: 'text-red-700' },
-        { label: 'Repeat Rate', value: `${Number(overview.repeatRate || 0).toFixed(1)}%`, icon: Users, target: { tab: 'customers' }, widgetId: 'kpi_repeat_rate', cardClass: 'bg-cyan-50 border-cyan-100', iconClass: 'text-cyan-700' }
-    ];
+    const abandonedTotals = abandonedInsights?.totals || {};
     const comparison = overview?.comparison || null;
+
+    const cards = advancedAnalyticsEnabled
+        ? [
+            { label: 'Final Sales', value: formatCurrency(overview.netSales), icon: IndianRupee, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_net_sales', theme: 'gold', helper: comparison ? `Vs comparison: ${Number(comparison.netSales || 0) > 0 ? '+' : ''}${Number(comparison.netSales || 0).toFixed(1)}%` : '' },
+            { label: 'Total Sales', value: formatCurrency(overview.grossSales), icon: TrendingUp, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_gross_sales', theme: 'sky' },
+            { label: 'Orders', value: Number(overview.totalOrders || 0).toLocaleString('en-IN'), icon: ShoppingBag, target: { tab: 'orders', status: statusFilter || 'all' }, widgetId: 'kpi_orders', theme: 'violet', helper: comparison ? `Vs comparison: ${Number(comparison.totalOrders || 0) > 0 ? '+' : ''}${Number(comparison.totalOrders || 0).toFixed(1)}%` : '' },
+            { label: 'Average Order Value', value: formatCurrency(overview.averageOrderValue), icon: Activity, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_aov', theme: 'amber' },
+            { label: 'Cancelled', value: Number(overview.cancelledOrders || 0).toLocaleString('en-IN'), icon: AlertTriangle, target: { tab: 'orders', status: 'cancelled' }, widgetId: 'kpi_cancelled_orders', theme: 'rose' },
+            { label: 'Repeat Rate', value: `${Number(overview.repeatRate || 0).toFixed(1)}%`, icon: Users, target: { tab: 'customers' }, widgetId: 'kpi_repeat_rate', theme: 'cyan' }
+        ]
+        : [
+            { label: 'Orders', value: Number(overview.totalOrders || 0).toLocaleString('en-IN'), icon: ShoppingBag, target: { tab: 'orders', status: statusFilter || 'all' }, widgetId: 'kpi_orders', theme: 'violet', helper: `${Number(funnel.paid || 0).toLocaleString('en-IN')} paid orders` },
+            { label: 'Abandoned Carts', value: Number(abandonedTotals.totalJourneys || 0).toLocaleString('en-IN'), icon: Route, target: { tab: 'abandoned' }, widgetId: 'kpi_abandoned_carts', theme: 'sky', helper: `${Number(abandonedTotals.activeJourneys || 0).toLocaleString('en-IN')} active recovery journeys` }
+        ];
     const refreshGoals = async () => {
         const goalData = await adminService.getDashboardGoals();
         const rows = Array.isArray(goalData?.goals) ? goalData.goals : [];
@@ -552,6 +646,20 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         trackEvent('action_resolved', { actionId, widgetId: 'action_center' });
         toastRef.current.success('Action dismissed for this session');
     };
+    const handleAdvancedAnalyticsToggle = async () => {
+        if (isAnalyticsModeSaving) return;
+        const nextValue = !advancedAnalyticsEnabled;
+        setIsAnalyticsModeSaving(true);
+        try {
+            const response = await adminService.updateCompanyInfo({ advancedAnalyticsEnabled: nextValue });
+            setAdvancedAnalyticsEnabled(response?.company?.advancedAnalyticsEnabled !== false);
+            toastRef.current.success(`Advanced analytics ${nextValue ? 'enabled' : 'disabled'}`);
+        } catch (error) {
+            toastRef.current.error(error?.message || 'Failed to update analytics mode');
+        } finally {
+            setIsAnalyticsModeSaving(false);
+        }
+    };
     const lastUpdatedLabel = data?.lastUpdatedAt
         ? formatPrettyDate(new Date(data.lastUpdatedAt).toISOString().slice(0, 10))
         : null;
@@ -570,12 +678,16 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const totalPaymentModeOrders = paymentModeBreakdown.reduce((sum, row) => sum + Number(row?.orders || 0), 0);
     const paymentModeLabel = (mode) => {
         const key = String(mode || '').toLowerCase();
+        if (key === 'cash') return 'Cash';
         if (key === 'upi') return 'UPI';
         if (key === 'netbanking') return 'Net Banking';
+        if (key === 'net_banking') return 'Net Banking';
         if (key === 'card') return 'Card';
+        if (key === 'card_swipe') return 'Card Swipe';
         if (key === 'emi') return 'EMI';
         if (key === 'wallet') return 'Wallet';
         if (key === 'paylater') return 'Pay Later';
+        if (key === 'manual') return 'Manual';
         return key ? key.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase()) : 'Unknown';
     };
 
@@ -622,85 +734,6 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                     document.body
                 )
             )}
-            <div className="emboss-card relative overflow-hidden bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
-                <BarChart3 size={64} className="bg-emboss-icon absolute right-4 top-4 text-gray-200" />
-                <button
-                    type="button"
-                    onClick={() => setIsStoreIntroOpen((prev) => !prev)}
-                    className="w-full flex items-start justify-between text-left"
-                >
-                    <div>
-                        <h2 className="text-xl font-semibold text-gray-900">Store Intelligence</h2>
-                        <p className="text-sm text-gray-500 mt-1">Sales insights, funnel health, and action priorities.</p>
-                        {lastUpdatedLabel && <p className="text-xs text-gray-400 mt-1">Last updated: {lastUpdatedLabel}</p>}
-                    </div>
-                    <span className="mt-1 text-gray-500">{isStoreIntroOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}</span>
-                </button>
-                {isStoreIntroOpen && (
-                    <div className="mt-4 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                        <div className="flex flex-wrap gap-2">
-                            <button
-                                type="button"
-                                onClick={() => setIsGoalSettingsOpen(true)}
-                                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                            >
-                                <Target size={14} /> Goal Settings
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setIsAlertSettingsOpen(true)}
-                                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                            >
-                                <Bell size={14} /> Alert Settings
-                            </button>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-2 w-full md:w-auto">
-                            <select
-                                value={quickRange}
-                                onChange={(e) => setQuickRange(e.target.value)}
-                                className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white"
-                            >
-                                {QUICK_RANGES.map((range) => (
-                                    <option key={range.value} value={range.value}>{range.label}</option>
-                                ))}
-                            </select>
-                            {quickRange === 'custom' && (
-                                <>
-                                    <input ref={startDateInputRef} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="sr-only" />
-                                    <input ref={endDateInputRef} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="sr-only" />
-                                    <input type="button" value={startDate ? formatPrettyDate(startDate) : 'Start Date'} onClick={() => (startDateInputRef.current?.showPicker ? startDateInputRef.current.showPicker() : startDateInputRef.current?.click())} className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white text-left" />
-                                    <input type="button" value={endDate ? formatPrettyDate(endDate) : 'End Date'} onClick={() => (endDateInputRef.current?.showPicker ? endDateInputRef.current.showPicker() : endDateInputRef.current?.click())} className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white text-left" />
-                                </>
-                            )}
-                            <select value={comparisonMode} onChange={(e) => setComparisonMode(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white">
-                                <option value="previous_period">Compare: Previous Period</option>
-                                <option value="same_period_last_month">Compare: Last Month</option>
-                            </select>
-                            <button
-                                type="button"
-                                onClick={() => setIsCompareEnabled((prev) => !prev)}
-                                className={`px-3 py-2 rounded-lg border text-sm font-semibold ${isCompareEnabled ? 'bg-primary text-accent border-primary' : 'bg-white text-gray-700 border-gray-200'}`}
-                            >
-                                {isCompareEnabled ? 'Compare: On' : 'Compare: Off'}
-                            </button>
-                            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white">
-                                <option value="all">Status: All</option>
-                                <option value="pending">Status: Pending</option>
-                                <option value="confirmed">Status: Confirmed</option>
-                                <option value="shipped">Status: Shipped</option>
-                                <option value="completed">Status: Completed</option>
-                                <option value="cancelled">Status: Cancelled</option>
-                                <option value="failed">Status: Failed</option>
-                            </select>
-                            <select value={sourceChannel} onChange={(e) => setSourceChannel(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white">
-                                <option value="all">Channel: All</option>
-                                <option value="direct">Channel: Direct (Checkout)</option>
-                                <option value="abandoned_recovery">Channel: Abandoned Recovery</option>
-                            </select>
-                        </div>
-                    </div>
-                )}
-            </div>
             {hasSelectedPeriod && <p className="text-xs text-gray-500 -mt-4">Selected period: {selectedPeriodLabel}</p>}
 
             {isLoading ? (
@@ -719,24 +752,32 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                 </div>
             ) : (
                 <>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    <div className={`grid gap-4 ${advancedAnalyticsEnabled ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' : 'grid-cols-2'}`}>
                         {cards.map((card) => (
                             <button
                                 key={card.label}
                                 type="button"
                                 onClick={() => handleOpenCard(card)}
-                                className={`relative overflow-hidden rounded-xl border p-4 shadow-sm flex items-center justify-between text-left transition-colors hover:brightness-[0.99] ${card.cardClass}`}
+                                className={`group relative overflow-hidden rounded-2xl border p-5 shadow-sm flex items-start justify-between text-left transition-transform hover:-translate-y-0.5 ${advancedAnalyticsEnabled ? 'min-h-[152px]' : 'aspect-square md:aspect-auto md:min-h-[152px]'} ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
                             >
                                 <div>
-                                    <p className="text-xs uppercase tracking-wide text-gray-500">{card.label}</p>
-                                    <p className="text-2xl font-semibold text-gray-900 mt-1">{card.value}</p>
-                                    {comparison && (card.label === 'Net Sales' || card.label === 'Orders') && (
-                                        <p className="text-[11px] mt-1 text-gray-500">
-                                            {card.label === 'Net Sales' ? `Δ ${comparison.netSales ?? 0}%` : `Δ ${comparison.totalOrders ?? 0}%`}
+                                    <p className={`text-xs uppercase tracking-[0.2em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>{card.label}</p>
+                                    <p className={`text-3xl font-semibold mt-2 ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
+                                    {card.helper && (
+                                        <p className={`text-xs mt-2 ${KPI_CARD_THEMES[card.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext}`}>
+                                            {card.helper}
+                                        </p>
+                                    )}
+                                    {!card.helper && (
+                                        <p className={`text-xs mt-2 ${KPI_CARD_THEMES[card.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext}`}>
+                                            Tap to inspect detailed records
                                         </p>
                                     )}
                                 </div>
-                                <card.icon size={52} className={`absolute right-2 bottom-2 opacity-10 ${card.iconClass}`} />
+                                <div className="flex flex-col items-end justify-between h-full">
+                                    <ArrowRight size={22} className={KPI_CARD_THEMES[card.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
+                                    <card.icon size={54} className={`mt-10 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
+                                </div>
                             </button>
                         ))}
                     </div>
@@ -846,7 +887,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                             onClick={() => setTrendPageIndex((prev) => Math.max(0, prev - 1))}
                                             className="px-2.5 py-1 rounded-md border border-gray-200 text-xs text-gray-600 disabled:opacity-40 hover:bg-gray-50"
                                         >
-                                            Prev Month
+                                            Prev
                                         </button>
                                         <span className="text-xs text-gray-500">{trendDailyPages[trendPageIndex]?.label || ''}</span>
                                         <button
@@ -855,7 +896,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                             onClick={() => setTrendPageIndex((prev) => Math.min(trendDailyPages.length - 1, prev + 1))}
                                             className="px-2.5 py-1 rounded-md border border-gray-200 text-xs text-gray-600 disabled:opacity-40 hover:bg-gray-50"
                                         >
-                                            Next Month
+                                            Next
                                         </button>
                                     </div>
                                 )}
@@ -884,34 +925,23 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                        <div className="relative overflow-hidden bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-                            <p className="text-xs uppercase tracking-wide text-gray-500 flex items-center gap-1"><Users size={12} />New Customer Revenue</p>
-                            <p className="text-xl font-semibold text-gray-900 mt-1">{formatCurrency(growth.newCustomerRevenue)}</p>
-                            <p className="text-xs text-gray-500 mt-1">Returning: {formatCurrency(growth.returningCustomerRevenue)}</p>
-                            <Users size={46} className="absolute right-2 bottom-2 text-gray-300 opacity-20" />
+                    {advancedAnalyticsEnabled && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                            {[
+                                { label: 'New Customer Revenue', value: formatCurrency(growth.newCustomerRevenue), helper: `Returning: ${formatCurrency(growth.returningCustomerRevenue)}`, icon: Users, theme: 'gold' },
+                                { label: 'Coupon Impact', value: formatCurrency(growth.couponDiscountTotal), helper: `${Number(growth.couponOrders || 0)} orders used coupons`, icon: Target, theme: 'amber' },
+                                { label: 'Failed Payments (6h)', value: Number(risk.failedPaymentsCurrent6h || 0).toLocaleString('en-IN'), helper: `vs prev 6h: ${Number(risk.failedPaymentsSpikePct || 0)}%`, icon: ShieldAlert, theme: 'rose' },
+                                { label: 'Pending Aging', value: `${Number(risk.pendingAging?.over72h || 0)} over 72h`, helper: `24-72h: ${Number(risk.pendingAging?.from24hTo72h || 0)}, <24h: ${Number(risk.pendingAging?.under24h || 0)}`, icon: CalendarDays, theme: 'sky' }
+                            ].map((card) => (
+                                <div key={card.label} className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${KPI_CARD_THEMES[card.theme].shell}`}>
+                                    <p className={`text-xs uppercase tracking-[0.2em] flex items-center gap-1 ${KPI_CARD_THEMES[card.theme].label}`}><card.icon size={12} />{card.label}</p>
+                                    <p className={`text-xl font-semibold mt-2 ${KPI_CARD_THEMES[card.theme].value}`}>{card.value}</p>
+                                    <p className={`text-xs mt-2 ${KPI_CARD_THEMES[card.theme].subtext}`}>{card.helper}</p>
+                                    <card.icon size={46} className={`absolute right-2 bottom-2 opacity-90 ${KPI_CARD_THEMES[card.theme].icon}`} />
+                                </div>
+                            ))}
                         </div>
-                        <div className="relative overflow-hidden bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-                            <p className="text-xs uppercase tracking-wide text-gray-500 flex items-center gap-1"><Target size={12} />Coupon Impact</p>
-                            <p className="text-xl font-semibold text-gray-900 mt-1">{formatCurrency(growth.couponDiscountTotal)}</p>
-                            <p className="text-xs text-gray-500 mt-1">{Number(growth.couponOrders || 0)} orders used coupons</p>
-                            <Target size={46} className="absolute right-2 bottom-2 text-gray-300 opacity-20" />
-                        </div>
-                        <div className="relative overflow-hidden bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-                            <p className="text-xs uppercase tracking-wide text-gray-500 flex items-center gap-1"><ShieldAlert size={12} />Failed Payments (6h)</p>
-                            <p className="text-xl font-semibold text-gray-900 mt-1">{Number(risk.failedPaymentsCurrent6h || 0)}</p>
-                            <p className="text-xs text-gray-500 mt-1">vs prev 6h: {Number(risk.failedPaymentsSpikePct || 0)}%</p>
-                            <ShieldAlert size={46} className="absolute right-2 bottom-2 text-gray-300 opacity-20" />
-                        </div>
-                        <div className="relative overflow-hidden bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-                            <p className="text-xs uppercase tracking-wide text-gray-500 flex items-center gap-1"><CalendarDays size={12} />Pending Aging</p>
-                            <p className="text-xl font-semibold text-gray-900 mt-1">{Number(risk.pendingAging?.over72h || 0)} over 72h</p>
-                            <p className="text-xs text-gray-500 mt-1">
-                                24-72h: {Number(risk.pendingAging?.from24hTo72h || 0)}, &lt;24h: {Number(risk.pendingAging?.under24h || 0)}
-                            </p>
-                            <CalendarDays size={46} className="absolute right-2 bottom-2 text-gray-300 opacity-20" />
-                        </div>
-                    </div>
+                    )}
 
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
@@ -1316,6 +1346,110 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                         </div>,
                         document.body
                     )}
+                    <div className="emboss-card relative overflow-hidden bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+                        <BarChart3 size={64} className="bg-emboss-icon absolute right-4 top-4 text-gray-200" />
+                        <div className="flex items-start justify-between gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setIsStoreIntroOpen((prev) => !prev)}
+                                className="flex-1 text-left"
+                            >
+                                <div>
+                                    <h2 className="text-xl font-semibold text-gray-900">Store Intelligence</h2>
+                                    <p className="text-sm text-gray-500 mt-1">Sales insights, funnel health, and action priorities.</p>
+                                    {lastUpdatedLabel && <p className="text-xs text-gray-400 mt-1">Last updated: {lastUpdatedLabel}</p>}
+                                </div>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsStoreIntroOpen((prev) => !prev)}
+                                className="mt-1 text-gray-500"
+                                aria-label={isStoreIntroOpen ? 'Collapse Store Intelligence controls' : 'Expand Store Intelligence controls'}
+                            >
+                                {isStoreIntroOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                            </button>
+                        </div>
+                        {isStoreIntroOpen && (
+                            <div className="mt-4 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleAdvancedAnalyticsToggle}
+                                        disabled={isAnalyticsModeSaving}
+                                        aria-pressed={advancedAnalyticsEnabled}
+                                        className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-semibold transition-colors ${
+                                            advancedAnalyticsEnabled
+                                                ? 'border-primary bg-primary text-accent'
+                                                : 'border-sky-200 bg-sky-50 text-sky-900'
+                                        } disabled:opacity-60`}
+                                    >
+                                        <span className={`inline-flex h-5 w-9 items-center rounded-full transition-colors ${advancedAnalyticsEnabled ? 'bg-accent/25' : 'bg-sky-200'}`}>
+                                            <span className={`h-4 w-4 rounded-full bg-white shadow transition-transform ${advancedAnalyticsEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                        </span>
+                                        Advanced Analytics
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsGoalSettingsOpen(true)}
+                                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                    >
+                                        <Target size={14} /> Goal Settings
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsAlertSettingsOpen(true)}
+                                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                    >
+                                        <Bell size={14} /> Alert Settings
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-2 w-full md:w-auto">
+                                    <select
+                                        value={quickRange}
+                                        onChange={(e) => setQuickRange(e.target.value)}
+                                        className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white"
+                                    >
+                                        {QUICK_RANGES.map((range) => (
+                                            <option key={range.value} value={range.value}>{range.label}</option>
+                                        ))}
+                                    </select>
+                                    {quickRange === 'custom' && (
+                                        <>
+                                            <input ref={startDateInputRef} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="sr-only" />
+                                            <input ref={endDateInputRef} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="sr-only" />
+                                            <input type="button" value={startDate ? formatPrettyDate(startDate) : 'Start Date'} onClick={() => (startDateInputRef.current?.showPicker ? startDateInputRef.current.showPicker() : startDateInputRef.current?.click())} className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white text-left" />
+                                            <input type="button" value={endDate ? formatPrettyDate(endDate) : 'End Date'} onClick={() => (endDateInputRef.current?.showPicker ? endDateInputRef.current.showPicker() : endDateInputRef.current?.click())} className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white text-left" />
+                                        </>
+                                    )}
+                                    <select value={comparisonMode} onChange={(e) => setComparisonMode(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white">
+                                        <option value="previous_period">Compare: Previous Period</option>
+                                        <option value="same_period_last_month">Compare: Last Month</option>
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsCompareEnabled((prev) => !prev)}
+                                        className={`px-3 py-2 rounded-lg border text-sm font-semibold ${isCompareEnabled ? 'bg-primary text-accent border-primary' : 'bg-white text-gray-700 border-gray-200'}`}
+                                    >
+                                        {isCompareEnabled ? 'Compare: On' : 'Compare: Off'}
+                                    </button>
+                                    <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white">
+                                        <option value="all">Status: All</option>
+                                        <option value="pending">Status: Pending</option>
+                                        <option value="confirmed">Status: Confirmed</option>
+                                        <option value="shipped">Status: Shipped</option>
+                                        <option value="completed">Status: Completed</option>
+                                        <option value="cancelled">Status: Cancelled</option>
+                                        <option value="failed">Status: Failed</option>
+                                    </select>
+                                    <select value={sourceChannel} onChange={(e) => setSourceChannel(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white">
+                                        <option value="all">Channel: All</option>
+                                        <option value="direct">Channel: Direct (Checkout)</option>
+                                        <option value="abandoned_recovery">Channel: Abandoned Recovery</option>
+                                    </select>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </>
             )}
         </div>

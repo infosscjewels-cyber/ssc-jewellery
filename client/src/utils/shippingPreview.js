@@ -9,16 +9,27 @@ const toNullableNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
-export const computeShippingPreview = ({ zones = [], state = '', subtotal = 0, totalWeightKg = 0 } = {}) => {
+export const computeShippingPreview = ({
+  zones = [],
+  state = '',
+  subtotal = 0,
+  totalWeightKg = 0,
+  useDefaultZone = false
+} = {}) => {
   if (!Array.isArray(zones) || zones.length === 0) return null;
   const normalizedState = normalizeStateKey(state);
-  if (!normalizedState) return null;
 
-  const zone = zones.find((entry) => Array.isArray(entry?.states)
-    && entry.states.some((candidate) => normalizeStateKey(candidate) === normalizedState));
+  const matchedZone = normalizedState
+    ? zones.find((entry) => Array.isArray(entry?.states)
+      && entry.states.some((candidate) => normalizeStateKey(candidate) === normalizedState))
+    : null;
+  const zone = matchedZone || (useDefaultZone ? zones[0] : null);
   if (!zone || !Array.isArray(zone.options)) {
     return {
       matchedZone: false,
+      matchedByState: false,
+      usedDefaultZone: false,
+      isTentative: false,
       hasEligibleOption: false,
       isUnavailable: true,
       fee: 0,
@@ -54,7 +65,10 @@ export const computeShippingPreview = ({ zones = [], state = '', subtotal = 0, t
     : null;
 
   return {
-    matchedZone: true,
+    matchedZone: Boolean(zone),
+    matchedByState: Boolean(matchedZone),
+    usedDefaultZone: Boolean(zone && !matchedZone),
+    isTentative: Boolean(zone && !matchedZone),
     hasEligibleOption,
     isUnavailable: !hasEligibleOption,
     fee,

@@ -25,6 +25,32 @@ const sortOptions = [
     { value: 'lowest_value', label: 'Lowest Cart Value' },
     { value: 'next_due', label: 'Next Due' }
 ];
+const KPI_CARD_THEMES = {
+    sky: {
+        shell: 'bg-sky-950 border-sky-500/70',
+        label: 'text-sky-100',
+        value: 'text-white',
+        iconGhost: 'text-sky-300/25'
+    },
+    emerald: {
+        shell: 'bg-emerald-950 border-emerald-500/70',
+        label: 'text-emerald-100',
+        value: 'text-white',
+        iconGhost: 'text-emerald-300/25'
+    },
+    amber: {
+        shell: 'bg-amber-950 border-amber-500/70',
+        label: 'text-amber-100',
+        value: 'text-white',
+        iconGhost: 'text-amber-300/25'
+    },
+    violet: {
+        shell: 'bg-violet-950 border-violet-500/70',
+        label: 'text-violet-100',
+        value: 'text-white',
+        iconGhost: 'text-violet-300/25'
+    }
+};
 
 const numberArrayInput = (value) => {
     if (Array.isArray(value)) return value.join(',');
@@ -54,12 +80,12 @@ const parseIntegerCsv = (value, { min = 0, fieldLabel = 'Field' } = {}) => {
 
 const statusClass = (status) => {
     const key = String(status || '').toLowerCase();
-    if (key === 'pending') return 'bg-violet-50 text-violet-700';
-    if (key === 'recovered') return 'bg-emerald-50 text-emerald-700';
-    if (key === 'active') return 'bg-blue-50 text-blue-700';
-    if (key === 'expired') return 'bg-amber-50 text-amber-700';
-    if (key === 'cancelled') return 'bg-gray-100 text-gray-600';
-    return 'bg-gray-100 text-gray-600';
+    if (key === 'pending') return 'bg-violet-950 text-violet-100 border border-violet-700';
+    if (key === 'recovered') return 'bg-emerald-950 text-emerald-100 border border-emerald-700';
+    if (key === 'active') return 'bg-blue-950 text-blue-100 border border-blue-700';
+    if (key === 'expired') return 'bg-amber-950 text-amber-100 border border-amber-700';
+    if (key === 'cancelled') return 'bg-slate-800 text-slate-100 border border-slate-600';
+    return 'bg-slate-900 text-slate-100 border border-slate-700';
 };
 const inr = (value) => `₹${Number(value || 0).toLocaleString()}`;
 const formatCustomerContacts = (journey) => {
@@ -202,10 +228,10 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
         const effectiveInsights = sharedInsights || insights;
         const totals = effectiveInsights?.totals || {};
         return [
-            { label: 'Total Journeys', value: Number(totals.totalJourneys || 0), cardBg: 'bg-gradient-to-br from-blue-50 to-white' },
-            { label: 'Recovered', value: Number(totals.recoveredJourneys || 0), cardBg: 'bg-gradient-to-br from-emerald-50 to-white' },
-            { label: 'Recovery Rate', value: `${Number(totals.recoveryRate || 0).toFixed(2)}%`, cardBg: 'bg-gradient-to-br from-amber-50 to-white' },
-            { label: 'Recovered Value', value: inr(totals.recoveredValue || 0), cardBg: 'bg-gradient-to-br from-violet-50 to-white' }
+            { label: 'Total Journeys', value: Number(totals.totalJourneys || 0), theme: 'sky' },
+            { label: 'Recovered', value: Number(totals.recoveredJourneys || 0), theme: 'emerald' },
+            { label: 'Recovery Rate', value: `${Number(totals.recoveryRate || 0).toFixed(2)}%`, theme: 'amber' },
+            { label: 'Recovered Value', value: inr(totals.recoveredValue || 0), theme: 'violet' }
         ];
     }, [insights, sharedInsights]);
 
@@ -727,10 +753,10 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 {cards.map((card) => (
-                    <div key={card.label} className={`emboss-card relative overflow-hidden rounded-2xl border border-gray-100 shadow-sm p-5 ${card.cardBg || 'bg-white'}`}>
-                        <ShoppingCart size={54} className="bg-emboss-icon absolute right-2 bottom-2 text-gray-100" />
-                        <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">{card.label}</p>
-                        <p className="text-xl font-bold text-gray-800 mt-1">{card.value}</p>
+                    <div key={card.label} className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm p-5 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`}>
+                        <ShoppingCart size={54} className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || 'sky'].iconGhost}`} />
+                        <p className={`text-xs uppercase tracking-widest font-semibold ${KPI_CARD_THEMES[card.theme || 'sky'].label}`}>{card.label}</p>
+                        <p className={`text-xl font-bold mt-1 ${KPI_CARD_THEMES[card.theme || 'sky'].value}`}>{card.value}</p>
                     </div>
                 ))}
             </div>
@@ -977,7 +1003,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                             <div key={attempt.id} className="border border-gray-200 rounded-xl p-3">
                                                 <div className="flex items-center justify-between">
                                                     <p className="text-sm font-semibold text-gray-800">Attempt #{attempt.attempt_no}</p>
-                                                    <span className={`text-[11px] px-2 py-0.5 rounded-full ${attempt.status === 'sent' ? 'bg-emerald-50 text-emerald-700' : attempt.status === 'failed' ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-600'}`}>{attempt.status}</span>
+                                                    <span className={`text-[11px] px-2 py-0.5 rounded-full border ${attempt.status === 'sent' ? 'bg-emerald-950 text-emerald-100 border-emerald-700' : attempt.status === 'failed' ? 'bg-red-950 text-red-100 border-red-700' : 'bg-slate-900 text-slate-100 border-slate-700'}`}>{attempt.status}</span>
                                                 </div>
                                                 <p className="text-xs text-gray-500 mt-1">Channels: {(attempt.channels_json || []).join(', ') || '—'}</p>
                                                 {attempt.discount_code && <p className="text-xs text-gray-500">Discount: {attempt.discount_code} ({attempt.discount_percent || 0}%)</p>}

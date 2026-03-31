@@ -26,6 +26,7 @@ import { normalizePaymentFailureReason } from '../utils/paymentFailure';
 import { computeShippingPreview } from '../utils/shippingPreview';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import { getAllowedShippingStates, isAllowedShippingState, isValidIndianPincode, lookupStateByPincode, normalizePincodeInput, resolveAllowedStateName } from '../utils/addressValidation';
+import { billingAddressEnabled } from '../utils/billingAddressConfig';
 import StorefrontClosed from './StorefrontClosed';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
@@ -169,7 +170,7 @@ export default function Checkout() {
         [form.address]
     );
     const shippingZip = form.address.zip;
-    const billingZip = form.billingAddress.zip;
+    const billingZip = billingAddressEnabled ? form.billingAddress.zip : form.address.zip;
     const storefrontOpen = companyInfo?.storefrontOpen !== false;
     const subCategoriesEnabled = companyInfo?.subCategoriesEnabled === true;
     const availableStates = useMemo(() => getAllowedShippingStates(zones), [zones]);
@@ -220,11 +221,26 @@ export default function Checkout() {
             },
             billingAddress: {
                 ...emptyAddress,
-                ...(user.billingAddress || user.address || {}),
-                state: resolveAllowedStateName(availableStates, user?.billingAddress?.state || user?.address?.state) || ''
+                ...(billingAddressEnabled ? (user.billingAddress || user.address || {}) : (user.address || {})),
+                state: resolveAllowedStateName(
+                    availableStates,
+                    billingAddressEnabled ? (user?.billingAddress?.state || user?.address?.state) : user?.address?.state
+                ) || ''
             }
         });
     }, [user, availableStates]);
+
+    useEffect(() => {
+        if (billingAddressEnabled) return;
+        setForm((prev) => {
+            const nextBillingAddress = { ...prev.address };
+            if (JSON.stringify(prev.billingAddress) === JSON.stringify(nextBillingAddress)) return prev;
+            return {
+                ...prev,
+                billingAddress: nextBillingAddress
+            };
+        });
+    }, [form.address]);
 
     useEffect(() => {
         if (!availableStates.length) return undefined;
@@ -253,7 +269,7 @@ export default function Checkout() {
             }
         };
         runLookup('address');
-        runLookup('billingAddress');
+        if (billingAddressEnabled) runLookup('billingAddress');
         return () => {
             addressControllers.address.abort();
             addressControllers.billingAddress.abort();
@@ -470,7 +486,7 @@ export default function Checkout() {
                 email: form.email,
                 mobile: form.mobile,
                 address: form.address,
-                billingAddress: form.billingAddress
+                billingAddress: billingAddressEnabled ? form.billingAddress : form.address
             });
             if (res?.user) {
                 updateUser(res.user);
@@ -582,7 +598,8 @@ export default function Checkout() {
         zones,
         state: form.address?.state,
         subtotal,
-        totalWeightKg
+        totalWeightKg,
+        useDefaultZone: true
     })?.fee || 0), [zones, form.address?.state, subtotal, totalWeightKg]);
 
     const shippingFee = useMemo(
@@ -593,7 +610,8 @@ export default function Checkout() {
         zones,
         state: form.address?.state,
         subtotal,
-        totalWeightKg
+        totalWeightKg,
+        useDefaultZone: true
     }), [zones, form.address?.state, subtotal, totalWeightKg]);
     const isShippingUnavailable = Boolean(
         hasCompleteAddress(form.address)
@@ -691,7 +709,8 @@ export default function Checkout() {
     }, [checkoutSummary?.total, subtotal, shippingFee, taxTotal, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]);
     const isMobileMissingOnProfile = !String(user?.mobile || '').trim();
     const hasMobileForPayment = Boolean(String(form.mobile || '').trim());
-    const isAddressReadyForPayment = hasCompleteAddress(form.address) && hasCompleteAddress(form.billingAddress);
+    const effectiveBillingAddress = billingAddressEnabled ? form.billingAddress : form.address;
+    const isAddressReadyForPayment = hasCompleteAddress(form.address) && hasCompleteAddress(effectiveBillingAddress);
     const hasUnavailableItems = useMemo(() => hasUnavailableCheckoutItems(lineItems), [lineItems]);
     const isReadyForPayment = isAddressReadyForPayment && (!isMobileMissingOnProfile || hasMobileForPayment) && !hasUnavailableItems;
     const fieldErrors = useMemo(() => {
@@ -700,7 +719,7 @@ export default function Checkout() {
         if (!isValidEmailInput(form.email)) errors.email = 'Enter a valid email';
         if (!isValidMobileInput(form.mobile)) errors.mobile = 'Enter a valid mobile number';
 
-        ['address', 'billingAddress'].forEach((section) => {
+        ['address', ...(billingAddressEnabled ? ['billingAddress'] : [])].forEach((section) => {
             const prefix = section === 'address' ? 'shipping' : 'billing';
             const source = form[section] || {};
             if (!String(source.line1 || '').trim()) errors[`${prefix}Line1`] = 'Street address is required';
@@ -739,22 +758,22 @@ export default function Checkout() {
         if (hasFormValidationErrors) return toast.error('Please correct highlighted fields before payment');
         if (isMobileMissingOnProfile && !hasMobileForPayment) return toast.error('Please add mobile number before payment');
         if (!hasCompleteAddress(form.address)) return toast.error('Please complete shipping address before payment');
-        if (!hasCompleteAddress(form.billingAddress)) return toast.error('Please complete billing address before payment');
+        if (billingAddressEnabled && !hasCompleteAddress(form.billingAddress)) return toast.error('Please complete billing address before payment');
         setIsPlacingOrder(true);
         try {
             const profileNeedsAddressSync = (
                 !hasCompleteAddress(user?.address)
-                || !hasCompleteAddress(user?.billingAddress)
+                || (billingAddressEnabled && !hasCompleteAddress(user?.billingAddress))
                 || (isMobileMissingOnProfile && hasMobileForPayment)
             );
-            const checkoutHasAddress = hasCompleteAddress(form.address) && hasCompleteAddress(form.billingAddress);
+            const checkoutHasAddress = hasCompleteAddress(form.address) && hasCompleteAddress(effectiveBillingAddress);
             if (profileNeedsAddressSync && checkoutHasAddress && (!isMobileMissingOnProfile || hasMobileForPayment)) {
                 const profileRes = await authService.updateProfile({
                     name: form.name,
                     email: form.email,
                     mobile: form.mobile,
                     address: form.address,
-                    billingAddress: form.billingAddress
+                    billingAddress: effectiveBillingAddress
                 });
                 if (profileRes?.user) {
                     updateUser(profileRes.user);
@@ -778,7 +797,7 @@ export default function Checkout() {
             }
 
             const init = await orderService.createRazorpayOrder({
-                billingAddress: form.billingAddress,
+                billingAddress: effectiveBillingAddress,
                 shippingAddress: form.address,
                 couponCode: appliedCoupon?.code || null,
                 notes: {
@@ -1062,51 +1081,53 @@ export default function Checkout() {
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-6">
-                                    <div className="bg-gray-50 rounded-2xl border border-gray-100 p-5">
-                                        <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                                            <CreditCard size={16} className="text-primary" /> Billing Address
-                                        </h3>
-                                        <div className="mt-4 space-y-3">
-                                            <input
-                                                value={form.billingAddress.line1}
-                                                onChange={(e) => handleAddressChange('billingAddress', 'line1', e.target.value)}
-                                                disabled={!editing}
-                                                placeholder="Street Address"
-                                                className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingLine1 ? 'border-red-400 bg-red-50/30' : ''}`}
-                                            />
-                                            <div className="grid grid-cols-2 gap-3">
+                                <div className={`grid grid-cols-1 ${billingAddressEnabled ? 'md:grid-cols-2' : ''} gap-5 mt-6`}>
+                                    {billingAddressEnabled && (
+                                        <div className="bg-gray-50 rounded-2xl border border-gray-100 p-5">
+                                            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                                                <CreditCard size={16} className="text-primary" /> Billing Address
+                                            </h3>
+                                            <div className="mt-4 space-y-3">
                                                 <input
-                                                    value={form.billingAddress.city}
-                                                    onChange={(e) => handleAddressChange('billingAddress', 'city', e.target.value)}
+                                                    value={form.billingAddress.line1}
+                                                    onChange={(e) => handleAddressChange('billingAddress', 'line1', e.target.value)}
                                                     disabled={!editing}
-                                                    placeholder="City"
-                                                    className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingCity ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                    placeholder="Street Address"
+                                                    className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingLine1 ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 />
-                                                <select
-                                                    value={resolveAllowedStateName(availableStates, form.billingAddress.state) || ''}
-                                                    onChange={(e) => handleAddressChange('billingAddress', 'state', e.target.value)}
-                                                    disabled={!editing || availableStates.length === 0}
-                                                    className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingState ? 'border-red-400 bg-red-50/30' : ''}`}
-                                                >
-                                                    <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
-                                                    {availableStates.map((state) => (
-                                                        <option key={`billing-state-${state}`} value={state}>{state}</option>
-                                                    ))}
-                                                </select>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <input
+                                                        value={form.billingAddress.city}
+                                                        onChange={(e) => handleAddressChange('billingAddress', 'city', e.target.value)}
+                                                        disabled={!editing}
+                                                        placeholder="City"
+                                                        className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingCity ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                    />
+                                                    <select
+                                                        value={resolveAllowedStateName(availableStates, form.billingAddress.state) || ''}
+                                                        onChange={(e) => handleAddressChange('billingAddress', 'state', e.target.value)}
+                                                        disabled={!editing || availableStates.length === 0}
+                                                        className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingState ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                    >
+                                                        <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
+                                                        {availableStates.map((state) => (
+                                                            <option key={`billing-state-${state}`} value={state}>{state}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <input
+                                                    value={form.billingAddress.zip}
+                                                    onChange={(e) => handleAddressChange('billingAddress', 'zip', e.target.value)}
+                                                    disabled={!editing}
+                                                    placeholder="PIN code"
+                                                    className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingZip ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                />
+                                                {attemptedPay && (fieldErrors.billingLine1 || fieldErrors.billingCity || fieldErrors.billingState || fieldErrors.billingZip) && (
+                                                    <p className="text-[11px] text-red-600">{fieldErrors.billingLine1 || fieldErrors.billingCity || fieldErrors.billingState || fieldErrors.billingZip}</p>
+                                                )}
                                             </div>
-                                            <input
-                                                value={form.billingAddress.zip}
-                                                onChange={(e) => handleAddressChange('billingAddress', 'zip', e.target.value)}
-                                                disabled={!editing}
-                                                placeholder="PIN code"
-                                                className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingZip ? 'border-red-400 bg-red-50/30' : ''}`}
-                                            />
-                                            {attemptedPay && (fieldErrors.billingLine1 || fieldErrors.billingCity || fieldErrors.billingState || fieldErrors.billingZip) && (
-                                                <p className="text-[11px] text-red-600">{fieldErrors.billingLine1 || fieldErrors.billingCity || fieldErrors.billingState || fieldErrors.billingZip}</p>
-                                            )}
                                         </div>
-                                    </div>
+                                    )}
                                     <div className="bg-gray-50 rounded-2xl border border-gray-100 p-5">
                                         <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
                                             <Home size={16} className="text-primary" /> Shipping Address
@@ -1422,7 +1443,7 @@ export default function Checkout() {
                                 )}
                                 {!isAddressReadyForPayment && (
                                     <p className="text-[11px] text-amber-700 text-center mt-2">
-                                        Complete shipping and billing address to continue payment.
+                                        Complete {billingAddressEnabled ? 'shipping and billing address' : 'shipping address'} to continue payment.
                                     </p>
                                 )}
                                 {hasUnavailableItems && (

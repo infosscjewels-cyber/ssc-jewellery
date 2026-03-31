@@ -582,7 +582,11 @@ const getDashboardInsightsPayload = async (query = {}) => {
         ),
         db.execute(
             `SELECT
-                COALESCE(NULLIF(pm.mode, ''), 'unknown') AS mode,
+                CASE
+                    WHEN LOWER(COALESCE(scoped.payment_gateway, '')) = 'razorpay'
+                        THEN COALESCE(NULLIF(pm.mode, ''), 'unknown')
+                    ELSE LOWER(COALESCE(NULLIF(scoped.payment_gateway, ''), 'unknown'))
+                END AS mode,
                 COUNT(*) AS orders,
                 SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS revenue
              FROM ${ordersScopeSql} scoped
@@ -599,7 +603,11 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 GROUP BY payment_id
              ) pm ON pm.payment_id = scoped.razorpay_payment_id
              WHERE LOWER(COALESCE(scoped.payment_gateway, '')) <> 'cod'
-             GROUP BY COALESCE(NULLIF(pm.mode, ''), 'unknown')
+             GROUP BY CASE
+                    WHEN LOWER(COALESCE(scoped.payment_gateway, '')) = 'razorpay'
+                        THEN COALESCE(NULLIF(pm.mode, ''), 'unknown')
+                    ELSE LOWER(COALESCE(NULLIF(scoped.payment_gateway, ''), 'unknown'))
+                END
              ORDER BY orders DESC`,
             ordersScopeParams
         )

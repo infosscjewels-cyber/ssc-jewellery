@@ -2,6 +2,7 @@ const db = require('../config/db');
 const User = require('../models/User');
 const Coupon = require('../models/Coupon');
 const { sendEmailCommunication, sendWhatsapp } = require('./communications/communicationService');
+const { billingAddressEnabled } = require('../utils/billingAddressConfig');
 
 const TIER_ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
 
@@ -273,11 +274,15 @@ const evaluateProfileCompletion = (user = {}) => {
         { key: 'addressCity', ok: Boolean(String(address?.city || '').trim()), label: 'shipping city' },
         { key: 'addressState', ok: Boolean(String(address?.state || '').trim()), label: 'shipping state' },
         { key: 'addressZip', ok: Boolean(String(address?.zip || '').trim()), label: 'shipping PIN code' },
-        { key: 'billingLine1', ok: Boolean(String(billingAddress?.line1 || '').trim()), label: 'billing address line' },
-        { key: 'billingCity', ok: Boolean(String(billingAddress?.city || '').trim()), label: 'billing city' },
-        { key: 'billingState', ok: Boolean(String(billingAddress?.state || '').trim()), label: 'billing state' },
-        { key: 'billingZip', ok: Boolean(String(billingAddress?.zip || '').trim()), label: 'billing PIN code' }
     ];
+    if (billingAddressEnabled) {
+        checks.push(
+            { key: 'billingLine1', ok: Boolean(String(billingAddress?.line1 || '').trim()), label: 'billing address line' },
+            { key: 'billingCity', ok: Boolean(String(billingAddress?.city || '').trim()), label: 'billing city' },
+            { key: 'billingState', ok: Boolean(String(billingAddress?.state || '').trim()), label: 'billing state' },
+            { key: 'billingZip', ok: Boolean(String(billingAddress?.zip || '').trim()), label: 'billing PIN code' }
+        );
+    }
     const completed = checks.filter((item) => item.ok).length;
     const completionPct = Math.max(0, Math.min(100, Math.round((completed / checks.length) * 100)));
     const missingFields = checks.filter((item) => !item.ok).map((item) => item.label);

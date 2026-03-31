@@ -21,6 +21,7 @@ import { useShipping } from '../context/ShippingContext';
 import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpendKey } from '../utils/tierFormat';
 import { formatMissingProfileFields } from '../utils/membershipUnlock';
 import { getAllowedShippingStates, isAllowedShippingState, isValidIndianPincode, lookupStateByPincode, normalizePincodeInput, resolveAllowedStateName } from '../utils/addressValidation';
+import { billingAddressEnabled } from '../utils/billingAddressConfig';
 import ordersIllustration from '../assets/orders.svg';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
@@ -125,7 +126,7 @@ export default function Profile() {
     });
     const availableStates = useMemo(() => getAllowedShippingStates(zones), [zones]);
     const shippingZip = form.address.zip;
-    const billingZip = form.billingAddress.zip;
+    const billingZip = billingAddressEnabled ? form.billingAddress.zip : form.address.zip;
 
     useEffect(() => {
         if (!user) return;
@@ -142,15 +143,31 @@ export default function Profile() {
             },
             billingAddress: {
                 ...emptyAddress,
-                ...(user.billingAddress || user.address || {}),
-                state: resolveAllowedStateName(availableStates, user?.billingAddress?.state || user?.address?.state) || ''
+                ...(billingAddressEnabled ? (user.billingAddress || user.address || {}) : (user.address || {})),
+                state: resolveAllowedStateName(
+                    availableStates,
+                    billingAddressEnabled ? (user?.billingAddress?.state || user?.address?.state) : user?.address?.state
+                ) || ''
             },
         });
         const addr = { ...emptyAddress, ...(user.address || {}) };
-        const billing = { ...emptyAddress, ...(user.billingAddress || user.address || {}) };
+        const billing = { ...emptyAddress, ...(billingAddressEnabled ? (user.billingAddress || user.address || {}) : (user.address || {})) };
         const isSame = JSON.stringify(addr) === JSON.stringify(billing);
         setSameAsBilling(isSame);
     }, [availableStates, user]);
+
+    useEffect(() => {
+        if (billingAddressEnabled) return;
+        setSameAsBilling(false);
+        setForm((prev) => {
+            const nextBillingAddress = { ...prev.address };
+            if (JSON.stringify(prev.billingAddress) === JSON.stringify(nextBillingAddress)) return prev;
+            return {
+                ...prev,
+                billingAddress: nextBillingAddress
+            };
+        });
+    }, [form.address]);
 
     useEffect(() => {
         if (!user) return;
@@ -234,7 +251,7 @@ export default function Profile() {
             }
         };
         if (!sameAsBilling) runLookup('address');
-        runLookup('billingAddress');
+        if (billingAddressEnabled) runLookup('billingAddress');
         return () => {
             addressControllers.address.abort();
             addressControllers.billingAddress.abort();
@@ -243,11 +260,11 @@ export default function Profile() {
 
     const handleSave = async () => {
         if (isSaving) return;
-        if (!isValidIndianPincode(form.address.zip) || !isValidIndianPincode(form.billingAddress.zip)) {
-            toast.error('Enter a valid 6-digit PIN code for both addresses');
+        if (!isValidIndianPincode(form.address.zip) || (billingAddressEnabled && !isValidIndianPincode(form.billingAddress.zip))) {
+            toast.error(`Enter a valid 6-digit PIN code for ${billingAddressEnabled ? 'both addresses' : 'the shipping address'}`);
             return;
         }
-        if (!isAllowedShippingState(availableStates, form.address.state) || !isAllowedShippingState(availableStates, form.billingAddress.state)) {
+        if (!isAllowedShippingState(availableStates, form.address.state) || (billingAddressEnabled && !isAllowedShippingState(availableStates, form.billingAddress.state))) {
             toast.error('Select a valid state from the available list');
             return;
         }
@@ -259,7 +276,7 @@ export default function Profile() {
                 mobile: form.mobile,
                 dob: form.dob,
                 address: form.address,
-                billingAddress: form.billingAddress,
+                billingAddress: billingAddressEnabled ? form.billingAddress : form.address,
                 profileImage: profileImage || ''
             });
             if (res?.user) {
@@ -292,8 +309,11 @@ export default function Profile() {
             },
             billingAddress: {
                 ...emptyAddress,
-                ...(user.billingAddress || user.address || {}),
-                state: resolveAllowedStateName(availableStates, user?.billingAddress?.state || user?.address?.state) || ''
+                ...(billingAddressEnabled ? (user.billingAddress || user.address || {}) : (user.address || {})),
+                state: resolveAllowedStateName(
+                    availableStates,
+                    billingAddressEnabled ? (user?.billingAddress?.state || user?.address?.state) : user?.address?.state
+                ) || ''
             },
         });
     };
@@ -593,51 +613,53 @@ export default function Profile() {
                                         </div>
                                     </div>
 
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                            <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
-                                                <div className="flex items-center justify-between mb-4">
-                                                    <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                                                        <CreditCard size={16} className="text-primary" />
-                                                        Billing Address
-                                                    </h4>
-                                                </div>
-                                                <div className="space-y-3">
-                                                    <input
-                                                        value={form.billingAddress.line1}
-                                                        onChange={(e) => handleAddressChange('billingAddress', 'line1', e.target.value)}
-                                                        disabled={!isEditing}
-                                                        placeholder="Street Address"
-                                                        className="input-field disabled:bg-gray-50"
-                                                    />
-                                                    <div className="grid grid-cols-2 gap-3">
+                                    <div className={`grid grid-cols-1 ${billingAddressEnabled ? 'lg:grid-cols-2' : ''} gap-6`}>
+                                            {billingAddressEnabled && (
+                                                <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
+                                                    <div className="flex items-center justify-between mb-4">
+                                                        <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                                                            <CreditCard size={16} className="text-primary" />
+                                                            Billing Address
+                                                        </h4>
+                                                    </div>
+                                                    <div className="space-y-3">
                                                         <input
-                                                            value={form.billingAddress.city}
-                                                            onChange={(e) => handleAddressChange('billingAddress', 'city', e.target.value)}
+                                                            value={form.billingAddress.line1}
+                                                            onChange={(e) => handleAddressChange('billingAddress', 'line1', e.target.value)}
                                                             disabled={!isEditing}
-                                                            placeholder="City"
+                                                            placeholder="Street Address"
                                                             className="input-field disabled:bg-gray-50"
                                                         />
-                                                        <select
-                                                            value={resolveAllowedStateName(availableStates, form.billingAddress.state) || ''}
-                                                            onChange={(e) => handleAddressChange('billingAddress', 'state', e.target.value)}
-                                                            disabled={!isEditing || availableStates.length === 0}
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            <input
+                                                                value={form.billingAddress.city}
+                                                                onChange={(e) => handleAddressChange('billingAddress', 'city', e.target.value)}
+                                                                disabled={!isEditing}
+                                                                placeholder="City"
+                                                                className="input-field disabled:bg-gray-50"
+                                                            />
+                                                            <select
+                                                                value={resolveAllowedStateName(availableStates, form.billingAddress.state) || ''}
+                                                                onChange={(e) => handleAddressChange('billingAddress', 'state', e.target.value)}
+                                                                disabled={!isEditing || availableStates.length === 0}
+                                                                className="input-field disabled:bg-gray-50"
+                                                            >
+                                                                <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
+                                                                {availableStates.map((state) => (
+                                                                    <option key={`profile-billing-state-${state}`} value={state}>{state}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        <input
+                                                            value={form.billingAddress.zip}
+                                                            onChange={(e) => handleAddressChange('billingAddress', 'zip', e.target.value)}
+                                                            disabled={!isEditing}
+                                                            placeholder="PIN code"
                                                             className="input-field disabled:bg-gray-50"
-                                                        >
-                                                            <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
-                                                            {availableStates.map((state) => (
-                                                                <option key={`profile-billing-state-${state}`} value={state}>{state}</option>
-                                                            ))}
-                                                        </select>
+                                                        />
                                                     </div>
-                                                    <input
-                                                        value={form.billingAddress.zip}
-                                                        onChange={(e) => handleAddressChange('billingAddress', 'zip', e.target.value)}
-                                                        disabled={!isEditing}
-                                                        placeholder="PIN code"
-                                                        className="input-field disabled:bg-gray-50"
-                                                    />
                                                 </div>
-                                            </div>
+                                            )}
 
                                             <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
                                                 <div className="flex items-center justify-between mb-4">
@@ -645,22 +667,24 @@ export default function Profile() {
                                                         <Home size={16} className="text-primary" />
                                                         Shipping Address
                                                     </h4>
-                                                    <label className="flex items-center gap-2 text-xs font-semibold text-gray-500">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={sameAsBilling}
-                                                            onChange={(e) => setSameAsBilling(e.target.checked)}
-                                                            className="accent-primary"
-                                                            disabled={!isEditing}
-                                                        />
-                                                        Same as Billing
-                                                    </label>
+                                                    {billingAddressEnabled && (
+                                                        <label className="flex items-center gap-2 text-xs font-semibold text-gray-500">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={sameAsBilling}
+                                                                onChange={(e) => setSameAsBilling(e.target.checked)}
+                                                                className="accent-primary"
+                                                                disabled={!isEditing}
+                                                            />
+                                                            Same as Billing
+                                                        </label>
+                                                    )}
                                                 </div>
                                                 <div className="space-y-3">
                                                     <input
                                                         value={form.address.line1}
                                                         onChange={(e) => handleAddressChange('address', 'line1', e.target.value)}
-                                                        disabled={!isEditing || sameAsBilling}
+                                                        disabled={!isEditing || (billingAddressEnabled && sameAsBilling)}
                                                         placeholder="Street Address"
                                                         className="input-field disabled:bg-gray-50"
                                                     />
@@ -668,14 +692,14 @@ export default function Profile() {
                                                         <input
                                                             value={form.address.city}
                                                             onChange={(e) => handleAddressChange('address', 'city', e.target.value)}
-                                                            disabled={!isEditing || sameAsBilling}
+                                                            disabled={!isEditing || (billingAddressEnabled && sameAsBilling)}
                                                             placeholder="City"
                                                             className="input-field disabled:bg-gray-50"
                                                         />
                                                         <select
                                                             value={resolveAllowedStateName(availableStates, form.address.state) || ''}
                                                             onChange={(e) => handleAddressChange('address', 'state', e.target.value)}
-                                                            disabled={!isEditing || sameAsBilling || availableStates.length === 0}
+                                                            disabled={!isEditing || (billingAddressEnabled && sameAsBilling) || availableStates.length === 0}
                                                             className="input-field disabled:bg-gray-50"
                                                         >
                                                             <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
@@ -687,7 +711,7 @@ export default function Profile() {
                                                     <input
                                                         value={form.address.zip}
                                                         onChange={(e) => handleAddressChange('address', 'zip', e.target.value)}
-                                                        disabled={!isEditing || sameAsBilling}
+                                                        disabled={!isEditing || (billingAddressEnabled && sameAsBilling)}
                                                         placeholder="PIN code"
                                                         className="input-field disabled:bg-gray-50"
                                                     />

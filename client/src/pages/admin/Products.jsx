@@ -660,7 +660,7 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                 </div>
             </div>
 
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm flex flex-col gap-4">
+            <div className="hidden rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:flex md:flex-col md:gap-4">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                     <div>
                         <h2 className="text-base font-bold text-gray-800">Classify products by usage audience</h2>

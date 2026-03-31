@@ -33,6 +33,7 @@ const DEFAULT_COMPANY_PROFILE = {
     usageAudienceWomenImageUrl: '',
     usageAudienceKidsImageUrl: '',
     subCategoriesEnabled: false,
+    advancedAnalyticsEnabled: true,
     razorpayKeyId: '',
     razorpayEmiMinAmount: 3000,
     razorpayStartingTenureMonths: 12
@@ -85,6 +86,9 @@ const normalizeRow = (row) => {
         subCategoriesEnabled: row.sub_categories_enabled == null
             ? isSubCategoriesEnabled()
             : Number(row.sub_categories_enabled || 0) === 1,
+        advancedAnalyticsEnabled: row.advanced_analytics_enabled == null
+            ? DEFAULT_COMPANY_PROFILE.advancedAnalyticsEnabled
+            : Number(row.advanced_analytics_enabled || 0) === 1,
         razorpayKeyId: row.razorpay_key_id || '',
         razorpayEmiMinAmount: Math.max(1, Number(row.razorpay_emi_min_amount || DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount)),
         razorpayStartingTenureMonths: Math.max(1, Number(row.razorpay_starting_tenure_months || DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths)),
@@ -100,8 +104,8 @@ class CompanyProfile {
     static async ensureSeed() {
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, sub_categories_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, sub_categories_enabled, advanced_analytics_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE id = id`,
             [
                 DEFAULT_COMPANY_PROFILE.displayName,
@@ -134,6 +138,7 @@ class CompanyProfile {
                 DEFAULT_COMPANY_PROFILE.usageAudienceWomenImageUrl,
                 DEFAULT_COMPANY_PROFILE.usageAudienceKidsImageUrl,
                 DEFAULT_COMPANY_PROFILE.subCategoriesEnabled || isSubCategoriesEnabled() ? 1 : 0,
+                DEFAULT_COMPANY_PROFILE.advancedAnalyticsEnabled ? 1 : 0,
                 DEFAULT_COMPANY_PROFILE.razorpayKeyId,
                 '',
                 '',
@@ -196,6 +201,7 @@ class CompanyProfile {
             usageAudienceWomenImageUrl: String(payload.usageAudienceWomenImageUrl || '').trim(),
             usageAudienceKidsImageUrl: String(payload.usageAudienceKidsImageUrl || '').trim(),
             subCategoriesEnabled: payload.subCategoriesEnabled === true || payload.subCategoriesEnabled === 1 || String(payload.subCategoriesEnabled || '').toLowerCase() === 'true',
+            advancedAnalyticsEnabled: payload.advancedAnalyticsEnabled !== false && payload.advancedAnalyticsEnabled !== 0 && String(payload.advancedAnalyticsEnabled || '').toLowerCase() !== 'false',
             razorpayKeyId: String(payload.razorpayKeyId || '').trim(),
             razorpayKeySecret: incomingKeySecret !== null ? incomingKeySecret : existingRawKeySecret,
             razorpayWebhookSecret: incomingWebhookSecret !== null ? incomingWebhookSecret : existingRawWebhookSecret,
@@ -205,8 +211,8 @@ class CompanyProfile {
 
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, sub_categories_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, sub_categories_enabled, advanced_analytics_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 display_name = VALUES(display_name),
                 storefront_open = VALUES(storefront_open),
@@ -238,6 +244,7 @@ class CompanyProfile {
                 usage_audience_women_image_url = VALUES(usage_audience_women_image_url),
                 usage_audience_kids_image_url = VALUES(usage_audience_kids_image_url),
                 sub_categories_enabled = VALUES(sub_categories_enabled),
+                advanced_analytics_enabled = VALUES(advanced_analytics_enabled),
                 razorpay_key_id = VALUES(razorpay_key_id),
                 razorpay_key_secret = VALUES(razorpay_key_secret),
                 razorpay_webhook_secret = VALUES(razorpay_webhook_secret),
@@ -275,6 +282,7 @@ class CompanyProfile {
                 next.usageAudienceWomenImageUrl,
                 next.usageAudienceKidsImageUrl,
                 next.subCategoriesEnabled ? 1 : 0,
+                next.advancedAnalyticsEnabled ? 1 : 0,
                 next.razorpayKeyId,
                 next.razorpayKeySecret,
                 next.razorpayWebhookSecret,
@@ -339,6 +347,7 @@ class CompanyProfile {
             whatsappChannelEnabled: source.whatsappChannelEnabled !== false,
             whatsappModuleSettings: normalizeWhatsappModuleSettings(source.whatsappModuleSettings),
             subCategoriesEnabled: source.subCategoriesEnabled === true || source.subCategoriesEnabled === 1,
+            advancedAnalyticsEnabled: source.advancedAnalyticsEnabled !== false && source.advancedAnalyticsEnabled !== 0,
             razorpayKeyId: String(source.razorpayKeyId || ''),
             razorpayEmiMinAmount: Math.max(1, Number(source.razorpayEmiMinAmount || DEFAULT_COMPANY_PROFILE.razorpayEmiMinAmount)),
             razorpayStartingTenureMonths: Math.max(1, Number(source.razorpayStartingTenureMonths || DEFAULT_COMPANY_PROFILE.razorpayStartingTenureMonths)),

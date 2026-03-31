@@ -9,6 +9,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { formatAdminDate, formatAdminDateTime } from '../../utils/dateFormat';
 import { getGstDisplayDetails } from '../../utils/gst';
+import { billingAddressEnabled } from '../../utils/billingAddressConfig';
 import Modal from '../../components/Modal';
 import { useAdminKPI } from '../../context/AdminKPIContext';
 import { useAuth } from '../../context/AuthContext';
@@ -32,6 +33,50 @@ const QUICK_RANGES = [
 ];
 
 const MAX_RANGE_DAYS = 90;
+const KPI_CARD_THEMES = {
+    gold: {
+        shell: 'bg-amber-950 border-amber-400/80',
+        label: 'text-amber-100',
+        value: 'text-white',
+        iconChip: 'text-amber-200 bg-amber-400/15 border-amber-400/30',
+        iconGhost: 'text-amber-300/25'
+    },
+    sky: {
+        shell: 'bg-blue-950 border-blue-500/70',
+        label: 'text-blue-100',
+        value: 'text-white',
+        iconChip: 'text-blue-200 bg-blue-400/15 border-blue-400/30',
+        iconGhost: 'text-blue-300/25'
+    },
+    emerald: {
+        shell: 'bg-green-950 border-green-500/70',
+        label: 'text-green-100',
+        value: 'text-white',
+        iconChip: 'text-green-200 bg-green-400/15 border-green-400/30',
+        iconGhost: 'text-green-300/25'
+    },
+    amber: {
+        shell: 'bg-red-950 border-red-500/70',
+        label: 'text-red-100',
+        value: 'text-white',
+        iconChip: 'text-red-200 bg-red-400/15 border-red-400/30',
+        iconGhost: 'text-red-300/25'
+    },
+    violet: {
+        shell: 'bg-fuchsia-950 border-fuchsia-500/70',
+        label: 'text-fuchsia-100',
+        value: 'text-white',
+        iconChip: 'text-fuchsia-200 bg-fuchsia-400/15 border-fuchsia-400/30',
+        iconGhost: 'text-fuchsia-300/25'
+    },
+    slate: {
+        shell: 'bg-slate-800 border-slate-500/70',
+        label: 'text-slate-100',
+        value: 'text-white',
+        iconChip: 'text-slate-200 bg-slate-300/15 border-slate-300/30',
+        iconGhost: 'text-slate-300/25'
+    }
+};
 const COURIER_PARTNERS = [
     'Blue Dart',
     'DTDC',
@@ -65,6 +110,29 @@ const MANUAL_PAYMENT_OPTIONS = [
 ];
 const EMPTY_ADDRESS = { line1: '', city: '', state: '', zip: '' };
 const EMPTY_MANUAL_ITEM = { productId: '', variantId: '', quantity: 1 };
+const formatStatusLabel = (status) => {
+    const normalized = String(status || 'pending').trim().toLowerCase();
+    if (!normalized) return 'Pending';
+    return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
+};
+const getOrderStatusBadgeClasses = (status) => {
+    const normalized = String(status || 'pending').trim().toLowerCase();
+    if (normalized === 'confirmed') return 'bg-blue-950 text-blue-100 border border-blue-700';
+    if (normalized === 'pending') return 'bg-amber-950 text-amber-100 border border-amber-700';
+    if (normalized === 'shipped') return 'bg-indigo-950 text-indigo-100 border border-indigo-700';
+    if (normalized === 'completed') return 'bg-emerald-950 text-emerald-100 border border-emerald-700';
+    if (normalized === 'failed') return 'bg-red-950 text-red-100 border border-red-700';
+    if (normalized === 'cancelled') return 'bg-slate-800 text-slate-100 border border-slate-600';
+    return 'bg-slate-900 text-slate-100 border border-slate-700';
+};
+const getPaymentStatusBadgeClasses = (status) => {
+    const normalized = String(status || '').trim().toLowerCase();
+    if (normalized === 'paid') return 'bg-emerald-950 text-emerald-100 border border-emerald-700';
+    if (['failed', 'expired'].includes(normalized)) return 'bg-red-950 text-red-100 border border-red-700';
+    if (['pending', 'created', 'attempted'].includes(normalized)) return 'bg-amber-950 text-amber-100 border border-amber-700';
+    if (normalized === 'refunded') return 'bg-sky-950 text-sky-100 border border-sky-700';
+    return 'bg-slate-900 text-slate-100 border border-slate-700';
+};
 const getManualUnitPrice = (product = {}, variant = null) => {
     return Number(
         variant?.discount_price
@@ -195,7 +263,7 @@ const sortOrdersForView = (rows = [], sortBy = 'newest') => {
     return list.sort(byCreatedDesc);
 };
 
-export default function Orders({
+export function Orders({
     focusOrderId = null,
     onFocusHandled = () => {},
     initialStatusFilter = '',
@@ -232,6 +300,7 @@ export default function Orders({
     const endDateInputRef = useRef(null);
     const fetchSeqRef = useRef(0);
     const [sortBy, setSortBy] = useState('newest');
+    const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [selectedOrder, setSelectedOrder] = useState(null);
@@ -353,11 +422,11 @@ export default function Orders({
     };
     const getTierBadgeClasses = (order) => {
         const tier = String(order?.loyalty_tier || order?.loyaltyTier || 'regular').toLowerCase();
-        if (tier === 'platinum') return 'bg-sky-100 text-sky-800';
-        if (tier === 'gold') return 'bg-yellow-100 text-yellow-800';
-        if (tier === 'silver') return 'bg-slate-100 text-slate-700';
-        if (tier === 'bronze') return 'bg-amber-100 text-amber-800';
-        return 'bg-gray-100 text-gray-600';
+        if (tier === 'platinum') return 'bg-sky-950 text-sky-100 border border-sky-700';
+        if (tier === 'gold') return 'bg-yellow-900 text-yellow-100 border border-yellow-700';
+        if (tier === 'silver') return 'bg-slate-800 text-slate-100 border border-slate-600';
+        if (tier === 'bronze') return 'bg-amber-950 text-amber-100 border border-amber-700';
+        return 'bg-gray-800 text-gray-100 border border-gray-600';
     };
     const isAttemptEntry = (order) => String(order?.entity_type || '').toLowerCase() === 'attempt';
     const isAbandonedRecoveryOrder = (order) => Boolean(order?.is_abandoned_recovery || order?.source_channel === 'abandoned_recovery');
@@ -581,12 +650,12 @@ export default function Orders({
         return `₹${Number(value).toLocaleString('en-IN')}`;
     };
     const effectiveBillingAddress = useMemo(
-        () => (manualOrderForm.billingSameAsShipping ? manualOrderForm.shippingAddress : manualOrderForm.billingAddress),
+        () => (!billingAddressEnabled || manualOrderForm.billingSameAsShipping ? manualOrderForm.shippingAddress : manualOrderForm.billingAddress),
         [manualOrderForm.billingAddress, manualOrderForm.billingSameAsShipping, manualOrderForm.shippingAddress]
     );
     const manualValidationState = useMemo(() => {
         const shippingMissing = getMissingAddressFields(manualOrderForm.shippingAddress);
-        const billingMissing = manualOrderForm.billingSameAsShipping ? [] : getMissingAddressFields(manualOrderForm.billingAddress);
+        const billingMissing = (!billingAddressEnabled || manualOrderForm.billingSameAsShipping) ? [] : getMissingAddressFields(manualOrderForm.billingAddress);
         return {
             missingCustomer: !manualOrderForm.userId,
             missingItems: manualItemPayload.length === 0,
@@ -879,7 +948,7 @@ export default function Orders({
         }
     };
 
-    const handleApplyFilters = () => {
+    const handleApplyFilters = (closeAfter = false) => {
         const nextQuickRange = draftQuickRange;
         const nextStartDate = nextQuickRange === 'custom' ? draftStartDate : '';
         const nextEndDate = nextQuickRange === 'custom' ? draftEndDate : '';
@@ -903,6 +972,9 @@ export default function Orders({
         setQuickRange(nextQuickRange);
         setStartDate(nextStartDate);
         setEndDate(nextEndDate);
+        if (closeAfter) {
+            setIsFilterModalOpen(false);
+        }
 
         if (page !== 1) {
             setPage(1);
@@ -1948,31 +2020,28 @@ export default function Orders({
             label: 'Total Orders',
             value: effectiveMetrics?.totalOrders || 0,
             icon: Package,
-            color: 'text-blue-700 bg-blue-50/80 border-blue-100',
-            cardBg: 'bg-gradient-to-br from-blue-50 to-white'
+            theme: 'violet'
         },
         {
             label: 'Total Revenue',
             value: `₹${Number(effectiveMetrics?.totalRevenue || 0).toLocaleString()}`,
             icon: IndianRupee,
-            color: 'text-emerald-700 bg-emerald-50/80 border-emerald-100',
-            cardBg: 'bg-gradient-to-br from-emerald-50 to-white'
+            theme: 'emerald'
         },
         {
             label: 'Pending',
             value: effectiveMetrics?.pendingOrders || 0,
             icon: Clock3,
-            color: 'text-amber-700 bg-amber-50/80 border-amber-100',
-            cardBg: 'bg-gradient-to-br from-amber-50 to-white'
+            theme: 'amber'
         },
         {
             label: dynamicStatusLabel,
             value: dynamicStatusValue,
             icon: CheckCircle2,
-            color: 'text-violet-700 bg-violet-50/80 border-violet-100',
-            cardBg: 'bg-gradient-to-br from-violet-50 to-white'
+            theme: 'slate'
         }
     ]), [dynamicStatusLabel, dynamicStatusValue, effectiveMetrics]);
+    const mobileSummaryCards = useMemo(() => cards.slice(0, 2), [cards]);
     const activeLabelOrder = labelPrintModalOrder;
     const activeLabelOrderId = activeLabelOrder?.order_id || activeLabelOrder?.id || '';
     const activeFromValidation = activeLabelOrder ? getFromLabelValidation(activeLabelOrder) : { ok: false, missing: [] };
@@ -1991,11 +2060,35 @@ export default function Orders({
     return (
         <div className="animate-fade-in">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                <div>
-                    <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Orders</h1>
-                    <p className="text-gray-500 text-sm mt-1">Track sales, payments, and order status.</p>
+                <div className="flex items-start justify-between gap-3">
+                    <div>
+                        <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Orders</h1>
+                        <p className="text-gray-500 text-sm mt-1">Track sales, payments, and order status.</p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setIsFilterModalOpen(true)}
+                        className="md:hidden inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                        aria-label="Open order filters"
+                    >
+                        <Filter size={18} />
+                    </button>
                 </div>
-                <div className="w-full">
+                <div className="grid grid-cols-2 gap-3 md:hidden">
+                    {mobileSummaryCards.map((card) => (
+                        <div key={card.label} className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm p-4 aspect-square flex flex-col justify-between ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`}>
+                            <card.icon size={48} className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || 'sky'].iconGhost}`} />
+                            <div className={`w-11 h-11 rounded-xl flex items-center justify-center border ${KPI_CARD_THEMES[card.theme || 'sky'].iconChip}`}>
+                                <card.icon size={18} />
+                            </div>
+                            <div className="relative z-10">
+                                <p className={`text-[11px] uppercase tracking-widest font-semibold ${KPI_CARD_THEMES[card.theme || 'sky'].label}`}>{card.label}</p>
+                                <p className={`mt-2 text-xl font-bold ${KPI_CARD_THEMES[card.theme || 'sky'].value}`}>{card.value}</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <div className="hidden md:block w-full">
                     <div className="flex flex-col md:flex-row md:flex-nowrap md:items-center gap-2 w-full md:w-auto">
                     <div className="relative w-full md:w-auto order-1">
                         <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
@@ -2074,16 +2167,119 @@ export default function Orders({
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+            {isFilterModalOpen && createPortal(
+                <div className="fixed inset-0 z-[180] bg-black/50 backdrop-blur-sm flex items-end md:hidden">
+                    <div className="w-full rounded-t-[28px] bg-white border-t border-gray-200 shadow-2xl p-5 max-h-[85vh] overflow-y-auto">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-900">Order Filters</h3>
+                                <p className="text-xs text-gray-500 mt-1">Refine the table and export the current view.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsFilterModalOpen(false)}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500"
+                                aria-label="Close order filters"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="mt-4 space-y-3">
+                            <div className="relative w-full">
+                                <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+                                <select
+                                    value={draftQuickRange}
+                                    onChange={(e) => {
+                                        const next = e.target.value;
+                                        setDraftQuickRange(next);
+                                        if (next !== 'custom') {
+                                            setDraftStartDate('');
+                                            setDraftEndDate('');
+                                        }
+                                    }}
+                                    className="w-full pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer"
+                                >
+                                    {QUICK_RANGES.map((range) => (
+                                        <option key={range.value} value={range.value}>{range.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="grid grid-cols-1 gap-3">
+                                <input
+                                    ref={startDateInputRef}
+                                    type="date"
+                                    value={draftStartDate}
+                                    min={draftEndDate ? addDays(draftEndDate, -MAX_RANGE_DAYS) : undefined}
+                                    max={draftEndDate || undefined}
+                                    onChange={(e) => setDraftStartDate(e.target.value)}
+                                    className="sr-only"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (draftQuickRange !== 'custom') return;
+                                        if (startDateInputRef.current?.showPicker) startDateInputRef.current.showPicker();
+                                        else startDateInputRef.current?.click();
+                                    }}
+                                    disabled={draftQuickRange !== 'custom'}
+                                    className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left"
+                                >
+                                    {draftStartDate ? formatRangeDate(draftStartDate) : 'Start Date'}
+                                </button>
+                                <input
+                                    ref={endDateInputRef}
+                                    type="date"
+                                    value={draftEndDate}
+                                    min={draftStartDate || undefined}
+                                    max={draftStartDate ? addDays(draftStartDate, MAX_RANGE_DAYS) : undefined}
+                                    onChange={(e) => setDraftEndDate(e.target.value)}
+                                    className="sr-only"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (draftQuickRange !== 'custom') return;
+                                        if (endDateInputRef.current?.showPicker) endDateInputRef.current.showPicker();
+                                        else endDateInputRef.current?.click();
+                                    }}
+                                    disabled={draftQuickRange !== 'custom'}
+                                    className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left"
+                                >
+                                    {draftEndDate ? formatRangeDate(draftEndDate) : 'End Date'}
+                                </button>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleExport}
+                                disabled={isExporting || isLoading}
+                                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-700 font-semibold hover:bg-gray-50 disabled:opacity-60 inline-flex items-center justify-center gap-2"
+                            >
+                                <Download size={16} />
+                                {isExporting ? 'Exporting...' : 'Export Report'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => handleApplyFilters(true)}
+                                className="w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
+                            >
+                                Apply Filters
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            <div className="hidden md:grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
                 {cards.map((card) => (
-                    <div key={card.label} className={`emboss-card relative overflow-hidden rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4 ${card.cardBg}`}>
-                        <card.icon size={56} className="bg-emboss-icon absolute right-2 bottom-2 text-gray-100" />
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${card.color}`}>
+                    <div key={card.label} className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm p-5 flex items-center gap-4 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`}>
+                        <card.icon size={56} className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || 'sky'].iconGhost}`} />
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${KPI_CARD_THEMES[card.theme || 'sky'].iconChip}`}>
                             <card.icon size={20} />
                         </div>
                         <div>
-                            <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">{card.label}</p>
-                            <p className="text-lg font-bold text-gray-800">{card.value}</p>
+                            <p className={`text-xs uppercase tracking-widest font-semibold ${KPI_CARD_THEMES[card.theme || 'sky'].label}`}>{card.label}</p>
+                            <p className={`text-lg font-bold ${KPI_CARD_THEMES[card.theme || 'sky'].value}`}>{card.value}</p>
                         </div>
                     </div>
                 ))}
@@ -2253,29 +2449,17 @@ export default function Orders({
                                             </td>
                                             <td className="px-6 py-4 text-sm font-semibold text-gray-800">₹{Number(order.total || 0).toLocaleString()}</td>
                                             <td className="px-6 py-4">
-                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                                                    String(order.payment_status || '').toLowerCase() === 'paid' ? 'bg-emerald-50 text-emerald-700' :
-                                                    ['failed', 'expired'].includes(String(order.payment_status || '').toLowerCase()) ? 'bg-red-100 text-red-700' :
-                                                    ['pending', 'created', 'attempted'].includes(String(order.payment_status || '').toLowerCase()) ? 'bg-amber-50 text-amber-700' :
-                                                    'bg-gray-100 text-gray-600'
-                                                }`}>
+                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getPaymentStatusBadgeClasses(order.payment_status)}`}>
                                                     {getPaymentStatusLabel(order)}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-2">
-                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                                                        order.status === 'confirmed' ? 'bg-blue-50 text-blue-700' :
-                                                        order.status === 'pending' ? 'bg-amber-50 text-amber-700' :
-                                                        order.status === 'shipped' ? 'bg-indigo-50 text-indigo-700' :
-                                                        order.status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
-                                                        order.status === 'failed' ? 'bg-red-100 text-red-700' :
-                                                        'bg-gray-100 text-gray-600'
-                                                    }`}>
-                                                        {order.status || 'pending'}
+                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getOrderStatusBadgeClasses(order.status)}`}>
+                                                        {formatStatusLabel(order.status || 'pending')}
                                                     </span>
                                                     {!!pendingDurationLabel && (
-                                                        <span className="text-[10px] uppercase tracking-widest font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+                                                        <span className="text-[10px] uppercase tracking-widest font-bold text-amber-100 bg-amber-950 border border-amber-700 px-2 py-0.5 rounded-full">
                                                             {pendingDurationLabel}
                                                         </span>
                                                     )}
@@ -2348,60 +2532,70 @@ export default function Orders({
                         </div>
 
                         <div className="md:hidden divide-y divide-gray-100">
-                            {orders.map((order) => (
+                            {orders.map((order) => {
+                                const pendingDurationLabel = order.status === 'pending'
+                                    ? getPendingDurationLabel(order.created_at)
+                                    : '';
+                                return (
                                 <div
                                     key={order.id}
                                     onClick={() => openDetails(order)}
                                     className={`w-full text-left p-4 transition-colors ${isFailedRow(order) ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50'}`}
                                 >
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="space-y-1">
-                                            <label className="inline-flex items-center gap-2 text-[11px] text-gray-500 font-semibold">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedRowKeys.includes(getRowKey(order))}
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    onChange={(e) => toggleRowSelection(order, e.target.checked)}
-                                                    className="rounded border-gray-300 text-primary focus:ring-primary"
-                                                />
-                                                Select
-                                            </label>
-                                            <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Order</p>
-                                            <p className="text-sm font-semibold text-gray-800">{order.order_ref}</p>
-                                            <p className="text-xs text-gray-500">{formatAdminDate(order.created_at)}</p>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <p className="text-sm font-medium text-gray-700">{order.customer_name || 'Guest'}</p>
-                                            <div className="flex items-center gap-2">
-                                                <p className="text-xs text-gray-400">{order.customer_mobile || '—'}</p>
-                                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${getTierBadgeClasses(order)}`}>
-                                                    {getTierLabel(order)}
+                                    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="text-base font-semibold text-gray-900 break-all">#{order.order_ref}</p>
+                                                <p className="mt-1 text-sm font-medium text-gray-700">{order.customer_name || 'Guest'}</p>
+                                                {order.customer_mobile && (
+                                                    <p className="mt-1 text-xs text-gray-400">{order.customer_mobile}</p>
+                                                )}
+                                            </div>
+                                            <div className="flex shrink-0 items-start gap-2">
+                                                <span className={`inline-flex min-w-[88px] items-center justify-center px-2.5 py-1 rounded-full text-xs font-semibold ${getOrderStatusBadgeClasses(order.status)}`}>
+                                                    {formatStatusLabel(order.status || 'pending')}
                                                 </span>
                                             </div>
-                                            <p className="text-sm font-semibold text-gray-800">₹{Number(order.total || 0).toLocaleString()}</p>
-                                            <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Payment</p>
-                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                                                String(order.payment_status || '').toLowerCase() === 'paid' ? 'bg-emerald-50 text-emerald-700' :
-                                                ['failed', 'expired'].includes(String(order.payment_status || '').toLowerCase()) ? 'bg-red-100 text-red-700' :
-                                                ['pending', 'created', 'attempted'].includes(String(order.payment_status || '').toLowerCase()) ? 'bg-amber-50 text-amber-700' :
-                                                'bg-gray-100 text-gray-600'
-                                            }`}>
+                                        </div>
+
+                                        <div className="mt-4 grid grid-cols-2 gap-3">
+                                            <div>
+                                                <p className="text-[11px] uppercase tracking-widest text-gray-400 font-semibold">Placed</p>
+                                                <p className="mt-1 text-sm text-gray-700">{formatAdminDate(order.created_at)}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-[11px] uppercase tracking-widest text-gray-400 font-semibold">Amount</p>
+                                                <p className="mt-1 text-lg font-semibold text-gray-900">₹{Number(order.total || 0).toLocaleString()}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                                            <span className={`inline-flex min-w-[88px] items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getPaymentStatusBadgeClasses(order.payment_status)}`}>
                                                 {getPaymentStatusLabel(order)}
                                             </span>
-                                            <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Order Status</p>
-                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                                                order.status === 'confirmed' ? 'bg-blue-50 text-blue-700' :
-                                                order.status === 'pending' ? 'bg-amber-50 text-amber-700' :
-                                                order.status === 'shipped' ? 'bg-indigo-50 text-indigo-700' :
-                                                order.status === 'completed' ? 'bg-emerald-50 text-emerald-700' :
-                                                order.status === 'failed' ? 'bg-red-100 text-red-700' :
-                                                'bg-gray-100 text-gray-600'
-                                            }`}>
-                                                {order.status || 'pending'}
+                                            <span className={`inline-flex min-w-[88px] items-center justify-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${getTierBadgeClasses(order)}`}>
+                                                {getTierLabel(order)}
                                             </span>
+                                            {!!pendingDurationLabel && (
+                                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-widest text-amber-100 bg-amber-950 border border-amber-700">
+                                                    {pendingDurationLabel}
+                                                </span>
+                                            )}
                                         </div>
-                                    </div>
-                                    <div className="mt-3 flex items-center justify-end gap-2 flex-wrap">
+
+                                        <div className="mt-4 flex items-center justify-end gap-2 flex-wrap">
+                                        <label
+                                            className="mr-auto inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 bg-white"
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedRowKeys.includes(getRowKey(order))}
+                                                onChange={(e) => toggleRowSelection(order, e.target.checked)}
+                                                className="rounded border-gray-300 text-primary focus:ring-primary"
+                                                aria-label={`Select ${order.order_ref}`}
+                                            />
+                                        </label>
                                         {getWhatsappLink(order.customer_mobile) && (
                                             <a
                                                 href={getWhatsappLink(order.customer_mobile)}
@@ -2460,7 +2654,8 @@ export default function Orders({
                                         )}
                                     </div>
                                 </div>
-                            ))}
+                                </div>
+                            );})}
                         </div>
                     </>
                 )}
@@ -2524,23 +2719,19 @@ export default function Orders({
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <h3 className="text-lg font-semibold text-gray-900">{selectedOrder.order_ref}</h3>
-                                        <p className="text-sm text-gray-500 mt-1">Placed on {formatAdminDate(selectedOrder.created_at)}</p>
-                                        <p className="text-xs text-gray-500 mt-1">Invoice No: <span className="font-mono">{getInvoiceNumber(selectedOrder)}</span></p>
+                                        <div className="mt-2">
+                                            <p className="text-[11px] uppercase tracking-widest text-gray-400 font-semibold">Order Placed</p>
+                                            <p className="text-sm font-semibold text-gray-800 mt-1">{formatAdminDateTime(selectedOrder.created_at)}</p>
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-2">Invoice No: <span className="font-mono">{getInvoiceNumber(selectedOrder)}</span></p>
                                         {detailsLastSyncedAt && (
                                             <p className="text-[11px] text-gray-400 mt-1">
                                                 Last synced: {formatAdminDateTime(detailsLastSyncedAt)}
                                             </p>
                                         )}
                                     </div>
-                                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${
-                                        selectedOrder.status === 'confirmed' ? 'text-blue-700 bg-blue-50' :
-                                        selectedOrder.status === 'pending' ? 'text-amber-700 bg-amber-50' :
-                                        selectedOrder.status === 'shipped' ? 'text-indigo-700 bg-indigo-50' :
-                                        selectedOrder.status === 'completed' ? 'text-emerald-700 bg-emerald-50' :
-                                        selectedOrder.status === 'failed' ? 'text-red-700 bg-red-100' :
-                                        'text-gray-600 bg-gray-100'
-                                    }`}>
-                                        {selectedOrder.status || 'confirmed'}
+                                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${getOrderStatusBadgeClasses(selectedOrder.status)}`}>
+                                        {formatStatusLabel(selectedOrder.status || 'confirmed')}
                                     </span>
                                 </div>
                                 <div className="mt-3">
@@ -2802,10 +2993,12 @@ export default function Orders({
                                         <p className="text-xs text-gray-400 font-semibold uppercase">Shipping Address</p>
                                         <p className="text-sm text-gray-700 mt-2">{formatAddress(selectedOrder.shipping_address)}</p>
                                     </div>
-                                    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                                        <p className="text-xs text-gray-400 font-semibold uppercase">Billing Address</p>
-                                        <p className="text-sm text-gray-700 mt-2">{formatAddress(selectedOrder.billing_address)}</p>
-                                    </div>
+                                    {billingAddressEnabled && (
+                                        <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
+                                            <p className="text-xs text-gray-400 font-semibold uppercase">Billing Address</p>
+                                            <p className="text-sm text-gray-700 mt-2">{formatAddress(selectedOrder.billing_address)}</p>
+                                        </div>
+                                    )}
                                     <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
                                         <p className="text-xs text-gray-400 font-semibold uppercase">Payment Details</p>
                                         <div className="mt-2 space-y-1 text-sm text-gray-700">
@@ -3358,35 +3551,37 @@ export default function Orders({
                                         <p className="mt-2 text-xs text-red-600">Shipping missing: {manualValidationState.shippingMissing.join(', ')}</p>
                                     )}
                                 </div>
-                                <div className="rounded-xl border border-gray-200 p-4">
-                                    <div className="flex items-center justify-between gap-2">
-                                        <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Billing Address</p>
-                                        <label className="inline-flex items-center gap-2 text-xs text-gray-600">
-                                            <input
-                                                type="checkbox"
-                                                checked={manualOrderForm.billingSameAsShipping}
-                                                onChange={(e) => {
-                                                    const checked = e.target.checked;
-                                                    setManualOrderForm((prev) => ({
-                                                        ...prev,
-                                                        billingSameAsShipping: checked,
-                                                        billingAddress: checked ? { ...prev.shippingAddress } : prev.billingAddress
-                                                    }));
-                                                }}
-                                            />
-                                            Same as shipping
-                                        </label>
+                                {billingAddressEnabled && (
+                                    <div className="rounded-xl border border-gray-200 p-4">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Billing Address</p>
+                                            <label className="inline-flex items-center gap-2 text-xs text-gray-600">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={manualOrderForm.billingSameAsShipping}
+                                                    onChange={(e) => {
+                                                        const checked = e.target.checked;
+                                                        setManualOrderForm((prev) => ({
+                                                            ...prev,
+                                                            billingSameAsShipping: checked,
+                                                            billingAddress: checked ? { ...prev.shippingAddress } : prev.billingAddress
+                                                        }));
+                                                    }}
+                                                />
+                                                Same as shipping
+                                            </label>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                                            <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.line1 || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="Address line" value={manualOrderForm.billingAddress.line1} onChange={(e) => updateManualAddress('billingAddress', 'line1', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
+                                            <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.city || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="City" value={manualOrderForm.billingAddress.city} onChange={(e) => updateManualAddress('billingAddress', 'city', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
+                                            <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.state || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="State" value={manualOrderForm.billingAddress.state} onChange={(e) => updateManualAddress('billingAddress', 'state', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
+                                            <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.zip || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="PIN code" value={manualOrderForm.billingAddress.zip} onChange={(e) => updateManualAddress('billingAddress', 'zip', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
+                                        </div>
+                                        {manualCreateAttempted && manualValidationState.billingMissing.length > 0 && (
+                                            <p className="mt-2 text-xs text-red-600">Billing missing: {manualValidationState.billingMissing.join(', ')}</p>
+                                        )}
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                                        <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.line1 || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="Address line" value={manualOrderForm.billingAddress.line1} onChange={(e) => updateManualAddress('billingAddress', 'line1', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
-                                        <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.city || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="City" value={manualOrderForm.billingAddress.city} onChange={(e) => updateManualAddress('billingAddress', 'city', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
-                                        <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.state || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="State" value={manualOrderForm.billingAddress.state} onChange={(e) => updateManualAddress('billingAddress', 'state', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
-                                        <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.zip || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="PIN code" value={manualOrderForm.billingAddress.zip} onChange={(e) => updateManualAddress('billingAddress', 'zip', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
-                                    </div>
-                                    {manualCreateAttempted && manualValidationState.billingMissing.length > 0 && (
-                                        <p className="mt-2 text-xs text-red-600">Billing missing: {manualValidationState.billingMissing.join(', ')}</p>
-                                    )}
-                                </div>
+                                )}
                             </div>
                             <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
                                 <button
@@ -3538,3 +3733,5 @@ export default function Orders({
         </div>
     );
 }
+
+export default Orders;

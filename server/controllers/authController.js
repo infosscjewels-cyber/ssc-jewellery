@@ -8,6 +8,7 @@ const { getUserLoyaltyStatus, issueBirthdayCouponForUser } = require('../service
 const { sendEmailCommunication, sendWhatsapp } = require('../services/communications/communicationService');
 const { emitToUserAudiences } = require('../utils/socketAudience');
 const { normalizeAndValidateAddress } = require('../utils/addressValidation');
+const { billingAddressEnabled, resolveBillingAddress } = require('../utils/billingAddressConfig');
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '').trim();
 if (!JWT_SECRET) {
@@ -704,12 +705,17 @@ exports.updateProfile = async (req, res) => {
             return res.status(400).json({ message: 'Password too short (min 6 chars).' });
         }
 
-        const normalizedAddress = address === undefined
+        const primaryAddressInput = address === undefined && !billingAddressEnabled
+            ? billingAddress
+            : address;
+        const normalizedAddress = primaryAddressInput === undefined
             ? undefined
-            : await normalizeAndValidateAddress(address, { fieldLabel: 'Address' });
-        const normalizedBillingAddress = billingAddress === undefined
+            : await normalizeAndValidateAddress(primaryAddressInput, { fieldLabel: 'Address' });
+        const normalizedBillingAddress = billingAddressEnabled
+            ? (billingAddress === undefined
             ? undefined
-            : await normalizeAndValidateAddress(billingAddress, { fieldLabel: 'Billing address' });
+            : await normalizeAndValidateAddress(billingAddress, { fieldLabel: 'Billing address' }))
+            : resolveBillingAddress({ shippingAddress: normalizedAddress });
 
         // 1. Check if mobile is already taken by ANOTHER user
         if (mobile) {

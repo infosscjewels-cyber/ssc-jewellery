@@ -19,6 +19,7 @@ const { reassessUserTier } = require('../services/loyaltyService');
 const { emitToOrderAudiences } = require('../utils/socketAudience');
 const { emitProductEvent } = require('./productController');
 const { normalizeAndValidateAddress } = require('../utils/addressValidation');
+const { billingAddressEnabled, resolveBillingAddress } = require('../utils/billingAddressConfig');
 
 const toSubunit = (amount) => Math.round(Number(amount || 0) * 100);
 const ATTEMPT_TTL_MINUTES = 30;
@@ -235,7 +236,10 @@ const createOrderFromRecoveryPayment = async (req, {
 
     const user = await User.findById(userId);
     const shippingAddress = parseAddressObject(user?.address) || {};
-    const billingAddress = parseAddressObject(user?.billingAddress) || shippingAddress || {};
+    const billingAddress = resolveBillingAddress({
+        shippingAddress,
+        billingAddress: parseAddressObject(user?.billingAddress) || shippingAddress || {}
+    }) || shippingAddress || {};
 
     const createdOrder = await Order.createFromRecoveryJourney(userId, {
         journey,
@@ -519,7 +523,9 @@ const createRazorpayOrder = async (req, res) => {
         const userId = req.user.id;
         const { billingAddress, shippingAddress, notes, couponCode } = req.body || {};
         const safeShippingAddress = await normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' });
-        const safeBillingAddress = await normalizeAddressPayload(billingAddress, { fieldLabel: 'Billing address' });
+        const safeBillingAddress = billingAddressEnabled
+            ? await normalizeAddressPayload(billingAddress, { fieldLabel: 'Billing address' })
+            : resolveBillingAddress({ shippingAddress: safeShippingAddress, billingAddress: safeShippingAddress });
         if (notes !== undefined && (typeof notes !== 'object' || Array.isArray(notes))) {
             return res.status(400).json({ message: 'Notes must be an object' });
         }
@@ -2236,7 +2242,9 @@ const createAdminManualOrder = async (req, res) => {
             return res.status(404).json({ message: 'Customer not found' });
         }
         const shippingAddress = await normalizeAddressPayload(req.body?.shippingAddress, { fieldLabel: 'Shipping address' });
-        const billingAddress = await normalizeAddressPayload(req.body?.billingAddress, { fieldLabel: 'Billing address' });
+        const billingAddress = billingAddressEnabled
+            ? await normalizeAddressPayload(req.body?.billingAddress, { fieldLabel: 'Billing address' })
+            : resolveBillingAddress({ shippingAddress, billingAddress: shippingAddress });
         const couponCode = String(req.body?.couponCode || '').trim().toUpperCase() || null;
         const useCustomerCart = req.body?.useCustomerCart === true || String(req.body?.useCustomerCart || '').toLowerCase() === 'true';
         const items = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -2274,7 +2282,7 @@ const createAdminManualOrder = async (req, res) => {
         }
         await User.updateProfile(userId, {
             address: shippingAddress || null,
-            billingAddress: billingAddress || shippingAddress || null
+            billingAddress: resolveBillingAddress({ shippingAddress, billingAddress }) || shippingAddress || null
         });
         const persisted = await Order.getById(order.id);
         const finalOrder = persisted || order;

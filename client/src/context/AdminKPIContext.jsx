@@ -8,6 +8,7 @@ const AdminKPIContext = createContext(null);
 const ORDER_TTL_MS = 60 * 1000;
 const ABANDONED_TTL_MS = 60 * 1000;
 const RECONCILE_INTERVAL_MS = 30 * 1000;
+const FAILURE_COOLDOWN_MS = 2 * 60 * 1000;
 
 const toOrderMetricsKey = (query = {}) => [
     String(query.search || ''),
@@ -26,6 +27,8 @@ export const AdminKPIProvider = ({ children }) => {
     const [abandonedInsightsByKey, setAbandonedInsightsByKey] = useState({});
     const registeredOrderQueriesRef = useRef({});
     const registeredAbandonedRangesRef = useRef({});
+    const orderFailureCooldownRef = useRef({});
+    const abandonedFailureCooldownRef = useRef({});
 
     const setOrderMetricsSnapshot = useCallback((query, metrics) => {
         const key = toOrderMetricsKey(query);
@@ -67,36 +70,58 @@ export const AdminKPIProvider = ({ children }) => {
         return key;
     }, []);
 
-    const fetchOrderMetrics = useCallback(async (query = {}, { force = false } = {}) => {
+    const fetchOrderMetrics = useCallback(async (query = {}, { force = false, bypassCooldown = false } = {}) => {
         const key = toOrderMetricsKey(query);
         const existing = orderMetricsByKey[key];
+        const now = Date.now();
+        const cooldownUntil = Number(orderFailureCooldownRef.current[key] || 0);
+        if (!bypassCooldown && cooldownUntil > now) {
+            return existing?.metrics || null;
+        }
         if (!force && existing && !existing.dirty && Date.now() - existing.ts < ORDER_TTL_MS) {
             return existing.metrics;
         }
-        const res = await orderService.getAdminOrders({
-            page: 1,
-            limit: 1,
-            status: query.status || 'all',
-            search: query.search || '',
-            startDate: query.startDate || '',
-            endDate: query.endDate || '',
-            quickRange: query.quickRange || 'last_90_days',
-            sourceChannel: query.sourceChannel || 'all',
-            sortBy: 'newest'
-        });
-        setOrderMetricsSnapshot(query, res?.metrics || null);
-        return res?.metrics || null;
+        try {
+            const res = await orderService.getAdminOrders({
+                page: 1,
+                limit: 1,
+                status: query.status || 'all',
+                search: query.search || '',
+                startDate: query.startDate || '',
+                endDate: query.endDate || '',
+                quickRange: query.quickRange || 'last_90_days',
+                sourceChannel: query.sourceChannel || 'all',
+                sortBy: 'newest'
+            });
+            delete orderFailureCooldownRef.current[key];
+            setOrderMetricsSnapshot(query, res?.metrics || null);
+            return res?.metrics || null;
+        } catch (error) {
+            orderFailureCooldownRef.current[key] = Date.now() + FAILURE_COOLDOWN_MS;
+            throw error;
+        }
     }, [orderMetricsByKey, setOrderMetricsSnapshot]);
 
-    const fetchAbandonedInsights = useCallback(async (rangeDays = 30, { force = false } = {}) => {
+    const fetchAbandonedInsights = useCallback(async (rangeDays = 30, { force = false, bypassCooldown = false } = {}) => {
         const key = toAbandonedInsightsKey(rangeDays);
         const existing = abandonedInsightsByKey[key];
+        const now = Date.now();
+        const cooldownUntil = Number(abandonedFailureCooldownRef.current[key] || 0);
+        if (!bypassCooldown && cooldownUntil > now) {
+            return existing?.insights || null;
+        }
         if (!force && existing && !existing.dirty && Date.now() - existing.ts < ABANDONED_TTL_MS) {
             return existing.insights;
         }
-        const res = await adminService.getAbandonedCartInsights(rangeDays);
-        setAbandonedInsightsSnapshot(rangeDays, res?.insights || null);
-        return res?.insights || null;
+        try {
+            const res = await adminService.getAbandonedCartInsights(rangeDays);
+            delete abandonedFailureCooldownRef.current[key];
+            setAbandonedInsightsSnapshot(rangeDays, res?.insights || null);
+            return res?.insights || null;
+        } catch (error) {
+            abandonedFailureCooldownRef.current[key] = Date.now() + FAILURE_COOLDOWN_MS;
+            throw error;
+        }
     }, [abandonedInsightsByKey, setAbandonedInsightsSnapshot]);
 
     const markOrderMetricsDirty = useCallback((query = null) => {

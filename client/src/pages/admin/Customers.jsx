@@ -22,6 +22,7 @@ import AddCustomerModal from '../../components/AddCustomerModal';
 import { useCustomers } from '../../context/CustomerContext';
 import { formatAdminDate, formatAdminDateTime } from '../../utils/dateFormat';
 import { formatTierLabel } from '../../utils/tierFormat';
+import { billingAddressEnabled } from '../../utils/billingAddressConfig';
 import customerIllustration from '../../assets/customer.svg';
 import EmptyState from '../../components/EmptyState';
 
@@ -719,10 +720,12 @@ export default function Customers({
                                 <p className="text-xs text-gray-400 font-bold uppercase">Date of Birth</p>
                                 <p className="text-sm text-gray-700 mt-2">{selectedUser.dob ? formatAdminDate(String(selectedUser.dob).split('T')[0]) : '—'}</p>
                             </div>
-                            <div className="p-4 rounded-xl border border-gray-200 bg-white">
-                                <p className="text-xs text-gray-400 font-bold uppercase">Billing Address</p>
-                                <p className="text-sm text-gray-700 mt-2">{formatAddress(selectedUser.billingAddress)}</p>
-                            </div>
+                            {billingAddressEnabled && (
+                                <div className="p-4 rounded-xl border border-gray-200 bg-white">
+                                    <p className="text-xs text-gray-400 font-bold uppercase">Billing Address</p>
+                                    <p className="text-sm text-gray-700 mt-2">{formatAddress(selectedUser.billingAddress)}</p>
+                                </div>
+                            )}
                             <div className="p-4 rounded-xl border border-gray-200 bg-white">
                                 <p className="text-xs text-gray-400 font-bold uppercase">Shipping Address</p>
                                 <p className="text-sm text-gray-700 mt-2">{formatAddress(selectedUser.address)}</p>

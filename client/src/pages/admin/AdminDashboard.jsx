@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { Images } from 'lucide-react'; // Add 'Images' icon
 import HeroCMS from './HeroCMS'; // Import the new component
 import ShippingSettings from './ShippingSettings';
-import Orders from './Orders';
+import { Orders as OrdersPage } from './Orders';
 import AbandonedCarts from './AbandonedCarts';
 import CompanyInfo from './CompanyInfo';
 import LoyaltySettings from './LoyaltySettings';
@@ -594,7 +594,7 @@ export default function AdminDashboard() {
                     {activeTab === 'cms' && <HeroCMS />}
                     {activeTab === 'dashboard' && <DashboardInsights onRunAction={handleDashboardAction} />}
                     {activeTab === 'orders' && (
-                        <Orders
+                        <OrdersPage
                             focusOrderId={focusOrderId}
                             onFocusHandled={() => setFocusOrderId(null)}
                             initialStatusFilter={ordersInitialStatusFilter}
@@ -848,7 +848,7 @@ function MobileNavBtn({ icon: Icon, label, active, onClick, disabled = false }) 
             <div className={`p-2 rounded-xl ${disabled ? 'bg-gray-100 text-gray-400' : active ? 'bg-accent text-primary shadow-lg shadow-accent/20' : ''}`}>
                 <Icon size={active ? 22 : 22} strokeWidth={2} />
             </div>
-            {(active || disabled) && <span className="text-[10px] font-bold">{label}</span>}
+            <span className={`text-[10px] ${active ? 'font-bold' : 'font-medium'}`}>{label}</span>
         </button>
     );
 }

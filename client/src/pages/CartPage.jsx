@@ -57,8 +57,10 @@ export default function CartPage() {
         zones,
         state: user?.address?.state,
         subtotal,
-        totalWeightKg
+        totalWeightKg,
+        useDefaultZone: true
     }), [zones, user?.address?.state, subtotal, totalWeightKg]);
+    const hasSavedShippingState = Boolean(String(user?.address?.state || '').trim());
 
     const cartTotalBeforeMemberPerks = useMemo(() => {
         if (!shippingPreview) return subtotal;
@@ -97,6 +99,9 @@ export default function CartPage() {
     const hasFreeShipping = useMemo(() => Number(shippingPreview?.fee || 0) === 0, [shippingPreview?.fee]);
     const shouldShowProgress = !!freeProgress && !hasFreeShipping;
     const isShippingUnavailable = Boolean(shippingPreview?.isUnavailable);
+    const shippingHelperMessage = shippingPreview?.isTentative
+        ? 'Estimated using the default delivery zone. Shipping will refresh after you add the delivery address at checkout.'
+        : 'Shipping will be recalculated automatically if the delivery address changes during checkout.';
     const storefrontOpen = companyInfo?.storefrontOpen !== false;
     const subCategoriesEnabled = companyInfo?.subCategoriesEnabled === true;
 
@@ -355,7 +360,7 @@ export default function CartPage() {
                                     <span className="font-semibold text-gray-800">₹{subtotal.toLocaleString()}</span>
                                 </div>
                                 <div className="flex items-center justify-between">
-                                    <span>Shipping</span>
+                                    <span>{shippingPreview?.isTentative ? 'Tentative shipping' : 'Shipping'}</span>
                                     {shippingPreview == null ? (
                                         <span className="font-semibold text-gray-800">Calculated during checkout</span>
                                     ) : isShippingUnavailable ? (
@@ -390,12 +395,17 @@ export default function CartPage() {
                                 {freeProgress && !isShippingUnavailable && (
                                     <div className={`overflow-hidden transition-all duration-300 ease-out ${shouldShowProgress ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
                                         <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
-                                            <span>Free shipping progress</span>
+                                            <span>{hasSavedShippingState ? 'Free shipping progress' : 'Free shipping progress from default zone'}</span>
                                             <span>₹{Math.max(0, freeProgress.remaining).toLocaleString()} to go</span>
                                         </div>
                                         <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
                                             <div className="h-full bg-emerald-500" style={{ width: `${freeProgress.pct}%` }} />
                                         </div>
+                                        <p className="mt-2 text-xs text-gray-500">
+                                            {hasSavedShippingState
+                                                ? `Add ₹${Math.max(0, freeProgress.remaining).toLocaleString('en-IN')} more to enjoy free shipping.`
+                                                : `Add ₹${Math.max(0, freeProgress.remaining).toLocaleString('en-IN')} more to qualify for free shipping on the default delivery zone.`}
+                                        </p>
                                         <Link
                                             to="/shop"
                                             className="mt-3 inline-flex items-center justify-center w-full rounded-xl border border-gray-200 text-primary font-semibold py-2.5 hover:bg-primary/5 transition-colors"
@@ -403,6 +413,11 @@ export default function CartPage() {
                                             Explore collection
                                         </Link>
                                     </div>
+                                )}
+                                {shippingPreview && !freeProgress && !isShippingUnavailable && (
+                                    <p className={`text-xs mt-1 ${shippingPreview.isTentative ? 'text-amber-700' : 'text-gray-500'}`}>
+                                        {shippingHelperMessage}
+                                    </p>
                                 )}
                                 {totalSavings > 0 && (
                                     <div className="flex items-center justify-between text-emerald-700">
