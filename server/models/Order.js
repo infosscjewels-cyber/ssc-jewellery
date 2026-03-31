@@ -5,37 +5,44 @@ const CompanyProfile = require('./CompanyProfile');
 const TaxConfig = require('./TaxConfig');
 const { getUserLoyaltyStatus, calculateOrderLoyaltyAdjustments, reassessUserTier } = require('../services/loyaltyService');
 
-const ORDER_REF_ALPHA_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-const ORDER_REF_DIGIT_CHARS = '0123456789';
-const randomChars = (chars, length) => {
-    let out = '';
-    const safeLength = Math.max(0, Number(length || 0));
-    for (let i = 0; i < safeLength; i += 1) {
-        out += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return out;
-};
-const buildOrderRefCandidate = (digitCount = 4) => {
-    const safeDigits = Math.max(1, Number(digitCount || 4));
-    const alphaPart = randomChars(ORDER_REF_ALPHA_CHARS, 3);
-    const digitPart = randomChars(ORDER_REF_DIGIT_CHARS, safeDigits);
-    return `${alphaPart}${digitPart}`;
+const ORDER_REF_TIME_ZONE = 'Asia/Kolkata';
+const ORDER_REF_SEQUENCE_PAD = 3;
+const getOrderDateKey = (date = new Date()) => {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: ORDER_REF_TIME_ZONE,
+        day: '2-digit',
+        month: '2-digit',
+        year: '2-digit'
+    }).formatToParts(date);
+    const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${lookup.day || '01'}${lookup.month || '01'}${lookup.year || '00'}`;
 };
 const buildOrderRef = async (connection = db) => {
-    let digitCount = 4;
-    while (digitCount <= 12) {
-        const attemptLimit = 200;
-        for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
-            const candidate = buildOrderRefCandidate(digitCount);
-            const [rows] = await connection.execute(
-                'SELECT id FROM orders WHERE order_ref = ? LIMIT 1',
-                [candidate]
-            );
-            if (!rows.length) return candidate;
-        }
-        digitCount += 1;
-    }
-    throw new Error('Unable to generate unique order reference');
+    const dateKey = getOrderDateKey();
+    await connection.execute(
+        `INSERT INTO order_ref_sequences (date_key, last_sequence)
+         VALUES (?, 0)
+         ON DUPLICATE KEY UPDATE date_key = VALUES(date_key)`,
+        [dateKey]
+    );
+    const [rows] = await connection.execute(
+        `SELECT last_sequence
+         FROM order_ref_sequences
+         WHERE date_key = ?
+         LIMIT 1
+         FOR UPDATE`,
+        [dateKey]
+    );
+    const currentSequence = Number(rows?.[0]?.last_sequence || 0);
+    const nextSequence = currentSequence + 1;
+    await connection.execute(
+        `UPDATE order_ref_sequences
+         SET last_sequence = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE date_key = ?`,
+        [nextSequence, dateKey]
+    );
+    return `${dateKey}${String(nextSequence).padStart(ORDER_REF_SEQUENCE_PAD, '0')}`;
 };
 
 const normalizeAddress = (address) => {
@@ -1627,112 +1634,135 @@ class Order {
         sourceChannel = 'admin_attempt_conversion'
     } = {}) {
         if (!attempt || !attempt.id) throw new Error('Payment attempt is required');
-        if (attempt.local_order_id) throw new Error('Attempt already linked to an order');
         const userId = String(attempt.user_id || '').trim();
         if (!userId) throw new Error('Attempt user is missing');
-
-        const notes = parseJsonSafe(attempt.notes) || {};
-        const snapshot = notes?.attemptSnapshot && typeof notes.attemptSnapshot === 'object'
-            ? notes.attemptSnapshot
-            : null;
-        const pricing = snapshot?.pricing && typeof snapshot.pricing === 'object'
-            ? snapshot.pricing
-            : {};
-        const loyalty = snapshot?.loyalty && typeof snapshot.loyalty === 'object'
-            ? snapshot.loyalty
-            : {};
-        const coupon = snapshot?.coupon && typeof snapshot.coupon === 'object'
-            ? snapshot.coupon
-            : {};
-
-        let snapshotItems = Array.isArray(snapshot?.items) ? snapshot.items : [];
-        if (!snapshotItems.length) {
-            const [reservationRows] = await db.execute(
-                `SELECT
-                    pir.id,
-                    pir.product_id,
-                    pir.variant_id,
-                    pir.quantity,
-                    p.title as product_title,
-                    COALESCE(pv.variant_title, '') as variant_title,
-                    COALESCE(
-                        NULLIF(pv.discount_price, 0),
-                        NULLIF(pv.price, 0),
-                        NULLIF(p.discount_price, 0),
-                        NULLIF(p.mrp, 0),
-                        0
-                    ) as unit_price,
-                    p.polish_warranty_months,
-                    COALESCE(
-                        NULLIF(pv.image_url, ''),
-                        NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.media, '$[0].url')), ''),
-                        ''
-                    ) as image_url,
-                    COALESCE(NULLIF(pv.sku, ''), NULLIF(p.sku, '')) as sku
-                 FROM payment_item_reservations pir
-                 LEFT JOIN products p ON p.id = pir.product_id
-                 LEFT JOIN product_variants pv ON pv.id = pir.variant_id
-                 WHERE pir.attempt_id = ?
-                 ORDER BY pir.id ASC`,
-                [attempt.id]
-            );
-            snapshotItems = (reservationRows || []).map((row) => {
-                const quantity = Math.max(0, Number(row.quantity || 0));
-                const unitPrice = Math.max(0, Number(row.unit_price || 0));
-                return {
-                    id: row.id,
-                    productId: row.product_id,
-                    variantId: row.variant_id || '',
-                    title: row.product_title || 'Product',
-                    variantTitle: row.variant_title || '',
-                    quantity,
-                    unitPrice,
-                    lineTotal: Number((quantity * unitPrice).toFixed(2)),
-                    imageUrl: row.image_url || '',
-                    sku: row.sku || null,
-                    polishWarrantyMonths: Number(row.polish_warranty_months || 6),
-                    capturedAt: new Date().toISOString()
-                };
-            });
-        }
-
-        if (!snapshotItems.length) {
-            throw new Error('Attempt snapshot has no items to convert');
-        }
-
-        const subtotal = Number(pricing.subtotal ?? fromSubunits(attempt.amount_subunits) ?? 0);
-        const shippingFee = Number(pricing.shippingFee ?? 0);
-        const discountTotal = Number(pricing.discountTotal ?? 0);
-        const total = Number(pricing.total ?? fromSubunits(attempt.amount_subunits) ?? 0);
-        const taxTotal = Number(pricing.taxTotal ?? 0);
-        const taxBreakup = Array.isArray(pricing.taxBreakup) ? pricing.taxBreakup : [];
-        const couponDiscountTotal = Number(pricing.couponDiscountTotal ?? 0);
-        const loyaltyDiscountTotal = Number(pricing.loyaltyDiscountTotal ?? 0);
-        const loyaltyShippingDiscountTotal = Number(pricing.loyaltyShippingDiscountTotal ?? 0);
-        const loyaltyTier = String(loyalty?.tier || 'regular').toLowerCase();
-
-        const orderItems = snapshotItems.map((item) => {
-            const quantity = Math.max(0, Number(item?.quantity || 0));
-            const unitPrice = Math.max(0, Number(item?.unitPrice ?? item?.price ?? 0));
-            const lineTotal = Number(item?.lineTotal ?? (quantity * unitPrice));
-            return {
-                productId: item?.productId || null,
-                variantId: item?.variantId || '',
-                title: item?.title || 'Product',
-                variantTitle: item?.variantTitle || '',
-                quantity,
-                price: unitPrice,
-                lineTotal: Number.isFinite(lineTotal) ? lineTotal : 0,
-                taxConfigId: item?.taxConfigId || null,
-                imageUrl: item?.imageUrl || '',
-                sku: item?.sku || null,
-                snapshot: item && typeof item === 'object' ? item : null
-            };
-        });
 
         const connection = await db.getConnection();
         try {
             await connection.beginTransaction();
+            const [attemptRows] = await connection.execute(
+                `SELECT *
+                 FROM payment_attempts
+                 WHERE id = ?
+                 LIMIT 1
+                 FOR UPDATE`,
+                [attempt.id]
+            );
+            const lockedAttemptRow = attemptRows?.[0] || null;
+            if (!lockedAttemptRow) {
+                throw new Error('Payment attempt not found');
+            }
+            if (lockedAttemptRow.local_order_id) {
+                await connection.commit();
+                return Order.getById(lockedAttemptRow.local_order_id);
+            }
+
+            const lockedAttempt = {
+                ...lockedAttemptRow,
+                billing_address: normalizeAddress(lockedAttemptRow.billing_address),
+                shipping_address: normalizeAddress(lockedAttemptRow.shipping_address),
+                notes: parseJsonSafe(lockedAttemptRow.notes) || {}
+            };
+
+            const notes = lockedAttempt.notes || {};
+            const snapshot = notes?.attemptSnapshot && typeof notes.attemptSnapshot === 'object'
+                ? notes.attemptSnapshot
+                : null;
+            const pricing = snapshot?.pricing && typeof snapshot.pricing === 'object'
+                ? snapshot.pricing
+                : {};
+            const loyalty = snapshot?.loyalty && typeof snapshot.loyalty === 'object'
+                ? snapshot.loyalty
+                : {};
+            const coupon = snapshot?.coupon && typeof snapshot.coupon === 'object'
+                ? snapshot.coupon
+                : {};
+
+            let snapshotItems = Array.isArray(snapshot?.items) ? snapshot.items : [];
+            if (!snapshotItems.length) {
+                const [reservationRows] = await connection.execute(
+                    `SELECT
+                        pir.id,
+                        pir.product_id,
+                        pir.variant_id,
+                        pir.quantity,
+                        p.title as product_title,
+                        COALESCE(pv.variant_title, '') as variant_title,
+                        COALESCE(
+                            NULLIF(pv.discount_price, 0),
+                            NULLIF(pv.price, 0),
+                            NULLIF(p.discount_price, 0),
+                            NULLIF(p.mrp, 0),
+                            0
+                        ) as unit_price,
+                        p.polish_warranty_months,
+                        COALESCE(
+                            NULLIF(pv.image_url, ''),
+                            NULLIF(JSON_UNQUOTE(JSON_EXTRACT(p.media, '$[0].url')), ''),
+                            ''
+                        ) as image_url,
+                        COALESCE(NULLIF(pv.sku, ''), NULLIF(p.sku, '')) as sku
+                     FROM payment_item_reservations pir
+                     LEFT JOIN products p ON p.id = pir.product_id
+                     LEFT JOIN product_variants pv ON pv.id = pir.variant_id
+                     WHERE pir.attempt_id = ?
+                     ORDER BY pir.id ASC`,
+                    [lockedAttempt.id]
+                );
+                snapshotItems = (reservationRows || []).map((row) => {
+                    const quantity = Math.max(0, Number(row.quantity || 0));
+                    const unitPrice = Math.max(0, Number(row.unit_price || 0));
+                    return {
+                        id: row.id,
+                        productId: row.product_id,
+                        variantId: row.variant_id || '',
+                        title: row.product_title || 'Product',
+                        variantTitle: row.variant_title || '',
+                        quantity,
+                        unitPrice,
+                        lineTotal: Number((quantity * unitPrice).toFixed(2)),
+                        imageUrl: row.image_url || '',
+                        sku: row.sku || null,
+                        polishWarrantyMonths: Number(row.polish_warranty_months || 6),
+                        capturedAt: new Date().toISOString()
+                    };
+                });
+            }
+
+            if (!snapshotItems.length) {
+                throw new Error('Attempt snapshot has no items to convert');
+            }
+
+            const subtotal = Number(pricing.subtotal ?? fromSubunits(lockedAttempt.amount_subunits) ?? 0);
+            const shippingFee = Number(pricing.shippingFee ?? 0);
+            const discountTotal = Number(pricing.discountTotal ?? 0);
+            const total = Number(pricing.total ?? fromSubunits(lockedAttempt.amount_subunits) ?? 0);
+            const taxTotal = Number(pricing.taxTotal ?? 0);
+            const taxBreakup = Array.isArray(pricing.taxBreakup) ? pricing.taxBreakup : [];
+            const couponDiscountTotal = Number(pricing.couponDiscountTotal ?? 0);
+            const loyaltyDiscountTotal = Number(pricing.loyaltyDiscountTotal ?? 0);
+            const loyaltyShippingDiscountTotal = Number(pricing.loyaltyShippingDiscountTotal ?? 0);
+            const loyaltyTier = String(loyalty?.tier || 'regular').toLowerCase();
+
+            const orderItems = snapshotItems.map((item) => {
+                const quantity = Math.max(0, Number(item?.quantity || 0));
+                const unitPrice = Math.max(0, Number(item?.unitPrice ?? item?.price ?? 0));
+                const lineTotal = Number(item?.lineTotal ?? (quantity * unitPrice));
+                return {
+                    productId: item?.productId || null,
+                    variantId: item?.variantId || '',
+                    title: item?.title || 'Product',
+                    variantTitle: item?.variantTitle || '',
+                    quantity,
+                    price: unitPrice,
+                    lineTotal: Number.isFinite(lineTotal) ? lineTotal : 0,
+                    taxConfigId: item?.taxConfigId || null,
+                    imageUrl: item?.imageUrl || '',
+                    sku: item?.sku || null,
+                    snapshot: item && typeof item === 'object' ? item : null
+                };
+            });
+
             const companyProfile = await CompanyProfile.get();
             const companySnapshot = CompanyProfile.sanitizeForSnapshot(companyProfile);
             const orderRef = await buildOrderRef(connection);
@@ -1820,9 +1850,9 @@ class Order {
                     finalTaxTotal,
                     JSON.stringify(finalTaxBreakup),
                     finalTotal,
-                    String(attempt.currency || 'INR'),
-                    JSON.stringify(normalizeAddress(attempt.billing_address) || null),
-                    JSON.stringify(normalizeAddress(attempt.shipping_address) || null),
+                    String(lockedAttempt.currency || 'INR'),
+                    JSON.stringify(normalizeAddress(lockedAttempt.billing_address) || null),
+                    JSON.stringify(normalizeAddress(lockedAttempt.shipping_address) || null),
                     JSON.stringify(companySnapshot),
                     String(settlementId || '').trim() || null,
                     settlementSnapshot ? JSON.stringify(settlementSnapshot) : null
@@ -1865,7 +1895,7 @@ class Order {
                      updated_at = CURRENT_TIMESTAMP
                  WHERE attempt_id = ?
                    AND status = 'reserved'`,
-                [attempt.id]
+                [lockedAttempt.id]
             );
             await connection.execute(
                 `UPDATE payment_attempts
@@ -1877,7 +1907,7 @@ class Order {
                      updated_at = CURRENT_TIMESTAMP
                  WHERE id = ?
                    AND local_order_id IS NULL`,
-                [orderId, attempt.id]
+                [orderId, lockedAttempt.id]
             );
 
             await connection.commit();

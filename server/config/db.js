@@ -314,6 +314,12 @@ const initDB = async () => {
             await connection.query('ALTER TABLE orders ADD COLUMN razorpay_signature VARCHAR(255)');
         } catch {}
         try {
+            await connection.query('ALTER TABLE orders ADD UNIQUE KEY uniq_orders_razorpay_order (razorpay_order_id)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD UNIQUE KEY uniq_orders_razorpay_payment (razorpay_payment_id)');
+        } catch {}
+        try {
             await connection.query('ALTER TABLE orders ADD COLUMN refund_reference VARCHAR(64)');
         } catch {}
         try {
@@ -535,6 +541,21 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE razorpay_webhook_events ADD COLUMN processed_at TIMESTAMP NULL DEFAULT NULL');
+        } catch {}
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS order_ref_sequences (
+                date_key VARCHAR(6) PRIMARY KEY,
+                last_sequence BIGINT NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        try {
+            await connection.query('ALTER TABLE order_ref_sequences ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE order_ref_sequences ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
         } catch {}
 
         await connection.query(`

@@ -759,25 +759,15 @@ const verifyRazorpayPayment = async (req, res) => {
             return res.status(409).json({ message: 'Cart changed after payment initiation. Please retry checkout.' });
         }
 
-        const order = await Order.createFromCart(userId, {
-            billingAddress: attempt.billing_address || null,
-            shippingAddress: attempt.shipping_address || null,
-            payment: {
-                gateway: 'razorpay',
-                paymentStatus: PAYMENT_STATUS.PAID,
-                razorpayOrderId: attempt.razorpay_order_id,
-                razorpayPaymentId: razorpayPaymentId,
-                razorpaySignature,
-                settlementId: paymentDetails?.settlement_id || null,
-                settlementSnapshot: null
-            },
-            skipStockDeduction: true,
-            couponCode: appliedCouponCode,
-            sourceChannel: appliedCouponCode ? 'abandoned_recovery' : 'checkout'
+        const order = await createOrderFromCheckoutPaymentAttempt(req, {
+            attempt,
+            razorpayOrderId: attempt.razorpay_order_id,
+            razorpayPaymentId,
+            razorpaySignature,
+            settlementId: paymentDetails?.settlement_id || null,
+            settlementSnapshot: null
         });
         createdOrder = order;
-
-        await consumeAttemptInventoryAndEmit(req, { attemptId: attempt.id });
         try {
             await markRecoveredByOrder({ order, reason: 'order_paid_checkout' });
         } catch {}
@@ -2475,9 +2465,9 @@ const fetchAdminPaymentStatus = async (req, res) => {
             });
         }
 
-        const updatedOrder = razorpayOrderId
-            ? await Order.getByRazorpayOrderId(razorpayOrderId)
-            : order;
+        const updatedOrder = order?.id
+            ? await Order.getById(order.id)
+            : (razorpayOrderId ? await Order.getByRazorpayOrderId(razorpayOrderId) : null);
         if (updatedOrder) {
             maybeTriggerConfirmedEmailOnPaymentTransition({
                 order: updatedOrder,
