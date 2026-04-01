@@ -18,6 +18,7 @@ const parseJsonField = (value) => {
         return null;
     }
 };
+const isForcedOutOfStock = (value) => value === 1 || value === true || value === '1' || value === 'true';
 
 class PaymentAttempt {
     static async getLatestRetryableByUser(userId) {
@@ -264,8 +265,8 @@ class PaymentAttempt {
 
             const [cartRows] = await connection.execute(
                 `SELECT ci.product_id, ci.variant_id, ci.quantity,
-                        p.status as product_status, p.track_quantity as product_track_quantity,
-                        pv.id as resolved_variant_id, pv.track_quantity as variant_track_quantity
+                        p.status as product_status, p.track_quantity as product_track_quantity, p.force_out_of_stock as product_force_out_of_stock,
+                        pv.id as resolved_variant_id, pv.track_quantity as variant_track_quantity, pv.force_out_of_stock as variant_force_out_of_stock
                  FROM cart_items ci
                  JOIN products p ON p.id = ci.product_id
                  LEFT JOIN product_variants pv ON pv.id = ci.variant_id AND pv.product_id = ci.product_id
@@ -285,18 +286,27 @@ class PaymentAttempt {
                 if (row.product_status && row.product_status !== 'active') {
                     throw new Error('Some items are no longer available');
                 }
+                if (isForcedOutOfStock(row.product_force_out_of_stock)) {
+                    throw new Error('Some items are no longer available');
+                }
                 if (row.variant_id && !row.resolved_variant_id) {
+                    throw new Error('Some selected variants are unavailable');
+                }
+                if (row.variant_id && isForcedOutOfStock(row.variant_force_out_of_stock)) {
                     throw new Error('Some selected variants are unavailable');
                 }
 
                 const hasVariant = !!row.variant_id;
                 if (hasVariant) {
                     const [variantRows] = await connection.execute(
-                        'SELECT quantity, track_quantity FROM product_variants WHERE id = ? FOR UPDATE',
+                        'SELECT quantity, track_quantity, force_out_of_stock FROM product_variants WHERE id = ? FOR UPDATE',
                         [row.variant_id]
                     );
                     const variant = variantRows[0];
                     if (!variant) throw new Error('Variant not found');
+                    if (isForcedOutOfStock(variant.force_out_of_stock)) {
+                        throw new Error('Some selected variants are unavailable');
+                    }
                     if (Number(variant.track_quantity) === 1 && Number(variant.quantity) < quantity) {
                         throw new Error('Insufficient stock for some items');
                     }
@@ -308,11 +318,14 @@ class PaymentAttempt {
                     }
                 } else {
                     const [productRows] = await connection.execute(
-                        'SELECT quantity, track_quantity FROM products WHERE id = ? FOR UPDATE',
+                        'SELECT quantity, track_quantity, force_out_of_stock FROM products WHERE id = ? FOR UPDATE',
                         [row.product_id]
                     );
                     const product = productRows[0];
                     if (!product) throw new Error('Product not found');
+                    if (isForcedOutOfStock(product.force_out_of_stock)) {
+                        throw new Error('Some items are no longer available');
+                    }
                     if (Number(product.track_quantity) === 1 && Number(product.quantity) < quantity) {
                         throw new Error('Insufficient stock for some items');
                     }

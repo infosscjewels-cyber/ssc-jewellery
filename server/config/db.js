@@ -116,6 +116,7 @@ const initDB = async () => {
                 weight_kg DECIMAL(6, 3),
                 track_quantity TINYINT(1) DEFAULT 0,
                 quantity INT DEFAULT 0,
+                force_out_of_stock TINYINT(1) DEFAULT 0,
                 track_low_stock TINYINT(1) DEFAULT 0,
                 low_stock_threshold INT DEFAULT 0,
                 tax_config_id INT NULL,
@@ -135,6 +136,9 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE products ADD COLUMN polish_warranty_months INT NOT NULL DEFAULT 6');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE products ADD COLUMN force_out_of_stock TINYINT(1) NOT NULL DEFAULT 0');
         } catch {}
         try {
             await connection.query('ALTER TABLE products ADD INDEX idx_products_status_created (status, created_at)');
@@ -184,6 +188,7 @@ const initDB = async () => {
                 weight_kg DECIMAL(6, 3),
                 quantity INT DEFAULT 0,
                 track_quantity TINYINT(1) DEFAULT 0,
+                force_out_of_stock TINYINT(1) DEFAULT 0,
                 track_low_stock TINYINT(1) DEFAULT 0,
                 low_stock_threshold INT DEFAULT 0,
                 image_url TEXT,             -- Specific image for this variant
@@ -192,6 +197,9 @@ const initDB = async () => {
         `);
         try {
             await connection.query('ALTER TABLE product_variants ADD INDEX idx_variants_product (product_id)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE product_variants ADD COLUMN force_out_of_stock TINYINT(1) NOT NULL DEFAULT 0');
         } catch {}
         try {
             await connection.query('ALTER TABLE product_variants ADD INDEX idx_variants_title (variant_title)');

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { productService } from '../../services/productService';
 import { adminService } from '../../services/adminService';
-import { Plus, Search, Folder, ChevronRight, Loader2, Trash2 } from 'lucide-react';
+import { Plus, Search, Folder, ChevronRight, Loader2, Trash2, ArrowLeft, X } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import Modal from '../../components/Modal'; 
@@ -9,7 +10,7 @@ import CategoryDetail from './CategoryDetail'; // We will create this next
 import CategoryModal from '../../components/CategoryModal';
 import emptyIllustration from '../../assets/closed.svg';
 
-export default function Categories() {
+export default function Categories({ onNavigate = () => {}, storefrontOpen = true }) {
     const [view, setView] = useState('list'); // 'list' or 'detail'
     const [selectedCategoryId, setSelectedCategoryId] = useState(null);
     
@@ -23,6 +24,7 @@ export default function Categories() {
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [subCategoriesEnabled, setSubCategoriesEnabled] = useState(false);
     const [isSubCategoryToggleSaving, setIsSubCategoryToggleSaving] = useState(false);
+    const [isMobileSearchModalOpen, setIsMobileSearchModalOpen] = useState(false);
     const toast = useToast();
     const [showCreateModal, setShowCreateModal] = useState(false);
     // Load Stats
@@ -167,10 +169,30 @@ export default function Categories() {
             />
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Categories</h1>
+                    <div className="flex items-center justify-between gap-3 md:block">
+                        <div className="flex items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={() => onNavigate('products')}
+                                className="inline-flex md:hidden h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                                aria-label="Back to products"
+                            >
+                                <ArrowLeft size={18} />
+                            </button>
+                            <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Categories</h1>
+                        </div>
+                        <div className={`inline-flex md:hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                            storefrontOpen
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                : 'border-gray-300 bg-gray-100 text-gray-800'
+                        }`}>
+                            <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                            {storefrontOpen ? 'Store Open' : 'Store Closed'}
+                        </div>
+                    </div>
                     <p className="text-gray-500 text-sm mt-1">Manage product organization</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="hidden md:flex flex-wrap items-center gap-3">
                     <label className="inline-flex items-center gap-3 text-sm font-semibold text-gray-700">
                         <span>Sub Categories</span>
                         <button
@@ -208,6 +230,55 @@ export default function Categories() {
                     </button>
                 </div>
             </div>
+
+            <div className="md:hidden mb-3 flex items-center justify-end gap-2">
+                <button
+                    type="button"
+                    onClick={() => setIsMobileSearchModalOpen(true)}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                    aria-label="Search categories"
+                >
+                    <Search size={17} />
+                </button>
+            </div>
+
+            {isMobileSearchModalOpen && createPortal(
+                <div className="fixed inset-0 z-[185] bg-black/40 backdrop-blur-sm flex items-end md:hidden">
+                    <div className="w-full rounded-t-[28px] bg-white border-t border-gray-200 shadow-2xl p-5">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-900">Search Categories</h3>
+                                <p className="text-xs text-gray-500 mt-1">Find categories by name.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileSearchModalOpen(false)}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500"
+                                aria-label="Close category search"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="mt-4 relative">
+                            <Search className="absolute left-3 top-3.5 text-gray-400 w-4 h-4" />
+                            <input
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                placeholder="Search categories..."
+                                className="w-full pl-10 pr-4 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none"
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setIsMobileSearchModalOpen(false)}
+                            className="mt-4 w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>,
+                document.body
+            )}
 
             {/* [UPDATED] UI GRID */}
             {isLoading ? (
@@ -282,6 +353,17 @@ export default function Categories() {
                         </div>
                     ))}
                 </div>
+            )}
+
+            {!showCreateModal && (
+                <button
+                    type="button"
+                    onClick={() => setShowCreateModal(true)}
+                    className="fixed bottom-24 right-5 z-40 md:hidden inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-white shadow-2xl shadow-emerald-500/30 hover:bg-emerald-600 active:scale-95 transition"
+                    aria-label="Add category"
+                >
+                    <Plus size={24} strokeWidth={2.75} />
+                </button>
             )}
         </div>
     );

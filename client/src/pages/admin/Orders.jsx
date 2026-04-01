@@ -149,23 +149,24 @@ const getAvailableStatusOptions = (status) => {
     const current = normalizeOrderStatus(status);
     if (current === 'pending') {
         return [
-            { value: 'pending', label: 'Pending' },
             { value: 'completed', label: 'Completed' },
             { value: 'cancelled', label: 'Cancelled' }
         ];
     }
     if (current === 'completed') {
-        return [{ value: 'completed', label: 'Completed' }];
-    }
-    if (current === 'cancelled') {
         return [{ value: 'cancelled', label: 'Cancelled' }];
     }
+    if (current === 'cancelled') {
+        return [];
+    }
     return [
-        { value: 'confirmed', label: 'Confirmed' },
-        { value: 'pending', label: 'Pending' },
         { value: 'completed', label: 'Completed' },
         { value: 'cancelled', label: 'Cancelled' }
     ];
+};
+const isTerminalOrderStatus = (status) => {
+    const current = normalizeOrderStatus(status);
+    return current === 'cancelled';
 };
 const orderMatchesStatusFilter = (order, filterValue = 'all') => {
     const filter = String(filterValue || 'all').trim().toLowerCase();
@@ -911,7 +912,7 @@ export function Orders({
 
     useEffect(() => {
         if (!selectedOrder) return;
-        setPendingStatus(normalizeOrderStatus(selectedOrder.status || 'confirmed'));
+        setPendingStatus('');
         setCancellationMode('');
         setManualRefundAmount('');
         setManualRefundMethod('');
@@ -1653,7 +1654,7 @@ export function Orders({
             if (!order) throw new Error('Attempt conversion failed');
             toast.success('Failed attempt converted to successful order');
             setSelectedOrder(order);
-            setPendingStatus(normalizeOrderStatus(order.status || 'confirmed'));
+            setPendingStatus('');
             setDetailsLastSyncedAt(new Date().toISOString());
             setAttemptConversionReference('');
             setAttemptConversionReason('');
@@ -1673,7 +1674,7 @@ export function Orders({
         setSettlementContext({ mode: null, isTestMode: false });
         if (order) {
             setSelectedOrder((prev) => ({ ...(prev || {}), ...order }));
-            setPendingStatus(normalizeOrderStatus(order.status || 'confirmed'));
+            setPendingStatus('');
             setDetailsLastSyncedAt(new Date().toISOString());
         }
         try {
@@ -1694,7 +1695,7 @@ export function Orders({
             const data = await orderService.getAdminOrder(order?.order_id || order?.id);
             const nextOrder = data.order || null;
             setSelectedOrder(nextOrder);
-            setPendingStatus(normalizeOrderStatus(nextOrder?.status || 'confirmed'));
+            setPendingStatus('');
             setDetailsLastSyncedAt(new Date().toISOString());
             if (nextOrder && needsSettlementSync(nextOrder)) {
                 try {
@@ -1870,7 +1871,7 @@ export function Orders({
                 const target = data?.order || null;
                 if (target) {
                     setSelectedOrder(target);
-                    setPendingStatus(normalizeOrderStatus(target.status || 'confirmed'));
+                    setPendingStatus('');
                     setDetailsLastSyncedAt(new Date().toISOString());
                     setSettlementContext({ mode: null, isTestMode: false });
                 }
@@ -2258,6 +2259,13 @@ export function Orders({
                                 className="w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
                             >
                                 Apply Filters
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsFilterModalOpen(false)}
+                                className="w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
+                            >
+                                Close
                             </button>
                         </div>
                     </div>
@@ -2922,15 +2930,16 @@ export function Orders({
                                                         </button>
                                                     </div>
                                                 )}
-                                                {!isAttemptEntry(selectedOrder) && !isRefundLockedOrder(selectedOrder) && (
+                                                {!isAttemptEntry(selectedOrder) && !isRefundLockedOrder(selectedOrder) && !isTerminalOrderStatus(selectedOrder.status) && (
                                                     <div className="mt-4">
                                                         <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Update Status</label>
                                                         <select
-                                                            value={pendingStatus || normalizeOrderStatus(selectedOrder.status) || 'confirmed'}
+                                                            value={pendingStatus || ''}
                                                             onChange={(e) => setPendingStatus(e.target.value)}
                                                             disabled={isUpdatingStatus}
                                                             className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
                                                         >
+                                                            <option value="">Select next status</option>
                                                             {getAvailableStatusOptions(selectedOrder.status).map((option) => (
                                                                 <option key={option.value} value={option.value}>{option.label}</option>
                                                             ))}
@@ -2993,11 +3002,16 @@ export function Orders({
                                                         <button
                                                             type="button"
                                                             onClick={handleStatusUpdate}
-                                                            disabled={isUpdatingStatus || !selectedOrder || !pendingStatus || pendingStatus === normalizeOrderStatus(selectedOrder.status || 'confirmed')}
+                                                            disabled={isUpdatingStatus || !selectedOrder || !pendingStatus}
                                                             className="mt-3 w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60"
                                                         >
                                                             {isUpdatingStatus ? 'Updating...' : 'Update Status'}
                                                         </button>
+                                                    </div>
+                                                )}
+                                                {!isAttemptEntry(selectedOrder) && !isRefundLockedOrder(selectedOrder) && isTerminalOrderStatus(selectedOrder.status) && (
+                                                    <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600">
+                                                        This order is already {formatStatusLabel(selectedOrder.status).toLowerCase()}. Status updates are disabled.
                                                     </div>
                                                 )}
                                                 {!isAttemptEntry(selectedOrder) && isRefundLockedOrder(selectedOrder) && (

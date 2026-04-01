@@ -33,6 +33,7 @@ const toNumber = (value, fallback = 0) => {
     const n = Number(value);
     return Number.isFinite(n) ? n : fallback;
 };
+const isForcedOutOfStock = (item = {}) => toBool(item?.force_out_of_stock ?? item?.forceOutOfStock);
 const getAvailableQuantity = (item = {}) => toNumber(
     item.available_quantity ?? item.availableQuantity ?? item.quantity,
     0
@@ -58,7 +59,8 @@ const buildItemFromProduct = (product, variant, quantity = 1) => {
     const trackLowStock = variant ? toBool(variant.track_low_stock) : toBool(product.track_low_stock);
     const availableQuantity = variant ? getAvailableQuantity(variant) : getAvailableQuantity(product);
     const lowStockThreshold = variant ? toNumber(variant.low_stock_threshold, 0) : toNumber(product.low_stock_threshold, 0);
-    const isOutOfStock = Boolean(trackQuantity && availableQuantity <= 0);
+    const forceOutOfStock = variant ? isForcedOutOfStock(variant) : isForcedOutOfStock(product);
+    const isOutOfStock = Boolean(forceOutOfStock || (trackQuantity && availableQuantity <= 0));
     const isLowStock = Boolean(trackQuantity && trackLowStock && availableQuantity > 0 && availableQuantity <= lowStockThreshold);
 
     return {
@@ -79,6 +81,7 @@ const buildItemFromProduct = (product, variant, quantity = 1) => {
         trackLowStock,
         availableQuantity,
         lowStockThreshold,
+        forceOutOfStock,
         isLowStock,
         isOutOfStock
     };
@@ -94,9 +97,10 @@ const loadGuestCart = () => {
             const availableQuantity = toNumber(item?.availableQuantity, 0);
             const trackLowStock = toBool(item?.trackLowStock);
             const lowStockThreshold = toNumber(item?.lowStockThreshold, 0);
+            const forceOutOfStock = Boolean(item?.forceOutOfStock);
             const isOutOfStock = item?.isOutOfStock !== undefined
                 ? Boolean(item.isOutOfStock)
-                : Boolean(trackQuantity && availableQuantity <= 0);
+                : Boolean(forceOutOfStock || (trackQuantity && availableQuantity <= 0));
             const isLowStock = item?.isLowStock !== undefined
                 ? Boolean(item.isLowStock)
                 : Boolean(trackQuantity && trackLowStock && availableQuantity > 0 && availableQuantity <= lowStockThreshold);
@@ -108,6 +112,7 @@ const loadGuestCart = () => {
                 trackLowStock,
                 availableQuantity,
                 lowStockThreshold,
+                forceOutOfStock,
                 isLowStock,
                 isOutOfStock
             };
@@ -326,7 +331,8 @@ export const CartProvider = ({ children }) => {
             const trackLowStock = variant ? toBool(variant.track_low_stock) : toBool(product?.track_low_stock);
             const availableQuantity = variant ? getAvailableQuantity(variant) : getAvailableQuantity(product);
             const lowStockThreshold = variant ? toNumber(variant.low_stock_threshold, 0) : toNumber(product?.low_stock_threshold, 0);
-            const isOutOfStock = Boolean(trackQuantity && availableQuantity <= 0);
+            const forceOutOfStock = variant ? isForcedOutOfStock(variant) : isForcedOutOfStock(product);
+            const isOutOfStock = Boolean(forceOutOfStock || (trackQuantity && availableQuantity <= 0));
             const isLowStock = Boolean(trackQuantity && trackLowStock && availableQuantity > 0 && availableQuantity <= lowStockThreshold);
             const status = String(product?.status || item.status || '').toLowerCase() || 'active';
 
@@ -343,6 +349,7 @@ export const CartProvider = ({ children }) => {
                 trackLowStock,
                 availableQuantity,
                 lowStockThreshold,
+                forceOutOfStock,
                 isLowStock,
                 isOutOfStock
             };

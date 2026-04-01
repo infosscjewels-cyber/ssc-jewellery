@@ -90,6 +90,7 @@ const parseStringArray = (value) => {
 const toSubunits = (amount) => Math.round(Number(amount || 0) * 100);
 const fromSubunits = (subunits) => Number(subunits || 0) / 100;
 const roundMoney = (value) => Number(Number(value || 0).toFixed(2));
+const isForcedOutOfStock = (value) => value === 1 || value === true || value === '1' || value === 'true';
 
 const applyDefaultPending = (order) => {
     if (!order) return order;
@@ -380,10 +381,11 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
             `SELECT p.id as product_id, p.title as product_title, p.status as product_status, p.tax_config_id,
                     p.categories as product_categories, p.sub_category as product_sub_category,
                     p.mrp, p.discount_price as product_discount_price, p.track_quantity as product_track_quantity,
+                    p.force_out_of_stock as product_force_out_of_stock,
                     p.quantity as product_quantity, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg, p.polish_warranty_months,
                     pv.id as variant_id, pv.product_id as variant_product_id, pv.variant_title,
                     pv.price as variant_price, pv.discount_price as variant_discount_price,
-                    pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity,
+                    pv.track_quantity as variant_track_quantity, pv.force_out_of_stock as variant_force_out_of_stock, pv.quantity as variant_quantity,
                     pv.sku as variant_sku, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg,
                     pv.variant_options
              FROM products p
@@ -398,7 +400,13 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
         if (row.product_status && row.product_status !== 'active') {
             throw new Error('Some selected products are unavailable');
         }
+        if (isForcedOutOfStock(row.product_force_out_of_stock)) {
+            throw new Error('Some selected products are unavailable');
+        }
         if (variantId && (!row.variant_id || Number(row.variant_product_id) !== Number(productId))) {
+            throw new Error('Some selected variants are unavailable');
+        }
+        if (variantId && isForcedOutOfStock(row.variant_force_out_of_stock)) {
             throw new Error('Some selected variants are unavailable');
         }
         if (deductStock) {
@@ -673,9 +681,9 @@ class Order {
                         p.title as product_title, p.status as product_status, p.tax_config_id,
                         p.categories as product_categories, p.sub_category as product_sub_category,
                         p.mrp, p.discount_price as product_discount_price, p.weight_kg as product_weight_kg,
-                        p.track_quantity as product_track_quantity, p.quantity as product_quantity,
+                        p.track_quantity as product_track_quantity, p.force_out_of_stock as product_force_out_of_stock, p.quantity as product_quantity,
                         pv.id as resolved_variant_id, pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price, pv.weight_kg as variant_weight_kg,
-                        pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity
+                        pv.track_quantity as variant_track_quantity, pv.force_out_of_stock as variant_force_out_of_stock, pv.quantity as variant_quantity
                  FROM cart_items ci
                  JOIN products p ON p.id = ci.product_id
                  LEFT JOIN product_variants pv ON pv.id = ci.variant_id AND pv.product_id = ci.product_id
@@ -699,7 +707,13 @@ class Order {
                 if (row.product_status && row.product_status !== 'active') {
                     throw new Error('Some items are no longer available');
                 }
+                if (isForcedOutOfStock(row.product_force_out_of_stock)) {
+                    throw new Error('Some items are no longer available');
+                }
                 if (row.variant_id && !row.resolved_variant_id) {
+                    throw new Error('Some selected variants are unavailable');
+                }
+                if (row.variant_id && isForcedOutOfStock(row.variant_force_out_of_stock)) {
                     throw new Error('Some selected variants are unavailable');
                 }
                 if (row.variant_id && Number(row.variant_track_quantity) === 1 && Number(row.variant_quantity || 0) < quantity) {
@@ -859,10 +873,10 @@ class Order {
                 `SELECT ci.product_id, ci.variant_id, ci.quantity,
                         p.title as product_title, p.status as product_status, p.tax_config_id,
                         p.categories as product_categories, p.sub_category as product_sub_category,
-                        p.mrp, p.discount_price as product_discount_price, p.track_quantity as product_track_quantity,
+                        p.mrp, p.discount_price as product_discount_price, p.track_quantity as product_track_quantity, p.force_out_of_stock as product_force_out_of_stock,
                         p.quantity as product_quantity, p.sku as product_sku, p.media as product_media, p.weight_kg as product_weight_kg, p.polish_warranty_months,
                         pv.id as resolved_variant_id, pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price,
-                        pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity,
+                        pv.track_quantity as variant_track_quantity, pv.force_out_of_stock as variant_force_out_of_stock, pv.quantity as variant_quantity,
                         pv.sku as variant_sku, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg,
                         pv.variant_options
                  FROM cart_items ci
@@ -887,7 +901,13 @@ class Order {
                 if (row.product_status && row.product_status !== 'active') {
                     throw new Error('Some items are no longer available');
                 }
+                if (isForcedOutOfStock(row.product_force_out_of_stock)) {
+                    throw new Error('Some items are no longer available');
+                }
                 if (row.variant_id && !row.resolved_variant_id) {
+                    throw new Error('Some selected variants are unavailable');
+                }
+                if (row.variant_id && isForcedOutOfStock(row.variant_force_out_of_stock)) {
                     throw new Error('Some selected variants are unavailable');
                 }
 
@@ -907,11 +927,14 @@ class Order {
                 if (!skipStockDeduction) {
                     if (hasVariant) {
                         const [variantRows] = await connection.execute(
-                            'SELECT quantity, track_quantity FROM product_variants WHERE id = ? FOR UPDATE',
+                            'SELECT quantity, track_quantity, force_out_of_stock FROM product_variants WHERE id = ? FOR UPDATE',
                             [row.variant_id]
                         );
                         const variant = variantRows[0];
                         if (!variant) throw new Error('Variant not found');
+                        if (isForcedOutOfStock(variant.force_out_of_stock)) {
+                            throw new Error('Some selected variants are unavailable');
+                        }
                         if (Number(variant.track_quantity) === 1 && Number(variant.quantity) < quantity) {
                             throw new Error('Insufficient stock for some items');
                         }
@@ -923,11 +946,14 @@ class Order {
                         }
                     } else {
                         const [productRows] = await connection.execute(
-                            'SELECT quantity, track_quantity FROM products WHERE id = ? FOR UPDATE',
+                            'SELECT quantity, track_quantity, force_out_of_stock FROM products WHERE id = ? FOR UPDATE',
                             [row.product_id]
                         );
                         const product = productRows[0];
                         if (!product) throw new Error('Product not found');
+                        if (isForcedOutOfStock(product.force_out_of_stock)) {
+                            throw new Error('Some items are no longer available');
+                        }
                         if (Number(product.track_quantity) === 1 && Number(product.quantity) < quantity) {
                             throw new Error('Insufficient stock for some items');
                         }

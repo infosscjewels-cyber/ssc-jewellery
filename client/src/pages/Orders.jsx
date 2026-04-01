@@ -38,16 +38,19 @@ const normalizeStatus = (status) => {
     if (normalized === 'shipped') return 'completed';
     return normalized || 'confirmed';
 };
-const formatStatusLabel = (status) => {
+const getCustomerVisibleStatus = (status) => {
     const normalized = normalizeStatus(status);
+    if (normalized === 'pending') return 'confirmed';
+    return normalized;
+};
+const formatStatusLabel = (status) => {
+    const normalized = getCustomerVisibleStatus(status);
     return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 };
 const getStatusBadgeClasses = (status) => {
-    switch (normalizeStatus(status)) {
+    switch (getCustomerVisibleStatus(status)) {
         case 'completed':
             return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-        case 'pending':
-            return 'bg-amber-50 text-amber-700 border-amber-200';
         case 'cancelled':
             return 'bg-red-50 text-red-700 border-red-200';
         default:
@@ -55,8 +58,7 @@ const getStatusBadgeClasses = (status) => {
     }
 };
 const statusIndex = (status) => {
-    const normalized = normalizeStatus(status);
-    if (normalized === 'pending') return 0;
+    const normalized = getCustomerVisibleStatus(status);
     const idx = STATUS_STEPS.indexOf(normalized);
     return idx >= 0 ? idx : 0;
 };
@@ -165,11 +167,8 @@ const getOrderSavings = (order) => {
 };
 const getClientTimeline = (order) => {
     const events = Array.isArray(order?.events) ? order.events : [];
-    const status = normalizeStatus(order?.status);
-    if (status === 'pending') return events;
     return events.filter((evt) => normalizeStatus(evt?.status) !== 'pending');
 };
-const isPendingDelayState = (order) => normalizeStatus(order?.status) === 'pending';
 const getPaymentMethodLabel = (order) => {
     const method = String(order?.payment_gateway || order?.paymentGateway || 'razorpay').toLowerCase();
     if (method === 'razorpay') return 'Razorpay';
@@ -511,11 +510,6 @@ export default function Orders() {
                                 </div>
                             ) : (
                                     <div className="mt-3">
-                                        {isPendingDelayState(selectedOrder) && (
-                                            <div className="mb-3 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg">
-                                                Processing delay: your order is still in queue and will be marked completed once fulfilment is closed.
-                                            </div>
-                                        )}
                                         <input
                                             type="range"
                                             min="0"

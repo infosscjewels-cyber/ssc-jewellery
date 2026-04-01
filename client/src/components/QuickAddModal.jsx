@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { X, Check } from 'lucide-react';
 
 const isVariantInStock = (variant) => {
+    const forcedOut = String(variant?.force_out_of_stock) === '1' || String(variant?.force_out_of_stock) === 'true' || variant?.force_out_of_stock === true;
+    if (forcedOut) return false;
     const tracked = String(variant.track_quantity) === '1' || String(variant.track_quantity) === 'true' || variant.track_quantity === true;
     if (!tracked) return true;
     return Number((variant.available_quantity ?? variant.quantity) || 0) > 0;
@@ -37,7 +39,8 @@ export default function QuickAddModal({ product, onClose, onConfirm }) {
     if (!product) return null;
 
     const selected = variants.find(v => String(v.id) === String(selectedId));
-    const canAdd = selected ? isVariantInStock(selected) : true;
+    const productForcedOut = String(product?.force_out_of_stock) === '1' || String(product?.force_out_of_stock) === 'true' || product?.force_out_of_stock === true;
+    const canAdd = productForcedOut ? false : (selected ? isVariantInStock(selected) : true);
 
     const handleConfirm = async () => {
         if (!selected || !canAdd || isSubmitting) return;

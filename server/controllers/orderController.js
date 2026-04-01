@@ -32,10 +32,10 @@ const MANUAL_REFUND_METHODS = [
 ];
 const MANUAL_PAYMENT_MODES = ['cash', 'upi', 'bank_transfer', 'card_swipe', 'net_banking', 'manual'];
 const ORDER_TRANSITIONS = Object.freeze({
-    confirmed: new Set(['confirmed', 'pending', 'completed', 'cancelled']),
-    pending: new Set(['pending', 'completed', 'cancelled']),
+    confirmed: new Set(['completed', 'cancelled']),
+    pending: new Set(['completed', 'cancelled']),
     shipped: new Set(['completed', 'cancelled']),
-    completed: new Set(['completed']),
+    completed: new Set(['cancelled']),
     cancelled: new Set(['cancelled'])
 });
 
@@ -1754,9 +1754,6 @@ const updateOrderStatus = async (req, res) => {
         const existingStatus = String(existingOrder?.status || '').toLowerCase();
         if (!isAllowedOrderTransition(existingStatus, nextStatus)) {
             return res.status(400).json({ message: `Order cannot move from ${existingStatus || 'confirmed'} to ${nextStatus || 'unknown'}` });
-        }
-        if (existingStatus === 'pending' && nextStatus === 'confirmed') {
-            return res.status(400).json({ message: 'Pending orders cannot be moved back to confirmed' });
         }
         const refundAlreadyInitiated = Boolean(
             existingOrder?.refund_reference

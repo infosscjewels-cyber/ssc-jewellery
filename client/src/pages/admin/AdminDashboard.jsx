@@ -513,7 +513,7 @@ export default function AdminDashboard() {
                 )}
 
                 <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
-                    <div className={`mb-6 flex items-center justify-end ${activeTab === 'orders' ? 'hidden md:flex' : ''}`}>
+                    <div className={`mb-6 flex items-center justify-end ${activeTab === 'orders' || activeTab === 'products' || activeTab === 'categories' ? 'hidden md:flex' : ''}`}>
                         <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
                             storefrontOpen
                                 ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
@@ -556,11 +556,12 @@ export default function AdminDashboard() {
                     {activeTab === 'products' && (
                         <Products
                             onNavigate={setActiveTab}
+                            storefrontOpen={storefrontOpen}
                             focusProductId={focusProductId}
                             onFocusHandled={() => setFocusProductId(null)}
                         />
                     )}
-                    {activeTab === 'categories' && <Categories />}
+                    {activeTab === 'categories' && <Categories onNavigate={setActiveTab} storefrontOpen={storefrontOpen} />}
                     {activeTab === 'customers' && (
                         <Customers
                             onOpenLoyalty={() => setActiveTab('loyalty')}

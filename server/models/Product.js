@@ -259,6 +259,7 @@ class Product {
                     COUNT(*) AS variant_count,
                     MIN(COALESCE(NULLIF(pv.discount_price, 0), pv.price)) AS min_effective_price,
                     MAX(CASE
+                        WHEN COALESCE(pv.force_out_of_stock, 0) = 1 THEN 0
                         WHEN COALESCE(pv.track_quantity, 0) = 0 OR COALESCE(pv.quantity, 0) > 0 THEN 1
                         ELSE 0
                     END) AS has_in_stock_variant
@@ -419,6 +420,7 @@ class Product {
                     COUNT(*) AS variant_count,
                     MIN(COALESCE(NULLIF(pv.discount_price, 0), pv.price)) AS min_effective_price,
                     MAX(CASE
+                        WHEN COALESCE(pv.force_out_of_stock, 0) = 1 THEN 0
                         WHEN COALESCE(pv.track_quantity, 0) = 0 OR COALESCE(pv.quantity, 0) > 0 THEN 1
                         ELSE 0
                     END) AS has_in_stock_variant
@@ -485,10 +487,13 @@ class Product {
             conditions.push(`(
                 (
                     COALESCE(pv_stats.variant_count, 0) = 0
+                    AND COALESCE(p.force_out_of_stock, 0) = 0
                     AND (COALESCE(p.track_quantity, 0) = 0 OR COALESCE(p.quantity, 0) > 0)
                 )
                 OR
                 (
+                    COALESCE(p.force_out_of_stock, 0) = 0
+                    AND
                     COALESCE(pv_stats.variant_count, 0) > 0
                     AND COALESCE(pv_stats.has_in_stock_variant, 0) = 1
                 )
@@ -602,8 +607,8 @@ class Product {
             // 1. Insert Main Product
             const query = `
                 INSERT INTO products 
-                (id, title, subtitle, description, ribbon_tag, media, categories, usage_audience, sub_category, related_products, additional_info, polish_warranty_months, options, mrp, discount_price, sku, weight_kg, track_quantity, quantity, track_low_stock, low_stock_threshold, tax_config_id, status) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, title, subtitle, description, ribbon_tag, media, categories, usage_audience, sub_category, related_products, additional_info, polish_warranty_months, options, mrp, discount_price, sku, weight_kg, track_quantity, quantity, force_out_of_stock, track_low_stock, low_stock_threshold, tax_config_id, status) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
 
             await connection.execute(query, [
@@ -617,7 +622,7 @@ class Product {
                 Number.isFinite(Number(data.polish_warranty_months)) ? Number(data.polish_warranty_months) : 6,
                 JSON.stringify(data.options || []), // [NEW]
                 data.mrp, data.discount_price || null, data.sku || null, data.weight_kg || null,
-                data.track_quantity ? 1 : 0, data.quantity || 0, data.track_low_stock ? 1 : 0, data.low_stock_threshold || 0,
+                data.track_quantity ? 1 : 0, data.quantity || 0, data.force_out_of_stock ? 1 : 0, data.track_low_stock ? 1 : 0, data.low_stock_threshold || 0,
                 data.tax_config_id || null,
                 data.status || 'active'
             ]);
@@ -628,7 +633,7 @@ class Product {
             if (data.variants && data.variants.length > 0) {
                 const variantQuery = `
                     INSERT INTO product_variants 
-                    (id, product_id, variant_title, price, discount_price, sku, weight_kg, quantity, track_quantity, track_low_stock, low_stock_threshold, image_url)
+                    (id, product_id, variant_title, price, discount_price, sku, weight_kg, quantity, track_quantity, force_out_of_stock, track_low_stock, low_stock_threshold, image_url)
                     VALUES ?
                 `;
                 const variantValues = data.variants.map(v => [
@@ -641,6 +646,7 @@ class Product {
                     v.weight_kg || null,
                     v.quantity || 0,
                     v.track_quantity ? 1 : 0,
+                    v.force_out_of_stock ? 1 : 0,
                     v.track_low_stock ? 1 : 0,
                     v.low_stock_threshold || 0,
                     v.image_url || null
@@ -736,11 +742,11 @@ class Product {
                     await connection.execute(
                         `UPDATE product_variants SET 
                             variant_title=?, price=?, discount_price=?, sku=?, weight_kg=?, 
-                            quantity=?, track_quantity=?, track_low_stock=?, low_stock_threshold=?, image_url=?
+                            quantity=?, track_quantity=?, force_out_of_stock=?, track_low_stock=?, low_stock_threshold=?, image_url=?
                          WHERE id = ? AND product_id = ?`,
                         [
                             v.title, v.price, v.discount_price || null, v.sku || null, v.weight_kg || null,
-                            v.quantity || 0, v.track_quantity ? 1 : 0, v.track_low_stock ? 1 : 0, 
+                            v.quantity || 0, v.track_quantity ? 1 : 0, v.force_out_of_stock ? 1 : 0, v.track_low_stock ? 1 : 0, 
                             v.low_stock_threshold || 0, v.image_url || null,
                             v.id, id
                         ]
@@ -752,11 +758,11 @@ class Product {
                     
                     await connection.execute(
                         `INSERT INTO product_variants 
-                        (id, product_id, variant_title, price, discount_price, sku, weight_kg, quantity, track_quantity, track_low_stock, low_stock_threshold, image_url)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        (id, product_id, variant_title, price, discount_price, sku, weight_kg, quantity, track_quantity, force_out_of_stock, track_low_stock, low_stock_threshold, image_url)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
                             newVarId, id, v.title, v.price, v.discount_price || null, v.sku || null, v.weight_kg || null,
-                            v.quantity || 0, v.track_quantity ? 1 : 0, v.track_low_stock ? 1 : 0, 
+                            v.quantity || 0, v.track_quantity ? 1 : 0, v.force_out_of_stock ? 1 : 0, v.track_low_stock ? 1 : 0, 
                             v.low_stock_threshold || 0, v.image_url || null
                         ]
                     );

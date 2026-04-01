@@ -22,6 +22,7 @@ const parseCategories = (categories) => {
 const normalizeVariantId = (variantId) => (variantId ? String(variantId) : '');
 const normalizeProductId = (productId) => String(productId || '').trim();
 const toTracked = (value) => value === 1 || value === true || value === '1' || value === 'true';
+const toForcedOutOfStock = (value) => value === 1 || value === true || value === '1' || value === 'true';
 const toNumber = (value, fallback = 0) => {
     const n = Number(value);
     return Number.isFinite(n) ? n : fallback;
@@ -43,9 +44,9 @@ const getCartTargetSnapshot = async (connection, productId, variantId = '') => {
     }
     const [rows] = await connection.execute(
         `SELECT p.id as product_id, p.status as product_status,
-                p.track_quantity as product_track_quantity, p.quantity as product_quantity,
+                p.track_quantity as product_track_quantity, p.quantity as product_quantity, p.force_out_of_stock as product_force_out_of_stock,
                 pv.id as resolved_variant_id, pv.product_id as variant_product_id,
-                pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity
+                pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity, pv.force_out_of_stock as variant_force_out_of_stock
          FROM products p
          LEFT JOIN product_variants pv ON pv.id = ? AND pv.product_id = p.id
          WHERE p.id = ?
@@ -60,6 +61,12 @@ const getCartTargetSnapshot = async (connection, productId, variantId = '') => {
         throw new Error('This product is unavailable');
     }
     if (safeVariantId && !row.resolved_variant_id) {
+        throw new Error('Selected variant is unavailable');
+    }
+    if (toForcedOutOfStock(row.product_force_out_of_stock)) {
+        throw new Error('This product is unavailable');
+    }
+    if (safeVariantId && toForcedOutOfStock(row.variant_force_out_of_stock)) {
         throw new Error('Selected variant is unavailable');
     }
     return {
@@ -108,8 +115,10 @@ class Cart {
             `SELECT 
                 ci.user_id, ci.product_id, ci.variant_id, ci.quantity,
                 p.title, p.media, p.categories, p.sub_category, p.mrp, p.discount_price, p.status, p.weight_kg as product_weight_kg, p.track_quantity as product_track_quantity, p.quantity as product_quantity,
+                p.force_out_of_stock as product_force_out_of_stock,
                 p.track_low_stock as product_track_low_stock, p.low_stock_threshold as product_low_stock_threshold,
                 pv.id as resolved_variant_id, pv.variant_title, pv.price as variant_price, pv.discount_price as variant_discount_price, pv.image_url as variant_image_url, pv.weight_kg as variant_weight_kg, pv.track_quantity as variant_track_quantity, pv.quantity as variant_quantity,
+                pv.force_out_of_stock as variant_force_out_of_stock,
                 pv.track_low_stock as variant_track_low_stock, pv.low_stock_threshold as variant_low_stock_threshold
              FROM cart_items ci
              JOIN products p ON p.id = ci.product_id
@@ -137,7 +146,10 @@ class Cart {
                 ? 0
                 : (r.variant_id ? toNumber(r.variant_low_stock_threshold, 0) : toNumber(r.product_low_stock_threshold, 0));
             const status = hasInvalidVariant ? 'inactive' : r.status;
-            const isOutOfStock = Boolean(hasInvalidVariant || (trackQuantity && availableQuantity <= 0));
+            const isForcedOutOfStock = hasInvalidVariant
+                ? true
+                : (r.variant_id ? toForcedOutOfStock(r.variant_force_out_of_stock) : toForcedOutOfStock(r.product_force_out_of_stock));
+            const isOutOfStock = Boolean(isForcedOutOfStock || (trackQuantity && availableQuantity <= 0));
             const isLowStock = Boolean(trackQuantity && trackLowStock && availableQuantity > 0 && availableQuantity <= lowStockThreshold);
             return {
                 productId: r.product_id,
@@ -156,6 +168,7 @@ class Cart {
                 trackLowStock,
                 availableQuantity,
                 lowStockThreshold,
+                forceOutOfStock: isForcedOutOfStock,
                 isLowStock,
                 isOutOfStock
             };

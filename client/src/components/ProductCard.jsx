@@ -101,10 +101,13 @@ export default function ProductCard({ product, displayCategory = '' }) {
     const canAdjustInlineQty = Boolean(inlineCartItem);
     const isInactive = String(product?.status || '').toLowerCase() !== 'active';
     const getAvailableQuantity = (item = {}) => Number((item?.available_quantity ?? item?.quantity) || 0);
+    const isForcedOut = (item = {}) => String(item?.force_out_of_stock) === '1' || String(item?.force_out_of_stock) === 'true' || item?.force_out_of_stock === true;
     const isOutOfStock = useMemo(() => {
+        if (isForcedOut(product)) return true;
         const variants = Array.isArray(product?.variants) ? product.variants : [];
         if (variants.length > 0) {
             return variants.every((variant) => {
+                if (isForcedOut(variant)) return true;
                 const tracked = String(variant?.track_quantity) === '1' || String(variant?.track_quantity) === 'true' || variant?.track_quantity === true;
                 if (!tracked) return false;
                 return getAvailableQuantity(variant) <= 0;

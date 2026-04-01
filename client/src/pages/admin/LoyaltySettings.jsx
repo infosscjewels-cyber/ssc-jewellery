@@ -1141,10 +1141,20 @@ export default function LoyaltySettings({ onBack }) {
                     </div>
                 </button>
                 <div className={`${openSection === 'popup' ? 'block' : 'hidden'} border-t border-gray-100 p-4 space-y-4`}>
-                    <label className="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
-                        <input type="checkbox" checked={Boolean(popupForm.isActive)} onChange={(e) => setPopupForm((prev) => ({ ...prev, isActive: e.target.checked }))} />
-                        Popup enabled
-                    </label>
+                    <div className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-3 md:flex-row md:items-center md:justify-between">
+                        <label className="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
+                            <input type="checkbox" checked={Boolean(popupForm.isActive)} onChange={(e) => setPopupForm((prev) => ({ ...prev, isActive: e.target.checked }))} />
+                            Popup enabled
+                        </label>
+                        <button
+                            type="button"
+                            onClick={handleSavePopup}
+                            disabled={popupSaving || popupTemplateSaving}
+                            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60"
+                        >
+                            <Save size={16} /> {(popupSaving || popupTemplateSaving) ? 'Saving...' : 'Save Popup'}
+                        </button>
+                    </div>
                     <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 space-y-3">
                         <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Template Library</p>
                         <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-center">
@@ -1282,11 +1292,7 @@ export default function LoyaltySettings({ onBack }) {
                                         />
                                     )}
                                 </div>
-                                <div>
-                                    <button type="button" onClick={handleSavePopup} disabled={popupSaving || popupTemplateSaving} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60">
-                                        <Save size={16} /> {(popupSaving || popupTemplateSaving) ? 'Saving...' : 'Save Popup'}
-                                    </button>
-                                </div>
+                                <div />
                             </div>
                             <div className="text-xs text-gray-500">
                                 Tip: choose an existing template, edit popup content, and save again to replace it for future campaigns.

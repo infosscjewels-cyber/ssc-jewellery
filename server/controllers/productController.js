@@ -58,10 +58,11 @@ const normalizeSubCategoryList = (value = []) => {
 
 const normalizeVariantForPublic = (variant = {}) => {
     const tracked = variant.track_quantity === 1 || variant.track_quantity === true || variant.track_quantity === '1' || variant.track_quantity === 'true';
+    const forcedOutOfStock = variant.force_out_of_stock === 1 || variant.force_out_of_stock === true || variant.force_out_of_stock === '1' || variant.force_out_of_stock === 'true';
     const trackLowStock = variant.track_low_stock === 1 || variant.track_low_stock === true || variant.track_low_stock === '1' || variant.track_low_stock === 'true';
     const quantity = Number(variant.quantity || 0);
     const lowStockThreshold = Number(variant.low_stock_threshold || 0);
-    const hasStock = !tracked || Number(variant.quantity || 0) > 0;
+    const hasStock = !forcedOutOfStock && (!tracked || Number(variant.quantity || 0) > 0);
     const isLowStock = tracked && trackLowStock && quantity > 0 && quantity <= lowStockThreshold;
     return {
         id: variant.id,
@@ -70,6 +71,7 @@ const normalizeVariantForPublic = (variant = {}) => {
         discount_price: variant.discount_price,
         sku: variant.sku,
         weight_kg: variant.weight_kg,
+        force_out_of_stock: forcedOutOfStock ? 1 : 0,
         available_quantity: tracked ? quantity : 0,
         quantity: tracked ? (isLowStock ? quantity : (hasStock ? 1 : 0)) : 0,
         track_quantity: tracked ? 1 : 0,
@@ -81,10 +83,11 @@ const normalizeVariantForPublic = (variant = {}) => {
 
 const serializePublicProduct = (product = {}) => {
     const tracked = product.track_quantity === 1 || product.track_quantity === true || product.track_quantity === '1' || product.track_quantity === 'true';
+    const forcedOutOfStock = product.force_out_of_stock === 1 || product.force_out_of_stock === true || product.force_out_of_stock === '1' || product.force_out_of_stock === 'true';
     const trackLowStock = product.track_low_stock === 1 || product.track_low_stock === true || product.track_low_stock === '1' || product.track_low_stock === 'true';
     const quantity = Number(product.quantity || 0);
     const lowStockThreshold = Number(product.low_stock_threshold || 0);
-    const hasStock = !tracked || quantity > 0;
+    const hasStock = !forcedOutOfStock && (!tracked || quantity > 0);
     const isLowStock = tracked && trackLowStock && quantity > 0 && quantity <= lowStockThreshold;
     return {
         id: product.id,
@@ -105,6 +108,7 @@ const serializePublicProduct = (product = {}) => {
         additional_info: safeParse(product.additional_info, []),
         polish_warranty_months: product.polish_warranty_months,
         options: safeParse(product.options, []),
+        force_out_of_stock: forcedOutOfStock ? 1 : 0,
         available_quantity: tracked ? quantity : 0,
         quantity: tracked ? (isLowStock ? quantity : (hasStock ? 1 : 0)) : 0,
         track_quantity: tracked ? 1 : 0,
@@ -305,6 +309,7 @@ const createProduct = async (req, res) => {
                 : null,
             track_quantity: req.body.track_quantity === 'true' || req.body.track_quantity === true ? 1 : 0,
             quantity: req.body.quantity || 0,
+            force_out_of_stock: req.body.force_out_of_stock === 'true' || req.body.force_out_of_stock === true ? 1 : 0,
             track_low_stock: req.body.track_low_stock === 'true' || req.body.track_low_stock === true ? 1 : 0,
             low_stock_threshold: req.body.low_stock_threshold || 0,
             media: media,
@@ -418,6 +423,7 @@ const updateProduct = async (req, res) => {
             
             track_quantity: req.body.track_quantity === 'true' || req.body.track_quantity === true ? 1 : 0,
             quantity: req.body.quantity || 0,
+            force_out_of_stock: req.body.force_out_of_stock === 'true' || req.body.force_out_of_stock === true ? 1 : 0,
             track_low_stock: req.body.track_low_stock === 'true' || req.body.track_low_stock === true ? 1 : 0,
             low_stock_threshold: req.body.low_stock_threshold || 0,
 

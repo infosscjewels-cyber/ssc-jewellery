@@ -24,14 +24,17 @@ const toNumber = (value, fallback = 0) => {
     return Number.isFinite(n) ? n : fallback;
 };
 const getAvailableQuantity = (item = {}) => toNumber(item.available_quantity ?? item.quantity, 0);
+const isForcedOutOfStock = (item = {}) => toBool(item.force_out_of_stock);
 const effectivePrice = (item = {}) => toNumber(item.discount_price || item.price || item.mrp || 0, 0);
 const isVariantOutOfStock = (variant = {}, parent = {}) => {
+    if (isForcedOutOfStock(parent) || isForcedOutOfStock(variant)) return true;
     const tracked = variant.track_quantity ?? parent.track_quantity;
     const qty = getAvailableQuantity(variant);
     return Boolean(toBool(tracked) && toNumber(qty, 0) <= 0);
 };
 const isProductOutOfStock = (product = {}, activeVariantId = null) => {
     if (!product || String(product.status || '').toLowerCase() !== 'active') return true;
+    if (isForcedOutOfStock(product)) return true;
     const variants = Array.isArray(product.variants) ? product.variants : [];
     if (variants.length > 0) {
         const selected = activeVariantId ? variants.find((v) => String(v.id) === String(activeVariantId)) : null;
@@ -404,7 +407,7 @@ export default function ProductPage() {
                 const validProducts = related.products.filter(p => {
                     const isCurrent = String(p.id) === String(data.id);
                     const isActive = p.status === 'active';
-                    const isStocked = !p.track_quantity || getAvailableQuantity(p) > 0;
+                    const isStocked = !isForcedOutOfStock(p) && (!p.track_quantity || getAvailableQuantity(p) > 0);
                     return !isCurrent && isActive && isStocked;
                 });
 
@@ -637,7 +640,7 @@ export default function ProductPage() {
                 const hasVariants = Array.isArray(updatedProduct.variants) && updatedProduct.variants.length > 0;
                 const isOOS = hasVariants
                     ? updatedProduct.variants.every((variant) => isVariantOutOfStock(variant, updatedProduct))
-                    : (toBool(updatedProduct.track_quantity) && getAvailableQuantity(updatedProduct) <= 0);
+                    : (isForcedOutOfStock(updatedProduct) || (toBool(updatedProduct.track_quantity) && getAvailableQuantity(updatedProduct) <= 0));
 
                 if (isInactive || isOOS) {
                     console.log("🚫 Related product became invalid (OOS/Inactive). Refreshing list...");
@@ -865,7 +868,10 @@ export default function ProductPage() {
     const shouldTrackLowStock = isVariant ? (activeVariant.track_low_stock ?? product.track_low_stock) : product.track_low_stock;
 
     // Status Check: Product must be active. If tracking is on, qty must be > 0.
-    const isOutOfStock = product.status !== 'active' || (!!shouldTrackQty && currentQty <= 0);
+    const isOutOfStock = product.status !== 'active'
+        || isForcedOutOfStock(product)
+        || (isVariant && isForcedOutOfStock(activeVariant))
+        || (!!shouldTrackQty && currentQty <= 0);
     const isLowStock = !isOutOfStock && !!shouldTrackLowStock && currentQty <= stockThreshold;
     const breadcrumbCategory = String(location.state?.breadcrumbCategory || '').trim() || getPrimaryCategoryName(product?.categories);
     const currentYoutubeKey = String(videoModal?.item?.videoId || videoModal?.item?.url || '').trim();

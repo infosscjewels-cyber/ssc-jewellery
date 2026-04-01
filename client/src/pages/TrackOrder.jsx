@@ -21,13 +21,14 @@ const formatDate = (value) => {
 const normalizeStatus = (status = '') => String(status || '').trim().toLowerCase() || 'confirmed';
 const resolveStatus = (status = '') => {
     const value = normalizeStatus(status);
-    return value === 'shipped' ? 'completed' : value;
+    if (value === 'shipped') return 'completed';
+    if (value === 'pending') return 'confirmed';
+    return value;
 };
 
 const getStatusPill = (status = '') => {
     const value = resolveStatus(status);
     if (value === 'completed') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    if (value === 'pending') return 'bg-amber-50 text-amber-700 border-amber-200';
     if (value === 'cancelled') return 'bg-red-50 text-red-700 border-red-200';
     return 'bg-gray-100 text-gray-700 border-gray-200';
 };
@@ -35,7 +36,6 @@ const getStatusPill = (status = '') => {
 const getPrimaryLabel = (order = null) => {
     const status = resolveStatus(order?.status);
     if (status === 'completed') return 'Delivered';
-    if (status === 'pending') return 'Processing';
     if (status === 'cancelled') return 'Cancelled';
     return 'Confirmed';
 };

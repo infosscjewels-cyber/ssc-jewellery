@@ -11,6 +11,15 @@ const USAGE_AUDIENCE_OPTIONS = [
     { value: 'women', label: 'Women' },
     { value: 'kids', label: 'Kids' }
 ];
+const variantOptionsEnabled = String(import.meta.env.VITE_ENABLE_PRODUCT_VARIANT_OPTIONS || '')
+    .trim()
+    .toLowerCase() !== 'false';
+const productStatusToggleEnabled = String(import.meta.env.VITE_ENABLE_PRODUCT_STATUS_TOGGLE || '')
+    .trim()
+    .toLowerCase() === 'true';
+const inventoryTrackingEnabled = String(import.meta.env.VITE_ENABLE_INVENTORY_TRACKING || '')
+    .trim()
+    .toLowerCase() === 'true';
 
 export default function AddProductModal({ isOpen, onClose, onConfirm, productToEdit = null, usageAudienceConfig = {}, subCategoriesEnabled = false }) {
     const getYoutubeVideoId = (value = '') => {
@@ -66,7 +75,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     const [formData, setFormData] = useState({
         title: '', subtitle: '', description: '', mrp: '', discount_price: '',
         ribbon_tag: '', sku: '', weight_kg: '', status: 'active',
-        track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0, tax_config_id: '',
+        track_quantity: false, quantity: 0, force_out_of_stock: false, track_low_stock: false, low_stock_threshold: 0, tax_config_id: '',
         polish_warranty_months: '6',
         categories: [],
         usageAudience: '',
@@ -116,6 +125,8 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
         }
         return unique;
     }, [categorySubCategoryMap, formData.categories, formData.subCategory]);
+    const hasExistingVariants = Array.isArray(productToEdit?.variants) && productToEdit.variants.length > 0;
+    const isVariantSectionReadOnly = !variantOptionsEnabled && hasExistingVariants;
     // --- 2. EFFECT: POPULATE ON EDIT & FETCH CATEGORIES ---
     useEffect(() => {
         if (isOpen) {
@@ -151,7 +162,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                     ribbon_tag: productToEdit.ribbon_tag || '', 
                     sku: productToEdit.sku || '', 
                     weight_kg: productToEdit.weight_kg || '',
-                    status: productToEdit.status || 'active', 
+                    status: productStatusToggleEnabled ? (productToEdit.status || 'active') : 'active', 
                     tax_config_id: productToEdit.tax_config_id ? String(productToEdit.tax_config_id) : '',
                     polish_warranty_months: String(productToEdit.polish_warranty_months || 6),
                     categories: productToEdit.categories || [],
@@ -159,6 +170,11 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                     subCategory: String(productToEdit.subCategory || productToEdit.sub_category || '').trim(),
                     track_quantity: toBool(productToEdit.track_quantity),
                     quantity: productToEdit.quantity !== null ? productToEdit.quantity : 0,
+                    force_out_of_stock: toBool(productToEdit.force_out_of_stock) || (
+                        Array.isArray(productToEdit.variants)
+                        && productToEdit.variants.length > 0
+                        && productToEdit.variants.every((variant) => toBool(variant?.force_out_of_stock))
+                    ),
                     track_low_stock: toBool(productToEdit.track_low_stock),
                     low_stock_threshold: productToEdit.low_stock_threshold || 0
                 });
@@ -180,6 +196,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                         weight_kg: v.weight_kg !== null ? v.weight_kg : '',
                         quantity: v.quantity !== null ? v.quantity : 0,
                         track_quantity: toBool(v.track_quantity),
+                        force_out_of_stock: toBool(v.force_out_of_stock),
                         track_low_stock: toBool(v.track_low_stock),
                         low_stock_threshold: v.low_stock_threshold || 0,
                         image_url: v.image_url || ''
@@ -189,7 +206,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                 // Reset for Add Mode
                 setFormData({
                     title: '', subtitle: '', description: '', mrp: '', discount_price: '', ribbon_tag: '', sku: '',
-                    weight_kg: '', status: 'active', track_quantity: false, quantity: 0, track_low_stock: false, low_stock_threshold: 0, tax_config_id: '',
+                    weight_kg: '', status: 'active', track_quantity: false, quantity: 0, force_out_of_stock: false, track_low_stock: false, low_stock_threshold: 0, tax_config_id: '',
                     polish_warranty_months: '6',
                     categories: [],
                     usageAudience: '',
@@ -300,6 +317,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                 weight_kg: formData.weight_kg || '', 
                 quantity: 0,
                 track_quantity: formData.track_quantity,
+                force_out_of_stock: formData.force_out_of_stock,
                 track_low_stock: formData.track_low_stock,
                 low_stock_threshold: 0,
                 image_url: ''
@@ -309,6 +327,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     };
 
     const saveOption = () => {
+        if (!variantOptionsEnabled) return;
         if (!optionForm.name || optionForm.values.length === 0) return toast.error("Name and values required");
         const newOpt = { id: optionForm.id || Date.now().toString(), name: optionForm.name, values: optionForm.values };
         const newOptions = optionForm.id ? options.map((o) => (o.id === optionForm.id ? newOpt : o)) : [...options, newOpt];
@@ -318,12 +337,14 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     };
 
     const deleteOption = (id) => {
+        if (!variantOptionsEnabled) return;
         const newOptions = options.filter(o => o.id !== id);
         setOptions(newOptions);
         generateVariants(newOptions);
     };
 
     const updateVariant = (idx, field, val) => {
+        if (isVariantSectionReadOnly) return;
         const updated = [...variants];
         let newValue = val;
         if (['price', 'discount_price', 'quantity', 'low_stock_threshold'].includes(field)) {
@@ -527,7 +548,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
             const complexFields = ['categories', 'options', 'additional_info', 'media']; // variants is not in formData, so we don't need to skip it
             Object.keys(formData).forEach(key => {
                 if (complexFields.includes(key)) return;
-                const value = formData[key];
+                const value = key === 'status' && !productStatusToggleEnabled ? 'active' : formData[key];
                 if (typeof value === 'boolean') {
                     payload.append(key, value ? 'true' : 'false'); 
                 } else {
@@ -556,10 +577,19 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                 ...v,
                 price: v.price || 0,
                 discount_price: v.discount_price || 0,
-                track_quantity: formData.track_quantity ? 1 : 0,
-                track_low_stock: formData.track_low_stock ? 1 : 0,
-                quantity: formData.track_quantity ? (v.quantity || 0) : 0,
-                low_stock_threshold: formData.track_low_stock ? (v.low_stock_threshold || 0) : 0
+                track_quantity: inventoryTrackingEnabled
+                    ? (formData.track_quantity ? 1 : 0)
+                    : ((v.track_quantity === 1 || v.track_quantity === true || v.track_quantity === '1' || v.track_quantity === 'true') ? 1 : 0),
+                force_out_of_stock: formData.force_out_of_stock ? 1 : 0,
+                track_low_stock: inventoryTrackingEnabled
+                    ? (formData.track_low_stock ? 1 : 0)
+                    : ((v.track_low_stock === 1 || v.track_low_stock === true || v.track_low_stock === '1' || v.track_low_stock === 'true') ? 1 : 0),
+                quantity: inventoryTrackingEnabled
+                    ? (formData.track_quantity ? (v.quantity || 0) : 0)
+                    : (v.quantity || 0),
+                low_stock_threshold: inventoryTrackingEnabled
+                    ? (formData.track_low_stock ? (v.low_stock_threshold || 0) : 0)
+                    : (v.low_stock_threshold || 0)
             }));
             
             payload.append('variants', JSON.stringify(cleanVariants));
@@ -607,11 +637,28 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                     <label className="block text-sm font-bold text-gray-700">Subtitle</label>
                                     <input name="subtitle" value={formData.subtitle} onChange={handleChange} className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none" placeholder="e.g. 22k Gold - Limited Edition"/>
                                 </div>
+                                {productStatusToggleEnabled ? (
                                 <div className="space-y-4">
                                     <label className="block text-sm font-bold text-gray-700">Status</label>
                                     <select name="status" value={formData.status} onChange={handleChange} className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none bg-white">
                                         <option value="active">Active</option>
                                         <option value="inactive">Inactive</option>
+                                    </select>
+                                </div>
+                                ) : null}
+                                <div className="space-y-4">
+                                    <label className="block text-sm font-bold text-gray-700">Out of stock</label>
+                                    <select
+                                        name="force_out_of_stock"
+                                        value={formData.force_out_of_stock ? 'out_of_stock' : 'in_stock'}
+                                        onChange={(e) => setFormData((prev) => ({
+                                            ...prev,
+                                            force_out_of_stock: e.target.value === 'out_of_stock'
+                                        }))}
+                                        className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none bg-white"
+                                    >
+                                        <option value="in_stock">In stock</option>
+                                        <option value="out_of_stock">Out of stock</option>
                                     </select>
                                 </div>
                                 {usageAudienceEnabled && (
@@ -671,15 +718,22 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                             </div>
 
                             {/* --- OPTIONS SECTION --- */}
+                            {(variantOptionsEnabled || options.length > 0) && (
                             <div className="p-5 bg-white rounded-xl border border-gray-100 shadow-sm space-y-4">
                                 <div className="flex justify-between items-center">
                                     <div>
                                         <h3 className="font-bold text-gray-800">Options</h3>
-                                        <p className="text-xs text-gray-500">Add options like Size or Color to create variants.</p>
+                                        <p className="text-xs text-gray-500">
+                                            {isVariantSectionReadOnly
+                                                ? 'Variant options are view-only right now.'
+                                                : 'Add options like Size or Color to create variants.'}
+                                        </p>
                                     </div>
+                                    {variantOptionsEnabled ? (
                                     <button onClick={() => { setOptionForm({id:null, name:'', values:[], inputValue:''}); setIsOptionModalOpen(true); }} className="text-primary text-sm font-bold flex items-center gap-1 hover:underline bg-primary/10 px-3 py-2 rounded-lg transition-colors">
                                         <Plus size={16}/> Add Option
                                     </button>
+                                    ) : null}
                                 </div>
                                 {options.map(opt => (
                                     <div key={opt.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 animate-in fade-in">
@@ -689,13 +743,16 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                                 {opt.values.map((v, i) => <span key={i} className="text-xs bg-white border border-gray-200 px-2 py-1 rounded-md text-gray-600">{v}</span>)}
                                             </div>
                                         </div>
+                                        {variantOptionsEnabled ? (
                                         <div className="flex gap-2">
                                             <button onClick={() => { setOptionForm({id:opt.id, name:opt.name, values:opt.values, inputValue:''}); setIsOptionModalOpen(true); }} className="p-2 hover:bg-white rounded text-gray-400 hover:text-primary transition-colors"><Pencil size={16}/></button>
                                             <button onClick={() => deleteOption(opt.id)} className="p-2 hover:bg-white rounded text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
                                         </div>
+                                        ) : null}
                                     </div>
                                 ))}
                             </div>
+                            )}
 
                             {/* --- CONDITIONAL: VARIANTS OR DEFAULT PRICING --- */}
                             {options.length > 0 ? (
@@ -704,22 +761,26 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                         <h3 className="font-bold text-gray-800">Variants Preview & Pricing</h3>
                                         
                                         {/* GLOBAL INVENTORY CONTROLS */}
-                                        <div className="flex gap-4">
-                                            <Checkbox 
-                                                name="track_quantity" 
-                                                checked={formData.track_quantity} 
-                                                onChange={handleChange} 
-                                                label="Track Stock" 
-                                            />
-                                            {formData.track_quantity && (
+                                        {inventoryTrackingEnabled ? (
+                                            <div className="flex gap-4">
                                                 <Checkbox 
-                                                    name="track_low_stock" 
-                                                    checked={formData.track_low_stock} 
+                                                    name="track_quantity" 
+                                                    checked={formData.track_quantity} 
                                                     onChange={handleChange} 
-                                                    label="Low Stock Alert" 
+                                                    disabled={isVariantSectionReadOnly}
+                                                    label="Track Stock" 
                                                 />
-                                            )}
-                                        </div>
+                                                {formData.track_quantity && (
+                                                    <Checkbox 
+                                                        name="track_low_stock" 
+                                                        checked={formData.track_low_stock} 
+                                                        onChange={handleChange} 
+                                                        disabled={isVariantSectionReadOnly}
+                                                        label="Low Stock Alert" 
+                                                    />
+                                                )}
+                                            </div>
+                                        ) : null}
                                     </div>
 
                                     <table className="w-full text-left text-sm">
@@ -729,8 +790,8 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                                 <th className="pb-3">Image</th>
                                                 <th className="pb-3">Price *</th>
                                                 <th className="pb-3">Discount</th>
-                                                {formData.track_quantity ? <th className="pb-3">Qty</th> : null}
-                                                {formData.track_low_stock ? <th className="pb-3">Low Limit</th> : null}
+                                                {inventoryTrackingEnabled && formData.track_quantity ? <th className="pb-3">Qty</th> : null}
+                                                {inventoryTrackingEnabled && formData.track_low_stock ? <th className="pb-3">Low Limit</th> : null}
                                                 <th className="pb-3">SKU</th>
                                             </tr>
                                         </thead>
@@ -739,28 +800,28 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                                 <tr key={i} className="hover:bg-gray-50 transition-colors">
                                                     <td className="py-3 pl-2 font-medium">{v.title}</td>
                                                     <td className="py-3">
-                                                        <button onClick={() => { setCurrentVariantIndex(i); setIsImagePickerOpen(true); }} className="w-10 h-10 bg-gray-100 rounded border flex items-center justify-center hover:border-primary overflow-hidden relative group">
+                                                        <button onClick={() => { if (isVariantSectionReadOnly) return; setCurrentVariantIndex(i); setIsImagePickerOpen(true); }} disabled={isVariantSectionReadOnly} className="w-10 h-10 bg-gray-100 rounded border flex items-center justify-center hover:border-primary overflow-hidden relative group disabled:cursor-not-allowed disabled:opacity-60">
                                                             {v.image_url ? <img src={v.image_url} className="w-full h-full object-cover"/> : <ImageIcon size={16} className="text-gray-400 group-hover:text-primary"/>}
                                                         </button>
                                                     </td>
                                                     <td className="py-3">
-                                                        <input type="number" min="0" value={v.price} onChange={(e) => updateVariant(i, 'price', e.target.value)} className="w-24 p-2 border border-gray-200 rounded-lg focus:border-accent outline-none" placeholder="₹ MRP" />
+                                                        <input type="number" min="0" value={v.price} onChange={(e) => updateVariant(i, 'price', e.target.value)} readOnly={isVariantSectionReadOnly} className="w-24 p-2 border border-gray-200 rounded-lg focus:border-accent outline-none read-only:bg-gray-50 read-only:text-gray-500" placeholder="₹ MRP" />
                                                     </td>
                                                     <td className="py-3">
-                                                        <input type="number" min="0" value={v.discount_price} onChange={(e) => updateVariant(i, 'discount_price', e.target.value)} className="w-24 p-2 border border-gray-200 rounded-lg focus:border-accent outline-none" placeholder="₹ Sale" />
+                                                        <input type="number" min="0" value={v.discount_price} onChange={(e) => updateVariant(i, 'discount_price', e.target.value)} readOnly={isVariantSectionReadOnly} className="w-24 p-2 border border-gray-200 rounded-lg focus:border-accent outline-none read-only:bg-gray-50 read-only:text-gray-500" placeholder="₹ Sale" />
                                                     </td>
-                                                    {formData.track_quantity ? (
+                                                    {inventoryTrackingEnabled && formData.track_quantity ? (
                                                         <td className="py-3">
-                                                            <input type="number" min="0" value={v.quantity} onChange={(e) => updateVariant(i, 'quantity', e.target.value)} className="w-20 p-2 border border-gray-200 rounded-lg focus:border-accent outline-none" placeholder="0" />
+                                                            <input type="number" min="0" value={v.quantity} onChange={(e) => updateVariant(i, 'quantity', e.target.value)} readOnly={isVariantSectionReadOnly} className="w-20 p-2 border border-gray-200 rounded-lg focus:border-accent outline-none read-only:bg-gray-50 read-only:text-gray-500" placeholder="0" />
                                                         </td>
                                                     ) : null}
-                                                    {formData.track_low_stock ? (
+                                                    {inventoryTrackingEnabled && formData.track_low_stock ? (
                                                         <td className="py-3">
-                                                            <input type="number" min="0" value={v.low_stock_threshold} onChange={(e) => updateVariant(i, 'low_stock_threshold', e.target.value)} className="w-20 p-2 border border-gray-200 rounded-lg focus:border-accent outline-none" placeholder="0" />
+                                                            <input type="number" min="0" value={v.low_stock_threshold} onChange={(e) => updateVariant(i, 'low_stock_threshold', e.target.value)} readOnly={isVariantSectionReadOnly} className="w-20 p-2 border border-gray-200 rounded-lg focus:border-accent outline-none read-only:bg-gray-50 read-only:text-gray-500" placeholder="0" />
                                                         </td>
                                                     ) : null}
                                                     <td className="py-3">
-                                                        <input value={v.sku} onChange={(e) => updateVariant(i, 'sku', e.target.value)} className="w-28 p-2 border border-gray-200 rounded-lg focus:border-accent outline-none" placeholder="SKU" />
+                                                        <input value={v.sku} onChange={(e) => updateVariant(i, 'sku', e.target.value)} readOnly={isVariantSectionReadOnly} className="w-28 p-2 border border-gray-200 rounded-lg focus:border-accent outline-none read-only:bg-gray-50 read-only:text-gray-500" placeholder="SKU" />
                                                     </td>
                                                 </tr>
                                             ))}
@@ -790,6 +851,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                     </div>
                                     
                                     {/* INVENTORY */}
+                                    {inventoryTrackingEnabled ? (
                                     <div className="md:col-span-2 p-5 bg-white rounded-xl border border-gray-100 shadow-sm space-y-4 animate-in fade-in">
                                         <h3 className="font-bold text-gray-800">Inventory</h3>
                                         
@@ -813,6 +875,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                             </div>
                                         )}
                                     </div>
+                                    ) : null}
                                 </>
                             )}
 
@@ -1234,11 +1297,11 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
 // --------------------------------------------------------
 // MOVED COMPONENT OUTSIDE
 // --------------------------------------------------------
-function Checkbox({ name, checked, onChange, label }) {
+function Checkbox({ name, checked, onChange, label, disabled = false }) {
     return (
-        <label className="flex items-center gap-2 cursor-pointer group select-none">
-            <input type="checkbox" name={name} checked={checked} onChange={onChange} className="hidden" />
-            <div className={`transition-colors ${checked ? 'text-primary' : 'text-gray-300 group-hover:text-primary'}`}>
+        <label className={`flex items-center gap-2 group select-none ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+            <input type="checkbox" name={name} checked={checked} onChange={onChange} disabled={disabled} className="hidden" />
+            <div className={`transition-colors ${checked ? 'text-primary' : 'text-gray-300'} ${disabled ? '' : 'group-hover:text-primary'}`}>
                 {checked ? <CheckSquare size={18} /> : <Square size={18} />}
             </div>
             {label && <span className="text-sm font-bold text-gray-700">{label}</span>}

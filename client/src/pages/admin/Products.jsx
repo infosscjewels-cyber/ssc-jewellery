@@ -6,11 +6,12 @@ import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { 
     Loader2, Search, Plus, Package, 
     ChevronLeft, ChevronRight, Edit3, Trash2, Eye, EyeOff, Filter,
-    Infinity as InfinityIcon, AlertTriangle, Upload, X
+    Infinity as InfinityIcon, AlertTriangle, Upload, X, LayoutGrid, Settings, Users, PackageCheck, PackageX
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import AddProductModal from '../../components/AddProductModal';
 import emptyIllustration from '../../assets/closed.svg';
+import { isDiscoveryItemInStock } from '../../utils/shopDiscovery';
 
 const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
     const safeTotal = Math.max(1, Number(totalPages || 1));
@@ -111,8 +112,45 @@ const USAGE_AUDIENCE_ITEMS = [
     { key: 'women', label: 'Women', field: 'usageAudienceWomenImageUrl' },
     { key: 'kids', label: 'Kids', field: 'usageAudienceKidsImageUrl' }
 ];
+const productStatusToggleEnabled = String(import.meta.env.VITE_ENABLE_PRODUCT_STATUS_TOGGLE || '')
+    .trim()
+    .toLowerCase() === 'true';
+const inventoryTrackingEnabled = String(import.meta.env.VITE_ENABLE_INVENTORY_TRACKING || '')
+    .trim()
+    .toLowerCase() === 'true';
+const isTrackedStock = (item = {}) => String(item?.track_quantity) === '1' || String(item?.track_quantity) === 'true' || item?.track_quantity === true;
+const getStockFilterLabel = (value = 'all') => {
+    if (value === 'in') return 'Showing in-stock products';
+    if (value === 'out') return 'Showing out-of-stock products';
+    return 'Showing all stock states';
+};
+const getNextStockFilter = (value = 'all') => {
+    if (value === 'all') return 'in';
+    if (value === 'in') return 'out';
+    return 'all';
+};
+const getStockFilterIcon = (value = 'all') => {
+    if (value === 'in') return PackageCheck;
+    if (value === 'out') return PackageX;
+    return Package;
+};
+const getStockBadgeMeta = (product = {}) => {
+    const inStock = isDiscoveryItemInStock(product);
+    if (inStock) {
+        return {
+            label: 'In Stock',
+            classes: 'bg-emerald-100 text-emerald-700',
+            icon: PackageCheck
+        };
+    }
+    return {
+        label: 'Out of Stock',
+        classes: 'bg-rose-100 text-rose-700',
+        icon: PackageX
+    };
+};
 
-export default function Products({ onNavigate, focusProductId = null, onFocusHandled = () => {} }) {
+export default function Products({ onNavigate, storefrontOpen = true, focusProductId = null, onFocusHandled = () => {} }) {
     const [allProducts, setAllProducts] = useState([]);
     const [isDownloading, setIsDownloading] = useState(false);
     
@@ -120,7 +158,8 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
     const [page, setPage] = useState(1);
     const [filterCategory, setFilterCategory] = useState('');
     const [filterUsageAudience, setFilterUsageAudience] = useState('');
-    const [filterStatus, setFilterStatus] = useState('all');
+    const [filterStatus, setFilterStatus] = useState(productStatusToggleEnabled ? 'active' : 'active');
+    const [filterStock, setFilterStock] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [categories, setCategories] = useState([]); // <--- New State
     const [isCategoriesLoading, setIsCategoriesLoading] = useState(false);
@@ -130,6 +169,9 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
     const [editingProduct, setEditingProduct] = useState(null);
     const [productToDelete, setProductToDelete] = useState(null); // For Delete Confirmation
     const [refreshTick, setRefreshTick] = useState(0);
+    const [isMobileSearchModalOpen, setIsMobileSearchModalOpen] = useState(false);
+    const [isMobileFilterModalOpen, setIsMobileFilterModalOpen] = useState(false);
+    const [isMobileAudienceModalOpen, setIsMobileAudienceModalOpen] = useState(false);
     const [usageAudienceConfig, setUsageAudienceConfig] = useState({
         enabled: false,
         usageAudienceMenImageUrl: '',
@@ -392,7 +434,7 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
 
     const handleOpenUsageAudienceModal = () => {
         setUsageAudienceDraft({
-            enabled: true,
+            enabled: usageAudienceConfig.enabled === true,
             usageAudienceMenImageUrl: usageAudienceConfig.usageAudienceMenImageUrl || '',
             usageAudienceWomenImageUrl: usageAudienceConfig.usageAudienceWomenImageUrl || '',
             usageAudienceKidsImageUrl: usageAudienceConfig.usageAudienceKidsImageUrl || ''
@@ -441,15 +483,17 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
     };
 
     const handleSaveUsageAudienceSettings = async () => {
-        const missing = USAGE_AUDIENCE_ITEMS.find((item) => !String(usageAudienceDraft[item.field] || '').trim());
-        if (missing) {
-            toast.error(`${missing.label} image is required`);
-            return;
+        if (usageAudienceDraft.enabled) {
+            const missing = USAGE_AUDIENCE_ITEMS.find((item) => !String(usageAudienceDraft[item.field] || '').trim());
+            if (missing) {
+                toast.error(`${missing.label} image is required`);
+                return;
+            }
         }
         setIsUsageAudienceSaving(true);
         try {
             const data = await adminService.updateCompanyInfo({
-                usageAudienceEnabled: true,
+                usageAudienceEnabled: usageAudienceDraft.enabled === true,
                 usageAudienceMenImageUrl: usageAudienceDraft.usageAudienceMenImageUrl || '',
                 usageAudienceWomenImageUrl: usageAudienceDraft.usageAudienceWomenImageUrl || '',
                 usageAudienceKidsImageUrl: usageAudienceDraft.usageAudienceKidsImageUrl || ''
@@ -468,7 +512,15 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
     const PAGE_SIZE = 10;
     const filteredProducts = useMemo(() => {
         return allProducts
-            .filter(p => filterStatus === 'all' || p.status === filterStatus)
+            .filter((p) => {
+                if (!productStatusToggleEnabled) return String(p?.status || '').toLowerCase() === 'active';
+                return filterStatus === 'all' || p.status === filterStatus;
+            })
+            .filter((p) => {
+                if (filterStock === 'all') return true;
+                const inStock = isDiscoveryItemInStock(p);
+                return filterStock === 'in' ? inStock : !inStock;
+            })
             .filter((p) => {
                 if (!filterUsageAudience) return true;
                 return String(p?.usageAudience || p?.usage_audience || '').trim().toLowerCase() === filterUsageAudience;
@@ -477,7 +529,7 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                 p.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 (p.sku && p.sku.toLowerCase().includes(searchTerm.toLowerCase()))
             );
-    }, [allProducts, filterStatus, filterUsageAudience, searchTerm]);
+    }, [allProducts, filterStatus, filterStock, filterUsageAudience, searchTerm]);
 
     const totalPages = Math.max(1, Math.ceil(filteredProducts.length / PAGE_SIZE));
     const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 5), [page, totalPages]);
@@ -504,11 +556,11 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
 
             {isUsageAudienceModalOpen && createPortal(
                 <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-                    <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95">
-                        <div className="flex items-center justify-between p-6 border-b border-gray-100">
+                    <div className="bg-white w-full max-w-3xl max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 flex flex-col">
+                        <div className="flex items-center justify-between p-6 border-b border-gray-100 shrink-0">
                             <div>
-                                <h3 className="text-xl font-bold text-gray-800">Usage Audience Setup</h3>
-                                <p className="text-sm text-gray-500 mt-1">Upload storefront tiles for Men, Women, and Kids.</p>
+                                <h3 className="text-xl font-bold text-gray-800">Usage Audience Settings</h3>
+                                <p className="text-sm text-gray-500 mt-1">Control audience tagging, storefront filtering, and tile images.</p>
                             </div>
                             <button
                                 type="button"
@@ -518,7 +570,34 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                                 <X size={20} />
                             </button>
                         </div>
-                        <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
+                        <div className="p-6 space-y-5 overflow-y-auto flex-1">
+                            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                                    <div>
+                                        <p className="text-sm font-bold text-gray-800">Classify products by usage audience</p>
+                                        <p className="text-xs text-gray-500 mt-1">Enable Men, Women, and Kids tagging for products and storefront browsing.</p>
+                                    </div>
+                                    <label className={`inline-flex w-auto shrink-0 items-center justify-between gap-1.5 px-2.5 py-2 rounded-full text-sm font-bold min-w-[116px] transition-colors ${
+                                        usageAudienceDraft.enabled ? 'bg-primary text-accent' : 'bg-gray-200 text-gray-700'
+                                    }`}>
+                                        <span>{usageAudienceDraft.enabled ? 'Enabled' : 'Disabled'}</span>
+                                        <span className={`h-5 w-5 rounded-full bg-white transition-transform ${usageAudienceDraft.enabled ? 'translate-x-0 text-primary' : 'text-gray-400'}`} />
+                                        <input
+                                            type="checkbox"
+                                            className="sr-only"
+                                            checked={Boolean(usageAudienceDraft.enabled)}
+                                            onChange={(e) => setUsageAudienceDraft((prev) => ({ ...prev, enabled: e.target.checked }))}
+                                        />
+                                    </label>
+                                </div>
+                                <div className="mt-4">
+                                    <p className="text-sm text-gray-600">
+                                        The audience filter will appear on the Products page when this feature is enabled.
+                                    </p>
+                                </div>
+                            </div>
+                            <div className={`${usageAudienceDraft.enabled ? '' : 'blur-[2px] opacity-55 pointer-events-none select-none'} transition-all`}>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                             {USAGE_AUDIENCE_ITEMS.map((item) => (
                                 <div key={item.key} className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
                                     <p className="text-sm font-bold text-gray-800">{item.label}</p>
@@ -548,7 +627,9 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                                 </div>
                             ))}
                         </div>
-                        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-white">
+                            </div>
+                        </div>
+                        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100 bg-white shrink-0">
                             <button
                                 type="button"
                                 onClick={() => setIsUsageAudienceModalOpen(false)}
@@ -596,41 +677,49 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
             )}
 
             {/* --- HEADER & ACTIONS --- */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                <div>
-                    <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Products</h1>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+                <div className="w-full">
+                    <div className="flex items-center justify-between gap-3 md:block">
+                        <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Products</h1>
+                        <div className={`inline-flex md:hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                            storefrontOpen
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                : 'border-gray-300 bg-gray-100 text-gray-800'
+                        }`}>
+                            <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                            {storefrontOpen ? 'Store Open' : 'Store Closed'}
+                        </div>
+                    </div>
                     <p className="text-gray-500 text-sm mt-1">Manage your catalogue</p>
                 </div>
                 
-                <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
-                    <div className="relative hidden md:block">
-                        <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
-                        <select 
-                            value={filterStatus}
-                            onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
-                            className="pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer"
-                        >
-                            <option value="all">All Status</option>
-                            <option value="active">Active</option>
-                            <option value="inactive">Hidden</option>
-                        </select>
-                    </div>
-                    {/* [NEW] Mobile-Only Category Link */}
-                    <div className="relative flex-1 md:hidden">
-                        <button 
-                            onClick={() => onNavigate('categories')}
-                            className="md:hidden text-xs w-full font-bold text-accent-deep bg-accent/10 pl-10 pr-8 py-3 rounded-lg border border-accent/20 active:scale-95 transition-transform"
-                        >
-                            Manage Categories →
-                        </button>
-                    </div>
+                <div className="hidden md:flex flex-col md:flex-row gap-2 w-full md:w-auto">
+                    {usageAudienceConfig.enabled && (
+                        <div className="relative hidden md:block">
+                            <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+                            <select
+                                id="admin-usage-audience-filter"
+                                value={filterUsageAudience}
+                                onChange={(e) => {
+                                    setFilterUsageAudience(e.target.value);
+                                    setPage(1);
+                                }}
+                                className="pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer min-w-[180px]"
+                            >
+                                <option value="">All Audiences</option>
+                                <option value="men">Men</option>
+                                <option value="women">Women</option>
+                                <option value="kids">Kids</option>
+                            </select>
+                        </div>
+                    )}
                     {/* --- CATEGORY FILTER --- */}
                     <div className="relative flex-1 md:w-64">
-                        <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+                        <Filter className="hidden md:block absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
                         <select 
                             value={filterCategory}
                             onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }}
-                            className="w-full pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer md:max-w-[200px]"
+                            className="hidden md:block w-full pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer md:max-w-[200px]"
                             disabled={isCategoriesLoading}
                         >
                             <option value={ADMIN_FILTER_ALL}>All Products</option>
@@ -642,75 +731,230 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                     </div>
 
                     <div className="relative flex-1 md:w-64">
-                        <Search className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+                        <Search className="hidden md:block absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
                         <input 
                             placeholder="Search products..." 
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none"
+                            className="hidden md:block w-full pl-10 pr-4 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none"
                         />
                     </div>
                     <button 
                         onClick={() => setIsAddModalOpen(true)}
-                        className="bg-primary hover:bg-primary-light text-accent font-bold px-6 py-3 rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                        className="hidden md:flex bg-primary hover:bg-primary-light text-accent font-bold px-6 py-3 rounded-xl shadow-lg shadow-primary/20 items-center justify-center gap-2 transition-all active:scale-95"
                     >
                         <Plus size={20} strokeWidth={3} />
                         <span className="whitespace-nowrap">Add Product</span>
                     </button>
+                    <button
+                        type="button"
+                        onClick={handleOpenUsageAudienceModal}
+                        className="hidden md:inline-flex h-[50px] w-[50px] items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm hover:bg-gray-50"
+                        aria-label="Usage audience settings"
+                        title="Usage audience settings"
+                    >
+                        <Settings size={18} />
+                    </button>
                 </div>
             </div>
 
-            <div className="hidden rounded-2xl border border-gray-200 bg-white p-4 shadow-sm md:flex md:flex-col md:gap-4">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    <div>
-                        <h2 className="text-base font-bold text-gray-800">Classify products by usage audience</h2>
-                        <p className="text-sm text-gray-500 mt-1">Enable Men, Women, and Kids tagging for products and storefront browsing.</p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3">
-                        {usageAudienceConfig.enabled && (
-                            <>
-                                <div className="relative w-full sm:w-56">
-                                    <Filter className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                                    <select
-                                        id="admin-usage-audience-filter"
-                                        value={filterUsageAudience}
-                                        onChange={(e) => {
-                                            setFilterUsageAudience(e.target.value);
-                                            setPage(1);
-                                        }}
-                                        className="w-full appearance-none rounded-xl border border-gray-200 bg-white py-2.5 pl-9 pr-8 text-sm font-medium text-gray-700 shadow-sm outline-none focus:border-accent"
-                                    >
-                                        <option value="">All Audiences</option>
-                                        <option value="men">Men</option>
-                                        <option value="women">Women</option>
-                                        <option value="kids">Kids</option>
-                                    </select>
-                                </div>
-                            </>
-                        )}
-                        {usageAudienceConfig.enabled && (
+            <div className="md:hidden mb-3 flex items-center justify-end gap-2">
+                {productStatusToggleEnabled ? (
+                <button
+                    type="button"
+                    onClick={() => {
+                        setFilterStatus((prev) => (prev === 'inactive' ? 'active' : 'inactive'));
+                        setPage(1);
+                    }}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                    aria-label={filterStatus === 'inactive' ? 'Showing hidden products' : 'Showing active products'}
+                    title={filterStatus === 'inactive' ? 'Showing hidden products' : 'Showing active products'}
+                >
+                    {filterStatus === 'inactive' ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+                ) : null}
+                <button
+                    type="button"
+                    onClick={() => {
+                        setFilterStock((prev) => getNextStockFilter(prev));
+                        setPage(1);
+                    }}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                    aria-label={getStockFilterLabel(filterStock)}
+                    title={getStockFilterLabel(filterStock)}
+                >
+                    {(() => {
+                        const StockIcon = getStockFilterIcon(filterStock);
+                        return <StockIcon size={17} />;
+                    })()}
+                </button>
+                <button
+                    type="button"
+                    onClick={() => onNavigate('categories')}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                    aria-label="Manage categories"
+                >
+                    <LayoutGrid size={17} />
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setIsMobileSearchModalOpen(true)}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                    aria-label="Search products"
+                >
+                    <Search size={17} />
+                </button>
+                {usageAudienceConfig.enabled && (
+                    <button
+                        type="button"
+                        onClick={() => setIsMobileAudienceModalOpen(true)}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                        aria-label="Filter by audience"
+                        title="Filter by audience"
+                    >
+                        <Users size={17} />
+                    </button>
+                )}
+                <button
+                    type="button"
+                    onClick={() => setIsMobileFilterModalOpen(true)}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                    aria-label="Filter products"
+                >
+                    <Filter size={17} />
+                </button>
+            </div>
+
+            {isMobileSearchModalOpen && createPortal(
+                <div className="fixed inset-0 z-[185] bg-black/40 backdrop-blur-sm flex items-end md:hidden">
+                    <div className="w-full rounded-t-[28px] bg-white border-t border-gray-200 shadow-2xl p-5">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-900">Search Products</h3>
+                                <p className="text-xs text-gray-500 mt-1">Find products by title or SKU.</p>
+                            </div>
                             <button
                                 type="button"
-                                onClick={handleOpenUsageAudienceModal}
-                                className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                                onClick={() => setIsMobileSearchModalOpen(false)}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500"
+                                aria-label="Close product search"
                             >
-                                Manage Images
+                                <X size={16} />
                             </button>
-                        )}
+                        </div>
+                        <div className="mt-4 relative">
+                            <Search className="absolute left-3 top-3.5 text-gray-400 w-4 h-4" />
+                            <input
+                                placeholder="Search products..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-4 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none"
+                            />
+                        </div>
                         <button
                             type="button"
-                            onClick={handleUsageAudienceToggle}
-                            disabled={isUsageAudienceSaving}
-                            className={`inline-flex w-auto shrink-0 items-center justify-between gap-1.5 px-2.5 py-2 rounded-full text-sm font-bold min-w-[116px] transition-colors ${
-                                usageAudienceConfig.enabled ? 'bg-primary text-accent' : 'bg-gray-200 text-gray-700'
-                            } ${isUsageAudienceSaving ? 'opacity-60' : ''}`}
+                            onClick={() => setIsMobileSearchModalOpen(false)}
+                            className="mt-4 w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
                         >
-                            <span>{usageAudienceConfig.enabled ? 'Enabled' : 'Disabled'}</span>
-                            <span className={`h-5 w-5 rounded-full bg-white transition-transform ${usageAudienceConfig.enabled ? 'translate-x-0 text-primary' : 'text-gray-400'}`} />
+                            Close
                         </button>
                     </div>
-                </div>
-            </div>
+                </div>,
+                document.body
+            )}
+
+            {isMobileAudienceModalOpen && createPortal(
+                <div className="fixed inset-0 z-[182] bg-black/50 backdrop-blur-sm flex items-end md:hidden">
+                    <div className="w-full rounded-t-[28px] bg-white border-t border-gray-200 shadow-2xl p-5">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-900">Audience Filter</h3>
+                                <p className="text-xs text-gray-500 mt-1">Filter products by usage audience.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileAudienceModalOpen(false)}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500"
+                                aria-label="Close audience filter"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="mt-4">
+                            <div className="relative">
+                                <Users className="absolute left-3 top-3.5 text-gray-400 w-4 h-4" />
+                                <select
+                                    value={filterUsageAudience}
+                                    onChange={(e) => {
+                                        setFilterUsageAudience(e.target.value);
+                                        setPage(1);
+                                    }}
+                                    className="w-full pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer"
+                                >
+                                    <option value="">All Audiences</option>
+                                    <option value="men">Men</option>
+                                    <option value="women">Women</option>
+                                    <option value="kids">Kids</option>
+                                </select>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileAudienceModalOpen(false)}
+                                className="mt-4 w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {isMobileFilterModalOpen && createPortal(
+                <div className="fixed inset-0 z-[180] bg-black/50 backdrop-blur-sm flex items-end md:hidden">
+                    <div className="w-full rounded-t-[28px] bg-white border-t border-gray-200 shadow-2xl p-5 max-h-[85vh] overflow-y-auto">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-900">Product Filters</h3>
+                                <p className="text-xs text-gray-500 mt-1">Refine the mobile product list.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileFilterModalOpen(false)}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500"
+                                aria-label="Close product filters"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="mt-4 space-y-3">
+                            <div className="relative">
+                                <Filter className="absolute left-3 top-3.5 text-gray-400 w-4 h-4" />
+                                <select
+                                    value={filterCategory}
+                                    onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }}
+                                    className="w-full pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer"
+                                    disabled={isCategoriesLoading}
+                                >
+                                    <option value={ADMIN_FILTER_ALL}>All Products</option>
+                                    <option value={ADMIN_FILTER_UNCATEGORIZED}>Uncategorized</option>
+                                    {categories.map((cat) => (
+                                        <option key={cat} value={cat}>{cat}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileFilterModalOpen(false)}
+                                className="w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
 
             {/* --- LIST VIEW --- */}
             {filteredProducts.length > 0 ? (
@@ -733,12 +977,14 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
 
                             // --- 2. INACTIVE STATUS VISUALS ---
                             const isInactive = product.status !== 'active';
+                            const stockBadge = getStockBadgeMeta(product);
+                            const StockBadgeIcon = stockBadge.icon;
                             const cardClasses = isInactive 
                                 ? "p-4 bg-gray-50 rounded-xl shadow-sm border border-gray-100 flex gap-4 grayscale opacity-80" 
                                 : "p-4 bg-white rounded-xl shadow-sm border border-gray-100 flex gap-4";
 
                             // --- 3. ROBUST TRACKING CHECK ---
-                            const isTracked = String(product.track_quantity) === '1' || String(product.track_quantity) === 'true' || product.track_quantity === true;
+                            const isTracked = isTrackedStock(product);
 
                             return (
                                 <div key={product.id} className={cardClasses}>
@@ -756,12 +1002,19 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                                         <div>
                                             <div className="flex justify-between items-start">
                                                 <h3 className="font-bold text-gray-800 line-clamp-1 mr-2">{product.title}</h3>
-                                                {/* Status Badge */}
-                                                {isInactive ? (
-                                                    <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-200 text-gray-600 uppercase tracking-wide">Hidden</span>
-                                                ) : (
-                                                    <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 uppercase tracking-wide">Active</span>
-                                                )}
+                                                <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                                                    {productStatusToggleEnabled ? (
+                                                        isInactive ? (
+                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-200 text-gray-600 uppercase tracking-wide">Hidden</span>
+                                                        ) : (
+                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 uppercase tracking-wide">Active</span>
+                                                        )
+                                                    ) : null}
+                                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${stockBadge.classes}`}>
+                                                        <StockBadgeIcon size={11} />
+                                                        {stockBadge.label}
+                                                    </span>
+                                                </div>
                                             </div>
                                             
                                             <div className="flex items-center gap-2 mt-1">
@@ -769,7 +1022,7 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                                             </div>
                                             
                                             {/* Stock Summary */}
-                                            {isTracked && (
+                                            {inventoryTrackingEnabled && isTracked && (
                                                 <p className="text-xs text-gray-500 mt-1">
                                                     {product.variants?.length > 0 
                                                         ? `${product.variants.reduce((acc, v) => {
@@ -797,10 +1050,51 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                         <table className="w-full text-left">
                             <thead className="bg-gray-50 border-b border-gray-200">
                                 <tr>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Product</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        <div className="inline-flex items-center gap-2">
+                                            <span>Product</span>
+                                            {productStatusToggleEnabled ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setFilterStatus((prev) => (prev === 'inactive' ? 'active' : 'inactive'));
+                                                    setPage(1);
+                                                }}
+                                                className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-white p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                                                title={filterStatus === 'inactive' ? 'Showing hidden products' : 'Showing active products'}
+                                                aria-label={filterStatus === 'inactive' ? 'Showing hidden products' : 'Showing active products'}
+                                            >
+                                                {filterStatus === 'inactive' ? <EyeOff size={14} /> : <Eye size={14} />}
+                                            </button>
+                                            ) : null}
+                                        </div>
+                                    </th>
                                     <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Price</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Stock</th>
-                                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        <div className="inline-flex items-center gap-2">
+                                            <span>Stock</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setFilterStock((prev) => getNextStockFilter(prev));
+                                                    setPage(1);
+                                                }}
+                                                className="inline-flex items-center justify-center rounded-full border border-gray-200 bg-white p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                                                title={getStockFilterLabel(filterStock)}
+                                                aria-label={getStockFilterLabel(filterStock)}
+                                            >
+                                                {(() => {
+                                                    const StockIcon = getStockFilterIcon(filterStock);
+                                                    return <StockIcon size={14} />;
+                                                })()}
+                                            </button>
+                                        </div>
+                                    </th>
+                                    {productStatusToggleEnabled ? (
+                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                            Status
+                                        </th>
+                                    ) : null}
                                     <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Actions</th>
                                 </tr>
                             </thead>
@@ -820,11 +1114,13 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                                     }
 
                                     // --- 2. ROBUST TRACKING CHECK ---
-                                    const isTracked = String(product.track_quantity) === '1' || String(product.track_quantity) === 'true' || product.track_quantity === true;
+                                    const isTracked = isTrackedStock(product);
+                                    const stockBadge = getStockBadgeMeta(product);
+                                    const StockBadgeIcon = stockBadge.icon;
 
                                     // --- 3. STOCK DISPLAY LOGIC ---
-                                    let stockDisplay;
-                                    if (product.variants && product.variants.length > 0) {
+                                    let stockDisplay = null;
+                                    if (inventoryTrackingEnabled && product.variants && product.variants.length > 0) {
                                         const isAnyVariantTracked = product.variants.some(v => String(v.track_quantity) === '1' || String(v.track_quantity) === 'true' || v.track_quantity === true);
                                         
                                         if (isAnyVariantTracked) {
@@ -844,17 +1140,13 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                                                 </div>
                                             );
                                         }
-                                    } else {
+                                    } else if (inventoryTrackingEnabled) {
                                         // Single Product
                                         stockDisplay = isTracked ? (
                                             <div className={`text-sm font-medium ${product.quantity <= (product.low_stock_threshold || 0) ? 'text-red-500' : 'text-gray-600'}`}>
                                                 {product.quantity} units
                                             </div>
-                                        ) : (
-                                            <div className="flex items-center gap-1 text-gray-400">
-                                                <InfinityIcon size={18} /> <span className="text-xs">Untracked</span>
-                                            </div>
-                                        );
+                                        ) : null;
                                     }
 
                                     // --- 4. ROW CLASSES (Grayscale) ---
@@ -888,16 +1180,26 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                                             </td>
                                             
                                             <td className="px-6 py-4">
-                                                {stockDisplay}
+                                                <div className="flex flex-col gap-2">
+                                                    {stockDisplay}
+                                                    <span className={`inline-flex w-fit items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${stockBadge.classes}`}>
+                                                        <StockBadgeIcon size={12} />
+                                                        {stockBadge.label}
+                                                    </span>
+                                                </div>
                                             </td>
                                             
+                                            {productStatusToggleEnabled ? (
                                             <td className="px-6 py-4">
-                                                {product.status === 'active' ? (
-                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700"><Eye size={12}/> Active</span>
-                                                ) : (
-                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600"><EyeOff size={12}/> Hidden</span>
+                                                {(
+                                                    product.status === 'active' ? (
+                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700"><Eye size={12}/> Active</span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600"><EyeOff size={12}/> Hidden</span>
+                                                    )
                                                 )}
                                             </td>
+                                            ) : null}
                                             <td className="px-6 py-4 text-right">
                                                 <div className="flex justify-end gap-2 opacity-100 ">
                                                     <button onClick={() => openEditModal(product)} className="p-2 text-gray-400 hover:text-accent-deep hover:bg-amber-50 rounded-lg transition-colors"><Edit3 size={18} /></button>
@@ -958,7 +1260,7 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                         Try adjusting filters or search terms to see results.
                     </p>
                     <button
-                        onClick={() => { setFilterStatus('all'); setFilterUsageAudience(''); setSearchTerm(''); setPage(1); }}
+                        onClick={() => { setFilterStatus('all'); setFilterStock('all'); setFilterUsageAudience(''); setSearchTerm(''); setPage(1); }}
                         className="bg-primary hover:bg-primary-light text-accent font-bold px-6 py-3 rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all active:scale-95"
                     >
                         Reset Filters
@@ -987,6 +1289,17 @@ export default function Products({ onNavigate, focusProductId = null, onFocusHan
                         <span>Add First Product</span>
                     </button>
                 </div>)}
+
+            {!isAddModalOpen && (
+                <button
+                    type="button"
+                    onClick={() => setIsAddModalOpen(true)}
+                    className="md:hidden fixed bottom-24 right-4 z-[175] inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-2xl shadow-emerald-600/30 hover:bg-emerald-500"
+                    aria-label="Add product"
+                >
+                    <Plus size={22} />
+                </button>
+            )}
         </div>
     );
 }
