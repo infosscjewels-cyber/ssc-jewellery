@@ -22,60 +22,60 @@ const DAILY_TREND_PAGE_SIZE = 6;
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const KPI_CARD_THEMES = {
     gold: {
-        shell: 'bg-amber-950 border-amber-400/80',
-        label: 'text-amber-100',
+        shell: 'bg-gradient-to-br from-amber-800 via-amber-900 to-stone-950 border-amber-300/70',
+        label: 'text-amber-50',
         value: 'text-white',
-        icon: 'text-amber-300',
-        accent: 'text-amber-200',
-        subtext: 'text-amber-100/80'
+        icon: 'text-amber-200',
+        accent: 'text-amber-100',
+        subtext: 'text-amber-50/80'
     },
     emerald: {
-        shell: 'bg-slate-900 border-slate-500/70',
-        label: 'text-slate-100',
+        shell: 'bg-gradient-to-br from-slate-700 via-slate-800 to-slate-950 border-slate-400/65',
+        label: 'text-slate-50',
         value: 'text-white',
-        icon: 'text-slate-300',
-        accent: 'text-slate-200',
-        subtext: 'text-slate-100/80'
+        icon: 'text-slate-200',
+        accent: 'text-slate-100',
+        subtext: 'text-slate-50/80'
     },
     sky: {
-        shell: 'bg-teal-950 border-teal-500/70',
-        label: 'text-teal-100',
+        shell: 'bg-gradient-to-br from-teal-800 via-teal-900 to-cyan-950 border-teal-300/65',
+        label: 'text-teal-50',
         value: 'text-white',
-        icon: 'text-teal-300',
-        accent: 'text-teal-200',
-        subtext: 'text-teal-100/80'
+        icon: 'text-teal-200',
+        accent: 'text-teal-100',
+        subtext: 'text-teal-50/80'
     },
     violet: {
-        shell: 'bg-fuchsia-950 border-fuchsia-500/70',
-        label: 'text-fuchsia-100',
+        shell: 'bg-gradient-to-br from-fuchsia-800 via-fuchsia-900 to-purple-950 border-fuchsia-300/65',
+        label: 'text-fuchsia-50',
         value: 'text-white',
-        icon: 'text-fuchsia-300',
-        accent: 'text-fuchsia-200',
-        subtext: 'text-fuchsia-100/80'
+        icon: 'text-fuchsia-200',
+        accent: 'text-fuchsia-100',
+        subtext: 'text-fuchsia-50/80'
     },
     amber: {
-        shell: 'bg-yellow-900 border-yellow-500/70',
-        label: 'text-yellow-100',
+        shell: 'bg-gradient-to-br from-yellow-700 via-amber-800 to-orange-950 border-yellow-300/65',
+        label: 'text-yellow-50',
         value: 'text-white',
-        icon: 'text-yellow-300',
-        accent: 'text-yellow-200',
-        subtext: 'text-yellow-100/80'
+        icon: 'text-yellow-200',
+        accent: 'text-yellow-100',
+        subtext: 'text-yellow-50/80'
     },
     rose: {
-        shell: 'bg-red-950 border-red-500/70',
-        label: 'text-red-100',
+        shell: 'bg-gradient-to-br from-red-800 via-red-900 to-rose-950 border-red-300/65',
+        label: 'text-red-50',
         value: 'text-white',
-        icon: 'text-red-300',
-        accent: 'text-red-200',
-        subtext: 'text-red-100/80'
+        icon: 'text-red-200',
+        accent: 'text-red-100',
+        subtext: 'text-red-50/80'
     },
     cyan: {
-        shell: 'bg-indigo-950 border-indigo-500/70',
-        label: 'text-indigo-100',
+        shell: 'bg-gradient-to-br from-indigo-800 via-indigo-900 to-blue-950 border-indigo-300/65',
+        label: 'text-indigo-50',
         value: 'text-white',
-        icon: 'text-indigo-300',
-        accent: 'text-indigo-200',
-        subtext: 'text-indigo-100/80'
+        icon: 'text-indigo-200',
+        accent: 'text-indigo-100',
+        subtext: 'text-indigo-50/80'
     }
 };
 const toRangeDays = ({ quickRange = 'last_30_days', startDate = '', endDate = '' } = {}) => {
@@ -93,9 +93,9 @@ const toRangeDays = ({ quickRange = 'last_30_days', startDate = '', endDate = ''
 };
 
 const priorityStyles = {
-    high: 'bg-red-950 text-red-100 border-red-700',
-    medium: 'bg-amber-950 text-amber-100 border-amber-700',
-    low: 'bg-slate-900 text-slate-100 border-slate-700'
+    high: 'bg-red-900 text-red-50 border-red-600',
+    medium: 'bg-amber-900 text-amber-50 border-amber-600',
+    low: 'bg-slate-800 text-slate-50 border-slate-600'
 };
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 700;
@@ -447,11 +447,11 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     };
     const getTierBadgeClasses = (tier = 'regular') => {
         const value = String(tier || 'regular').toLowerCase();
-        if (value === 'platinum') return 'bg-sky-950 text-sky-100';
-        if (value === 'gold') return 'bg-yellow-900 text-yellow-100';
-        if (value === 'silver') return 'bg-slate-800 text-slate-100';
-        if (value === 'bronze') return 'bg-amber-950 text-amber-100';
-        return 'bg-gray-800 text-gray-100';
+        if (value === 'platinum') return 'bg-sky-900 text-sky-50';
+        if (value === 'gold') return 'bg-yellow-800 text-yellow-50';
+        if (value === 'silver') return 'bg-slate-700 text-slate-50';
+        if (value === 'bronze') return 'bg-amber-900 text-amber-50';
+        return 'bg-gray-700 text-gray-50';
     };
     const tierLabel = (tier = 'regular') => {
         const value = String(tier || 'regular').toLowerCase();
@@ -910,7 +910,6 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                 {[
                                     { label: 'Attempted', value: funnel.attempted, target: { tab: 'orders', status: 'failed', quickRange: 'last_30_days' } },
                                     { label: 'Paid', value: funnel.paid, target: { tab: 'orders', status: 'confirmed', quickRange: 'last_30_days' } },
-                                    { label: 'Shipped', value: funnel.shipped, target: { tab: 'orders', status: 'shipped', quickRange: 'last_30_days' } },
                                     { label: 'Completed', value: funnel.completed, target: { tab: 'orders', status: 'completed', quickRange: 'last_30_days' } },
                                     { label: 'Cancelled', value: funnel.cancelled, target: { tab: 'orders', status: 'cancelled', quickRange: 'last_30_days' } },
                                     { label: 'Refunded', value: funnel.refunded, target: { tab: 'orders', status: 'cancelled', quickRange: 'last_30_days' } }
@@ -1326,7 +1325,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                                 <div>
                                                     <p className="text-sm font-medium text-gray-800">{op.name}</p>
                                                     <p className="text-xs text-gray-500">
-                                                        Total {Number(op.totalActions || 0)} | Shipped {Number(op.shippedUpdates || 0)} | Completed {Number(op.completedUpdates || 0)} | Cancelled {Number(op.cancelledUpdates || 0)}
+                                                        Total {Number(op.totalActions || 0)} | Completed {Number(op.completedUpdates || 0)} | Cancelled {Number(op.cancelledUpdates || 0)}
                                                     </p>
                                                 </div>
                                             </div>
@@ -1436,7 +1435,6 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                         <option value="all">Status: All</option>
                                         <option value="pending">Status: Pending</option>
                                         <option value="confirmed">Status: Confirmed</option>
-                                        <option value="shipped">Status: Shipped</option>
                                         <option value="completed">Status: Completed</option>
                                         <option value="cancelled">Status: Cancelled</option>
                                         <option value="failed">Status: Failed</option>

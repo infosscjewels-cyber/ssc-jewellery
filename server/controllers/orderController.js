@@ -23,24 +23,6 @@ const { billingAddressEnabled, resolveBillingAddress } = require('../utils/billi
 
 const toSubunit = (amount) => Math.round(Number(amount || 0) * 100);
 const ATTEMPT_TTL_MINUTES = 30;
-const SHIPPED_COURIER_OPTIONS = [
-    'Blue Dart',
-    'DTDC',
-    'Delhivery',
-    'India Post',
-    'Ecom Express',
-    'Xpressbees',
-    'Shadowfax',
-    'Ekart',
-    'Amazon Shipping',
-    'Trackon',
-    'Professional Couriers',
-    'Gati',
-    'DHL',
-    'FedEx',
-    'Aramex',
-    'Others'
-];
 const MANUAL_REFUND_METHODS = [
     'Cash',
     'NEFT/RTGS',
@@ -50,9 +32,9 @@ const MANUAL_REFUND_METHODS = [
 ];
 const MANUAL_PAYMENT_MODES = ['cash', 'upi', 'bank_transfer', 'card_swipe', 'net_banking', 'manual'];
 const ORDER_TRANSITIONS = Object.freeze({
-    confirmed: new Set(['confirmed', 'pending', 'shipped', 'cancelled']),
-    pending: new Set(['pending', 'shipped', 'cancelled']),
-    shipped: new Set(['shipped', 'completed', 'cancelled']),
+    confirmed: new Set(['confirmed', 'pending', 'completed', 'cancelled']),
+    pending: new Set(['pending', 'completed', 'cancelled']),
+    shipped: new Set(['completed', 'cancelled']),
     completed: new Set(['completed']),
     cancelled: new Set(['cancelled'])
 });
@@ -307,7 +289,8 @@ const mapRazorpayOrderStatusToLocalPayment = (status) => {
 
 const isAllowedOrderTransition = (currentStatus = '', nextStatus = '') => {
     const current = String(currentStatus || '').trim().toLowerCase() || 'confirmed';
-    const next = String(nextStatus || '').trim().toLowerCase() || 'confirmed';
+    const requestedNext = String(nextStatus || '').trim().toLowerCase() || 'confirmed';
+    const next = requestedNext === 'shipped' ? 'completed' : requestedNext;
     const allowed = ORDER_TRANSITIONS[current];
     if (!allowed) return false;
     return allowed.has(next);
@@ -1762,7 +1745,8 @@ const updateOrderStatus = async (req, res) => {
         if (!Number.isFinite(orderId) || orderId <= 0) {
             return res.status(400).json({ message: 'Invalid order id' });
         }
-        const nextStatus = String(status || '').trim().toLowerCase();
+        const requestedStatus = String(status || '').trim().toLowerCase();
+        const nextStatus = requestedStatus === 'shipped' ? 'completed' : requestedStatus;
         const existingOrder = await Order.getById(orderId);
         if (!existingOrder) {
             return res.status(404).json({ message: 'Order not found' });
@@ -1786,29 +1770,6 @@ const updateOrderStatus = async (req, res) => {
             nextStatus !== 'cancelled'
         ) {
             return res.status(400).json({ message: 'Cancelled orders with initiated refunds cannot be moved to other statuses' });
-        }
-
-        let resolvedCourierPartner = '';
-        let resolvedAwb = '';
-        if (nextStatus === 'shipped') {
-            const normalizedPartner = String(courierPartner || '').trim();
-            const normalizedPartnerOther = String(courierPartnerOther || '').trim();
-            const normalizedAwb = String(awbNumber || '').trim();
-            if (!normalizedPartner) {
-                return res.status(400).json({ message: 'Courier partner is required for shipped status' });
-            }
-            if (!normalizedAwb) {
-                return res.status(400).json({ message: 'AWB number is required for shipped status' });
-            }
-            const isOther = normalizedPartner.toLowerCase() === 'others';
-            if (!isOther && !SHIPPED_COURIER_OPTIONS.includes(normalizedPartner)) {
-                return res.status(400).json({ message: 'Invalid courier partner selected' });
-            }
-            if (isOther && !normalizedPartnerOther) {
-                return res.status(400).json({ message: 'Please enter courier partner name' });
-            }
-            resolvedCourierPartner = isOther ? normalizedPartnerOther : normalizedPartner;
-            resolvedAwb = normalizedAwb;
         }
 
         const refundableBaseAmount = Math.max(
@@ -1976,8 +1937,6 @@ const updateOrderStatus = async (req, res) => {
         }
 
         await Order.updateStatus(req.params.id, nextStatus, {
-            courierPartner: resolvedCourierPartner || null,
-            awbNumber: resolvedAwb || null,
             paymentStatus: resolvedPaymentStatus || null,
             refundReference: resolvedRefundReference || resolvedManualRef || null,
             refundAmount: resolvedRefundAmount != null ? Number(resolvedRefundAmount) : null,
@@ -2044,14 +2003,7 @@ const updateOrderStatus = async (req, res) => {
 };
 
 const getOverdueShippedSummary = async (req, res) => {
-    try {
-        const days = Math.max(1, Number(req.query.days || 30) || 30);
-        const limit = Math.max(1, Math.min(10, Number(req.query.limit || 5) || 5));
-        const summary = await Order.getOverdueShippedSummary({ afterDays: days, limit });
-        return res.json(summary);
-    } catch (error) {
-        return res.status(500).json({ message: error?.message || 'Failed to load overdue shipped summary' });
-    }
+    return res.json({ total: 0, cases: [] });
 };
 
 const confirmDeliveryBySignedLink = async (req, res) => {
@@ -2250,6 +2202,19 @@ const createAdminManualOrder = async (req, res) => {
         const items = Array.isArray(req.body?.items) ? req.body.items : [];
         const paymentMode = String(req.body?.paymentMode || 'manual').trim().toLowerCase();
         const paymentReference = String(req.body?.paymentReference || '').trim();
+        const inputMobile = String(req.body?.mobile || '').replace(/\D/g, '').trim();
+        const existingMobile = String(user.mobile || '').replace(/\D/g, '').trim();
+        const resolvedMobile = inputMobile || existingMobile;
+        if (!resolvedMobile) {
+            return res.status(400).json({ message: 'Customer mobile number is required' });
+        }
+        if (!/^\d{10,14}$/.test(resolvedMobile)) {
+            return res.status(400).json({ message: 'Customer mobile must contain 10-14 digits' });
+        }
+        const userByMobile = await User.findByMobile(resolvedMobile);
+        if (userByMobile && String(userByMobile.id) !== String(userId)) {
+            return res.status(400).json({ message: 'Mobile number already in use by another customer' });
+        }
         if (!MANUAL_PAYMENT_MODES.includes(paymentMode)) {
             return res.status(400).json({ message: 'Select a valid manual payment mode' });
         }
@@ -2281,6 +2246,7 @@ const createAdminManualOrder = async (req, res) => {
             return res.status(400).json({ message: 'Failed to create manual order' });
         }
         await User.updateProfile(userId, {
+            mobile: resolvedMobile,
             address: shippingAddress || null,
             billingAddress: resolveBillingAddress({ shippingAddress, billingAddress }) || shippingAddress || null
         });

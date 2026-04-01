@@ -186,10 +186,12 @@ const invalidateDashboardPayloadCache = () => {
 const buildOrderFilterFragments = (query = {}, alias = 'o') => {
     const parts = [];
     const params = [];
+    const requestedStatus = String(query.status || '').trim().toLowerCase();
+    const normalizedStatus = requestedStatus === 'shipped' ? 'completed' : requestedStatus;
 
     const status = toSafeEnum(
-        query.status,
-        ['all', 'pending', 'confirmed', 'shipped', 'completed', 'cancelled', 'failed'],
+        normalizedStatus,
+        ['all', 'pending', 'confirmed', 'completed', 'cancelled', 'failed'],
         'all'
     );
     const paymentMode = toSafeEnum(query.paymentMode, ['all', 'razorpay', 'cod'], 'all');
@@ -839,8 +841,7 @@ const getDashboardInsightsPayload = async (query = {}) => {
         funnel: {
             attempted: attemptedPayments,
             paid: Number(funnelRows?.[0]?.paid || 0),
-            shipped: Number(funnelRows?.[0]?.shipped || 0),
-            completed: Number(funnelRows?.[0]?.completed || 0),
+            completed: Number(funnelRows?.[0]?.completed || 0) + Number(funnelRows?.[0]?.shipped || 0),
             cancelled: Number(funnelRows?.[0]?.cancelled || 0),
             refunded: Number(funnelRows?.[0]?.refunded || 0)
         },
@@ -878,8 +879,7 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 userId: row.user_id,
                 name: row.operator_name,
                 totalActions: Number(row.total_actions || 0),
-                shippedUpdates: Number(row.shipped_updates || 0),
-                completedUpdates: Number(row.completed_updates || 0),
+                completedUpdates: Number(row.completed_updates || 0) + Number(row.shipped_updates || 0),
                 cancelledUpdates: Number(row.cancelled_updates || 0)
             }))
         },

@@ -482,7 +482,8 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
 const MAX_FETCH_RANGE_DAYS = 90;
 
 const buildAdminStatusClause = ({ status = 'all', alias = 'o', params = [] } = {}) => {
-    const normalizedStatus = String(status || '').trim().toLowerCase();
+    const requestedStatus = String(status || '').trim().toLowerCase();
+    const normalizedStatus = requestedStatus === 'shipped' ? 'completed' : requestedStatus;
     if (!normalizedStatus || normalizedStatus === 'all') return '';
     if (normalizedStatus === 'pending') {
         return ` AND (${alias}.status = 'pending' OR (${alias}.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, ${alias}.created_at, UTC_TIMESTAMP()) >= 24))`;
@@ -2133,7 +2134,7 @@ class Order {
 
         const attemptParams = [];
         let attemptWhere = `WHERE pa.local_order_id IS NULL
-            AND pa.status IN ('failed', 'attempted', 'created', 'expired')
+            AND pa.status = 'failed'
             AND NOT EXISTS (
                 SELECT 1
                 FROM payment_attempts pa_success
@@ -2753,13 +2754,14 @@ class Order {
     }
 
     static async updateStatus(orderId, status, options = {}) {
-        const allowed = ['pending', 'confirmed', 'shipped', 'completed', 'cancelled'];
-        if (!allowed.includes(status)) {
+        const normalizedStatus = String(status || '').trim().toLowerCase() === 'shipped'
+            ? 'completed'
+            : String(status || '').trim().toLowerCase();
+        const allowed = ['pending', 'confirmed', 'completed', 'cancelled'];
+        if (!allowed.includes(normalizedStatus)) {
             throw new Error('Invalid status');
         }
         const {
-            courierPartner = null,
-            awbNumber = null,
             paymentStatus = null,
             refundReference = null,
             refundAmount = null,
@@ -2773,8 +2775,6 @@ class Order {
             actorUserId = null,
             restoreInventory = false
         } = options || {};
-        const normalizedCourier = String(courierPartner || '').trim();
-        const normalizedAwb = String(awbNumber || '').trim();
         const normalizedPaymentStatus = String(paymentStatus || '').trim().toLowerCase();
         const paymentStatusValue = normalizedPaymentStatus || null;
         const normalizedRefundMode = String(refundMode || '').trim().toLowerCase();
@@ -2783,8 +2783,7 @@ class Order {
         const normalizedManualRefundUtr = String(manualRefundUtr || '').trim();
         const normalizedRefundCouponCode = String(refundCouponCode || '').trim().toUpperCase();
         const normalizedRefundReference = String(refundReference || '').trim();
-        const setShippedAt = status === 'shipped';
-        const setCompletedAt = status === 'completed';
+        const setCompletedAt = normalizedStatus === 'completed';
         const connection = await db.getConnection();
         try {
             await connection.beginTransaction();
@@ -2805,38 +2804,29 @@ class Order {
                      refund_reference = COALESCE(?, refund_reference),
                      refund_amount = COALESCE(?, refund_amount),
                      refund_status = COALESCE(?, refund_status),
-                     courier_partner = COALESCE(?, courier_partner),
-                     awb_number = COALESCE(?, awb_number),
                      refund_mode = COALESCE(?, refund_mode),
                      refund_method = COALESCE(?, refund_method),
                      manual_refund_ref = COALESCE(?, manual_refund_ref),
                      manual_refund_utr = COALESCE(?, manual_refund_utr),
                      refund_coupon_code = COALESCE(?, refund_coupon_code),
                      refund_notes = COALESCE(?, refund_notes),
-                     shipped_at = CASE
-                        WHEN ? THEN COALESCE(shipped_at, NOW())
-                        ELSE shipped_at
-                     END,
                      completed_at = CASE
                         WHEN ? THEN COALESCE(completed_at, NOW())
                         ELSE completed_at
                      END
                  WHERE id = ?`,
                 [
-                    status,
+                    normalizedStatus,
                     paymentStatusValue,
                     normalizedRefundReference || null,
                     refundAmount != null ? Number(refundAmount) : null,
                     String(refundStatus || '').trim() || null,
-                    normalizedCourier || null,
-                    normalizedAwb || null,
                     normalizedRefundMode || null,
                     normalizedRefundMethod || null,
                     normalizedManualRefundRef || null,
                     normalizedManualRefundUtr || null,
                     normalizedRefundCouponCode || null,
                     refundNotes ? JSON.stringify(refundNotes) : null,
-                    setShippedAt ? 1 : 0,
                     setCompletedAt ? 1 : 0,
                     orderId
                 ]
@@ -2876,7 +2866,7 @@ class Order {
 
             await connection.execute(
                 'INSERT INTO order_status_events (order_id, status, actor_user_id) VALUES (?, ?, ?)',
-                [orderId, status, actorUserId || null]
+                [orderId, normalizedStatus, actorUserId || null]
             );
             await connection.commit();
             return true;

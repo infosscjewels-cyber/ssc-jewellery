@@ -308,25 +308,7 @@ export default function AdminDashboard() {
     }, [showOrderPopup, toast, user]);
 
     useEffect(() => {
-        if (!user || (user.role !== 'admin' && user.role !== 'staff')) return;
-        let cancelled = false;
-        const loadOverdueShipped = async () => {
-            try {
-                const data = await orderService.getAdminOverdueShippedSummary({ days: 30, limit: 5 });
-                if (cancelled) return;
-                const total = Number(data?.total || 0);
-                const cases = Array.isArray(data?.cases) ? data.cases : [];
-                queueShippingSummary({ total, cases });
-            } catch {
-                // ignore
-            }
-        };
-        loadOverdueShipped();
-        const interval = setInterval(loadOverdueShipped, 2 * 60 * 1000);
-        return () => {
-            cancelled = true;
-            clearInterval(interval);
-        };
+        return undefined;
     }, [queueShippingSummary, user]);
 
     useEffect(() => {
@@ -531,7 +513,7 @@ export default function AdminDashboard() {
                 )}
 
                 <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
-                    <div className="mb-6 flex items-center justify-end">
+                    <div className={`mb-6 flex items-center justify-end ${activeTab === 'orders' ? 'hidden md:flex' : ''}`}>
                         <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
                             storefrontOpen
                                 ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
@@ -595,6 +577,7 @@ export default function AdminDashboard() {
                     {activeTab === 'dashboard' && <DashboardInsights onRunAction={handleDashboardAction} />}
                     {activeTab === 'orders' && (
                         <OrdersPage
+                            storefrontOpen={storefrontOpen}
                             focusOrderId={focusOrderId}
                             onFocusHandled={() => setFocusOrderId(null)}
                             initialStatusFilter={ordersInitialStatusFilter}
@@ -779,7 +762,7 @@ export default function AdminDashboard() {
                                         const total = Number(activeShippingSummary?.total || 0);
                                         const firstId = total === 1 ? activeShippingSummary?.cases?.[0]?.id : null;
                                         if (total > 1) {
-                                            setOrdersInitialStatusFilter('shipped');
+                                            setOrdersInitialStatusFilter('completed');
                                         } else {
                                             setOrdersInitialStatusFilter('');
                                         }

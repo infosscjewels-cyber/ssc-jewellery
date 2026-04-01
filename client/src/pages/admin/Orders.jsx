@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus, Send, Printer } from 'lucide-react';
+import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus, Send, Printer, Phone } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
@@ -35,66 +35,48 @@ const QUICK_RANGES = [
 const MAX_RANGE_DAYS = 90;
 const KPI_CARD_THEMES = {
     gold: {
-        shell: 'bg-amber-950 border-amber-400/80',
-        label: 'text-amber-100',
+        shell: 'bg-gradient-to-br from-amber-800 via-amber-900 to-stone-950 border-amber-300/70',
+        label: 'text-amber-50',
         value: 'text-white',
-        iconChip: 'text-amber-200 bg-amber-400/15 border-amber-400/30',
-        iconGhost: 'text-amber-300/25'
+        iconChip: 'text-amber-100 bg-amber-200/15 border-amber-200/30',
+        iconGhost: 'text-amber-200/25'
     },
     sky: {
-        shell: 'bg-blue-950 border-blue-500/70',
-        label: 'text-blue-100',
+        shell: 'bg-gradient-to-br from-blue-800 via-blue-900 to-indigo-950 border-blue-300/65',
+        label: 'text-blue-50',
         value: 'text-white',
-        iconChip: 'text-blue-200 bg-blue-400/15 border-blue-400/30',
-        iconGhost: 'text-blue-300/25'
+        iconChip: 'text-blue-100 bg-blue-200/15 border-blue-200/30',
+        iconGhost: 'text-blue-200/25'
     },
     emerald: {
-        shell: 'bg-green-950 border-green-500/70',
-        label: 'text-green-100',
+        shell: 'bg-gradient-to-br from-emerald-800 via-green-900 to-emerald-950 border-green-300/65',
+        label: 'text-green-50',
         value: 'text-white',
-        iconChip: 'text-green-200 bg-green-400/15 border-green-400/30',
-        iconGhost: 'text-green-300/25'
+        iconChip: 'text-green-100 bg-green-200/15 border-green-200/30',
+        iconGhost: 'text-green-200/25'
     },
     amber: {
-        shell: 'bg-red-950 border-red-500/70',
-        label: 'text-red-100',
+        shell: 'bg-gradient-to-br from-red-800 via-red-900 to-rose-950 border-red-300/65',
+        label: 'text-red-50',
         value: 'text-white',
-        iconChip: 'text-red-200 bg-red-400/15 border-red-400/30',
-        iconGhost: 'text-red-300/25'
+        iconChip: 'text-red-100 bg-red-200/15 border-red-200/30',
+        iconGhost: 'text-red-200/25'
     },
     violet: {
-        shell: 'bg-fuchsia-950 border-fuchsia-500/70',
-        label: 'text-fuchsia-100',
+        shell: 'bg-gradient-to-br from-fuchsia-800 via-fuchsia-900 to-purple-950 border-fuchsia-300/65',
+        label: 'text-fuchsia-50',
         value: 'text-white',
-        iconChip: 'text-fuchsia-200 bg-fuchsia-400/15 border-fuchsia-400/30',
-        iconGhost: 'text-fuchsia-300/25'
+        iconChip: 'text-fuchsia-100 bg-fuchsia-200/15 border-fuchsia-200/30',
+        iconGhost: 'text-fuchsia-200/25'
     },
     slate: {
-        shell: 'bg-slate-800 border-slate-500/70',
-        label: 'text-slate-100',
+        shell: 'bg-gradient-to-br from-slate-600 via-slate-700 to-slate-900 border-slate-300/60',
+        label: 'text-slate-50',
         value: 'text-white',
-        iconChip: 'text-slate-200 bg-slate-300/15 border-slate-300/30',
-        iconGhost: 'text-slate-300/25'
+        iconChip: 'text-slate-100 bg-slate-200/15 border-slate-200/30',
+        iconGhost: 'text-slate-200/25'
     }
 };
-const COURIER_PARTNERS = [
-    'Blue Dart',
-    'DTDC',
-    'Delhivery',
-    'India Post',
-    'Ecom Express',
-    'Xpressbees',
-    'Shadowfax',
-    'Ekart',
-    'Amazon Shipping',
-    'Trackon',
-    'Professional Couriers',
-    'Gati',
-    'DHL',
-    'FedEx',
-    'Aramex',
-    'Others'
-];
 const CANCELLATION_MODES = [
     { value: 'razorpay', label: 'Razorpay Refund' },
     { value: 'manual', label: 'Manual Refund' }
@@ -110,28 +92,116 @@ const MANUAL_PAYMENT_OPTIONS = [
 ];
 const EMPTY_ADDRESS = { line1: '', city: '', state: '', zip: '' };
 const EMPTY_MANUAL_ITEM = { productId: '', variantId: '', quantity: 1 };
-const formatStatusLabel = (status) => {
+const normalizeOrderStatus = (status) => {
     const normalized = String(status || 'pending').trim().toLowerCase();
+    if (normalized === 'shipped') return 'completed';
+    return normalized || 'pending';
+};
+const formatStatusLabel = (status) => {
+    const normalized = normalizeOrderStatus(status);
     if (!normalized) return 'Pending';
     return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
 };
 const getOrderStatusBadgeClasses = (status) => {
-    const normalized = String(status || 'pending').trim().toLowerCase();
-    if (normalized === 'confirmed') return 'bg-blue-950 text-blue-100 border border-blue-700';
-    if (normalized === 'pending') return 'bg-amber-950 text-amber-100 border border-amber-700';
-    if (normalized === 'shipped') return 'bg-indigo-950 text-indigo-100 border border-indigo-700';
-    if (normalized === 'completed') return 'bg-emerald-950 text-emerald-100 border border-emerald-700';
-    if (normalized === 'failed') return 'bg-red-950 text-red-100 border border-red-700';
-    if (normalized === 'cancelled') return 'bg-slate-800 text-slate-100 border border-slate-600';
-    return 'bg-slate-900 text-slate-100 border border-slate-700';
+    const normalized = normalizeOrderStatus(status);
+    if (normalized === 'confirmed') return 'bg-blue-900 text-blue-50 border border-blue-600';
+    if (normalized === 'pending') return 'bg-amber-900 text-amber-50 border border-amber-600';
+    if (normalized === 'completed') return 'bg-emerald-900 text-emerald-50 border border-emerald-600';
+    if (normalized === 'failed') return 'bg-red-900 text-red-50 border border-red-600';
+    if (normalized === 'cancelled') return 'bg-slate-700 text-slate-50 border border-slate-500';
+    return 'bg-slate-800 text-slate-50 border border-slate-600';
+};
+const getOrderHeaderTheme = (status) => {
+    const normalized = normalizeOrderStatus(status);
+    if (normalized === 'cancelled') {
+        return {
+            shell: 'bg-gradient-to-br from-red-700 via-red-800 to-rose-950',
+            accent: 'bg-red-200/20 text-red-50 border border-red-200/35',
+            micro: 'text-red-100/80',
+            subtle: 'text-red-50/90',
+            rowLabel: 'text-red-100/75'
+        };
+    }
+    if (normalized === 'pending') {
+        return {
+            shell: 'bg-gradient-to-br from-amber-600 via-amber-700 to-orange-950',
+            accent: 'bg-amber-50/20 text-amber-50 border border-amber-100/35',
+            micro: 'text-amber-50/80',
+            subtle: 'text-amber-50/90',
+            rowLabel: 'text-amber-100/75'
+        };
+    }
+    return {
+        shell: 'bg-gradient-to-br from-emerald-700 via-emerald-800 to-teal-950',
+        accent: 'bg-emerald-50/20 text-emerald-50 border border-emerald-100/35',
+        micro: 'text-emerald-50/80',
+        subtle: 'text-emerald-50/90',
+        rowLabel: 'text-emerald-100/75'
+    };
+};
+const getOrderHeaderBadgeClasses = (status) => {
+    const normalized = normalizeOrderStatus(status);
+    if (normalized === 'cancelled') return 'bg-red-100 text-red-800 border border-red-200';
+    if (normalized === 'pending') return 'bg-amber-100 text-amber-900 border border-amber-200';
+    return 'bg-emerald-100 text-emerald-900 border border-emerald-200';
+};
+const getAvailableStatusOptions = (status) => {
+    const current = normalizeOrderStatus(status);
+    if (current === 'pending') {
+        return [
+            { value: 'pending', label: 'Pending' },
+            { value: 'completed', label: 'Completed' },
+            { value: 'cancelled', label: 'Cancelled' }
+        ];
+    }
+    if (current === 'completed') {
+        return [{ value: 'completed', label: 'Completed' }];
+    }
+    if (current === 'cancelled') {
+        return [{ value: 'cancelled', label: 'Cancelled' }];
+    }
+    return [
+        { value: 'confirmed', label: 'Confirmed' },
+        { value: 'pending', label: 'Pending' },
+        { value: 'completed', label: 'Completed' },
+        { value: 'cancelled', label: 'Cancelled' }
+    ];
+};
+const orderMatchesStatusFilter = (order, filterValue = 'all') => {
+    const filter = String(filterValue || 'all').trim().toLowerCase();
+    if (!filter || filter === 'all') return true;
+    const status = normalizeOrderStatus(order?.status || 'confirmed');
+    const createdTs = new Date(order?.created_at || order?.createdAt || 0).getTime();
+    const ageHours = Number.isFinite(createdTs) && createdTs > 0
+        ? (Date.now() - createdTs) / (1000 * 60 * 60)
+        : null;
+    const isOverdueConfirmed = status === 'confirmed' && Number.isFinite(ageHours) && ageHours >= 24;
+    if (filter === 'failed') {
+        return status === 'failed' || String(order?.payment_status || '').trim().toLowerCase() === 'failed';
+    }
+    if (filter === 'pending') {
+        return status === 'pending' || isOverdueConfirmed;
+    }
+    if (filter === 'confirmed') {
+        return status === 'confirmed' && !isOverdueConfirmed;
+    }
+    return status === filter;
 };
 const getPaymentStatusBadgeClasses = (status) => {
     const normalized = String(status || '').trim().toLowerCase();
-    if (normalized === 'paid') return 'bg-emerald-950 text-emerald-100 border border-emerald-700';
-    if (['failed', 'expired'].includes(normalized)) return 'bg-red-950 text-red-100 border border-red-700';
-    if (['pending', 'created', 'attempted'].includes(normalized)) return 'bg-amber-950 text-amber-100 border border-amber-700';
-    if (normalized === 'refunded') return 'bg-sky-950 text-sky-100 border border-sky-700';
-    return 'bg-slate-900 text-slate-100 border border-slate-700';
+    if (normalized === 'paid') return 'bg-emerald-900 text-emerald-50 border border-emerald-600';
+    if (['failed', 'expired'].includes(normalized)) return 'bg-red-900 text-red-50 border border-red-600';
+    if (['pending', 'created', 'attempted'].includes(normalized)) return 'bg-amber-900 text-amber-50 border border-amber-600';
+    if (normalized === 'refunded') return 'bg-sky-900 text-sky-50 border border-sky-600';
+    return 'bg-slate-800 text-slate-50 border border-slate-600';
+};
+const getPaymentHeaderBadgeClasses = (status) => {
+    const normalized = String(status || '').trim().toLowerCase();
+    if (normalized === 'paid') return 'bg-white/90 text-emerald-900 border border-emerald-100';
+    if (['failed', 'expired'].includes(normalized)) return 'bg-white/90 text-red-800 border border-red-100';
+    if (['pending', 'created', 'attempted'].includes(normalized)) return 'bg-white/90 text-amber-900 border border-amber-100';
+    if (normalized === 'refunded') return 'bg-white/90 text-sky-900 border border-sky-100';
+    return 'bg-white/90 text-slate-800 border border-white/60';
 };
 const getManualUnitPrice = (product = {}, variant = null) => {
     return Number(
@@ -171,6 +241,13 @@ const getWhatsappLink = (mobile = '') => {
     const full = digits.length === 10 ? `91${digits}` : digits;
     return `https://wa.me/${full}`;
 };
+const getCallLink = (mobile = '') => {
+    const digits = String(mobile || '').replace(/\D/g, '');
+    if (!digits) return '';
+    const full = digits.length === 10 ? `+91${digits}` : `+${digits}`;
+    return `tel:${full}`;
+};
+const normalizeMobileDigits = (value = '') => String(value || '').replace(/\D/g, '');
 
 const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
     const safeTotal = Math.max(1, Number(totalPages || 1));
@@ -264,6 +341,7 @@ const sortOrdersForView = (rows = [], sortBy = 'newest') => {
 };
 
 export function Orders({
+    storefrontOpen = true,
     focusOrderId = null,
     onFocusHandled = () => {},
     initialStatusFilter = '',
@@ -301,13 +379,12 @@ export function Orders({
     const fetchSeqRef = useRef(0);
     const [sortBy, setSortBy] = useState('newest');
     const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+    const [isMobileSortOpen, setIsMobileSortOpen] = useState(false);
+    const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [pendingStatus, setPendingStatus] = useState('');
-    const [courierPartner, setCourierPartner] = useState('');
-    const [courierPartnerOther, setCourierPartnerOther] = useState('');
-    const [awbNumber, setAwbNumber] = useState('');
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [isDetailsLoading, setIsDetailsLoading] = useState(false);
     const [detailsLastSyncedAt, setDetailsLastSyncedAt] = useState(null);
@@ -324,10 +401,6 @@ export function Orders({
     const [isConvertingAttempt, setIsConvertingAttempt] = useState(false);
     const [settlementContext, setSettlementContext] = useState({ mode: null, isTestMode: false });
     const [deletingOrderId, setDeletingOrderId] = useState(null);
-    const [selectedRowKeys, setSelectedRowKeys] = useState([]);
-    const [bulkStatus, setBulkStatus] = useState('pending');
-    const [isBulkUpdating, setIsBulkUpdating] = useState(false);
-    const [isBulkDeleting, setIsBulkDeleting] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
     const [downloadingInvoiceId, setDownloadingInvoiceId] = useState(null);
     const [sendingInvoiceId, setSendingInvoiceId] = useState(null);
@@ -356,6 +429,7 @@ export function Orders({
     const [manualCustomerQuery, setManualCustomerQuery] = useState('');
     const [manualOrderForm, setManualOrderForm] = useState({
         userId: '',
+        mobile: '',
         paymentMode: 'cash',
         paymentReference: '',
         couponCode: '',
@@ -422,11 +496,11 @@ export function Orders({
     };
     const getTierBadgeClasses = (order) => {
         const tier = String(order?.loyalty_tier || order?.loyaltyTier || 'regular').toLowerCase();
-        if (tier === 'platinum') return 'bg-sky-950 text-sky-100 border border-sky-700';
-        if (tier === 'gold') return 'bg-yellow-900 text-yellow-100 border border-yellow-700';
-        if (tier === 'silver') return 'bg-slate-800 text-slate-100 border border-slate-600';
-        if (tier === 'bronze') return 'bg-amber-950 text-amber-100 border border-amber-700';
-        return 'bg-gray-800 text-gray-100 border border-gray-600';
+        if (tier === 'platinum') return 'bg-sky-900 text-sky-50 border border-sky-600';
+        if (tier === 'gold') return 'bg-yellow-800 text-yellow-50 border border-yellow-600';
+        if (tier === 'silver') return 'bg-slate-700 text-slate-50 border border-slate-500';
+        if (tier === 'bronze') return 'bg-amber-900 text-amber-50 border border-amber-600';
+        return 'bg-gray-700 text-gray-50 border border-gray-500';
     };
     const isAttemptEntry = (order) => String(order?.entity_type || '').toLowerCase() === 'attempt';
     const isAbandonedRecoveryOrder = (order) => Boolean(order?.is_abandoned_recovery || order?.source_channel === 'abandoned_recovery');
@@ -653,23 +727,38 @@ export function Orders({
         () => (!billingAddressEnabled || manualOrderForm.billingSameAsShipping ? manualOrderForm.shippingAddress : manualOrderForm.billingAddress),
         [manualOrderForm.billingAddress, manualOrderForm.billingSameAsShipping, manualOrderForm.shippingAddress]
     );
+    const resolvedManualMobile = useMemo(
+        () => normalizeMobileDigits(selectedManualCustomer?.mobile || manualOrderForm.mobile || ''),
+        [manualOrderForm.mobile, selectedManualCustomer?.mobile]
+    );
+    const customerNeedsManualMobile = useMemo(
+        () => Boolean(manualOrderForm.userId) && !normalizeMobileDigits(selectedManualCustomer?.mobile || ''),
+        [manualOrderForm.userId, selectedManualCustomer?.mobile]
+    );
+    const isManualMobileValid = useMemo(
+        () => resolvedManualMobile.length >= 10 && resolvedManualMobile.length <= 14,
+        [resolvedManualMobile]
+    );
     const manualValidationState = useMemo(() => {
         const shippingMissing = getMissingAddressFields(manualOrderForm.shippingAddress);
         const billingMissing = (!billingAddressEnabled || manualOrderForm.billingSameAsShipping) ? [] : getMissingAddressFields(manualOrderForm.billingAddress);
         return {
             missingCustomer: !manualOrderForm.userId,
+            missingCustomerMobile: !resolvedManualMobile,
+            invalidCustomerMobile: Boolean(resolvedManualMobile) && !isManualMobileValid,
             missingItems: manualItemPayload.length === 0,
             shippingMissing,
             billingMissing
         };
-    }, [manualItemPayload.length, manualOrderForm.billingAddress, manualOrderForm.billingSameAsShipping, manualOrderForm.shippingAddress, manualOrderForm.userId]);
+    }, [isManualMobileValid, manualItemPayload.length, manualOrderForm.billingAddress, manualOrderForm.billingSameAsShipping, manualOrderForm.shippingAddress, manualOrderForm.userId, resolvedManualMobile]);
     const canSubmitManualOrder = useMemo(() => {
         if (!manualOrderForm.userId) return false;
+        if (!resolvedManualMobile || !isManualMobileValid) return false;
         if (!isAddressComplete(manualOrderForm.shippingAddress)) return false;
         if (!isAddressComplete(effectiveBillingAddress)) return false;
         if (!manualItemPayload.length) return false;
         return true;
-    }, [effectiveBillingAddress, manualItemPayload.length, manualOrderForm.shippingAddress, manualOrderForm.userId]);
+    }, [effectiveBillingAddress, isManualMobileValid, manualItemPayload.length, manualOrderForm.shippingAddress, manualOrderForm.userId, resolvedManualMobile]);
     const hasManualVariantGaps = useMemo(() => {
         for (const row of (manualOrderItems || [])) {
             const productId = String(row?.productId || '').trim();
@@ -718,20 +807,25 @@ export function Orders({
     const patchOrderRow = useCallback((nextOrder) => {
         if (!nextOrder?.id) return;
         setOrders((prev) => {
+            const nextRow = { ...nextOrder, entity_type: 'order', order_id: nextOrder.id };
+            const matchesCurrentFilter = orderMatchesStatusFilter(nextRow, statusFilter);
             const idx = prev.findIndex((row) =>
                 !isAttemptEntry(row) && String(row.order_id || row.id) === String(nextOrder.id)
             );
             if (idx >= 0) {
+                if (!matchesCurrentFilter) {
+                    return prev.filter((row) => String(row.order_id || row.id) !== String(nextOrder.id));
+                }
                 const copy = [...prev];
-                copy[idx] = { ...copy[idx], ...nextOrder };
+                copy[idx] = { ...copy[idx], ...nextRow };
                 return sortOrdersForView(copy, sortBy);
             }
-            if (page === 1) {
-                return sortOrdersForView([{ ...nextOrder, entity_type: 'order', order_id: nextOrder.id }, ...prev], sortBy);
+            if (page === 1 && matchesCurrentFilter) {
+                return sortOrdersForView([nextRow, ...prev], sortBy);
             }
             return prev;
         });
-    }, [page, sortBy]);
+    }, [page, sortBy, statusFilter]);
     const patchAttemptRow = useCallback((attempt) => {
         if (!attempt?.id) return;
         setOrders((prev) => {
@@ -817,30 +911,13 @@ export function Orders({
 
     useEffect(() => {
         if (!selectedOrder) return;
-        setPendingStatus(selectedOrder.status || 'confirmed');
+        setPendingStatus(normalizeOrderStatus(selectedOrder.status || 'confirmed'));
         setCancellationMode('');
         setManualRefundAmount('');
         setManualRefundMethod('');
         setManualRefundRef('');
         setManualRefundUtr('');
-        const existingCourier = String(selectedOrder.courier_partner || '').trim();
-        if (existingCourier && COURIER_PARTNERS.includes(existingCourier)) {
-            setCourierPartner(existingCourier);
-            setCourierPartnerOther('');
-        } else if (existingCourier) {
-            setCourierPartner('Others');
-            setCourierPartnerOther(existingCourier);
-        } else {
-            setCourierPartner('');
-            setCourierPartnerOther('');
-        }
-        setAwbNumber(String(selectedOrder.awb_number || '').trim());
     }, [selectedOrder?.id, selectedOrder?.status]);
-
-    useEffect(() => {
-        const visibleKeys = new Set((orders || []).map((order) => getRowKey(order)));
-        setSelectedRowKeys((prev) => prev.filter((key) => visibleKeys.has(key)));
-    }, [orders]);
 
     const handleOrderRealtimeUpdate = useCallback((payload = {}) => {
             if (payload?.deleted && payload?.orderId) {
@@ -1428,6 +1505,7 @@ export function Orders({
         setManualOrderForm((prev) => ({
             ...prev,
             userId: userId || '',
+            mobile: customer?.mobile || '',
             couponCode: '',
             shippingAddress: { ...primaryAddress },
             billingAddress: prev.billingSameAsShipping ? { ...primaryAddress } : normalizedBilling
@@ -1502,6 +1580,14 @@ export function Orders({
             toast.error('Complete billing address fields');
             return;
         }
+        if (!resolvedManualMobile) {
+            toast.error('Enter a customer mobile number');
+            return;
+        }
+        if (!isManualMobileValid) {
+            toast.error('Customer mobile must contain 10-14 digits');
+            return;
+        }
         if (!manualItemPayload.length) {
             toast.error('Add at least one product item');
             return;
@@ -1518,6 +1604,7 @@ export function Orders({
                 paymentReference: manualOrderForm.paymentReference || '',
                 couponCode: manualOrderForm.couponCode || '',
                 useCustomerCart: true,
+                mobile: resolvedManualMobile,
                 shippingAddress: manualOrderForm.shippingAddress,
                 billingAddress: effectiveBillingAddress
             };
@@ -1529,6 +1616,7 @@ export function Orders({
             setManualCreateAttempted(false);
             setManualOrderForm({
                 userId: '',
+                mobile: '',
                 paymentMode: 'cash',
                 paymentReference: '',
                 couponCode: '',
@@ -1565,7 +1653,7 @@ export function Orders({
             if (!order) throw new Error('Attempt conversion failed');
             toast.success('Failed attempt converted to successful order');
             setSelectedOrder(order);
-            setPendingStatus(order.status || 'confirmed');
+            setPendingStatus(normalizeOrderStatus(order.status || 'confirmed'));
             setDetailsLastSyncedAt(new Date().toISOString());
             setAttemptConversionReference('');
             setAttemptConversionReason('');
@@ -1585,7 +1673,7 @@ export function Orders({
         setSettlementContext({ mode: null, isTestMode: false });
         if (order) {
             setSelectedOrder((prev) => ({ ...(prev || {}), ...order }));
-            setPendingStatus(order.status || 'confirmed');
+            setPendingStatus(normalizeOrderStatus(order.status || 'confirmed'));
             setDetailsLastSyncedAt(new Date().toISOString());
         }
         try {
@@ -1606,7 +1694,7 @@ export function Orders({
             const data = await orderService.getAdminOrder(order?.order_id || order?.id);
             const nextOrder = data.order || null;
             setSelectedOrder(nextOrder);
-            setPendingStatus(nextOrder?.status || 'confirmed');
+            setPendingStatus(normalizeOrderStatus(nextOrder?.status || 'confirmed'));
             setDetailsLastSyncedAt(new Date().toISOString());
             if (nextOrder && needsSettlementSync(nextOrder)) {
                 try {
@@ -1637,23 +1725,6 @@ export function Orders({
 
     const handleStatusUpdate = useCallback(async () => {
         if (!selectedOrder || !pendingStatus) return;
-        if (pendingStatus === 'shipped') {
-            const normalizedCourier = String(courierPartner || '').trim();
-            const normalizedOther = String(courierPartnerOther || '').trim();
-            const normalizedAwb = String(awbNumber || '').trim();
-            if (!normalizedCourier) {
-                toast.error('Select courier partner before marking as shipped');
-                return;
-            }
-            if (normalizedCourier === 'Others' && !normalizedOther) {
-                toast.error('Enter courier partner name');
-                return;
-            }
-            if (!normalizedAwb) {
-                toast.error('Enter AWB number before marking as shipped');
-                return;
-            }
-        }
         const isPaid = isPaidPayment(selectedOrder);
         const refundableBase = Math.max(0, Number(selectedOrder?.total || 0) - Number(selectedOrder?.shipping_fee || 0));
         if (pendingStatus === 'cancelled' && isPaid) {
@@ -1695,10 +1766,7 @@ export function Orders({
                     manualRefundAmount: pendingStatus === 'cancelled' ? manualRefundAmount : '',
                     manualRefundMethod: pendingStatus === 'cancelled' ? manualRefundMethod : '',
                     manualRefundRef: pendingStatus === 'cancelled' ? manualRefundRef : '',
-                    manualRefundUtr: pendingStatus === 'cancelled' ? manualRefundUtr : '',
-                    courierPartner,
-                    courierPartnerOther,
-                    awbNumber
+                    manualRefundUtr: pendingStatus === 'cancelled' ? manualRefundUtr : ''
                 }
             );
             if (data?.order) {
@@ -1719,7 +1787,28 @@ export function Orders({
         } finally {
             setIsUpdatingStatus(false);
         }
-    }, [awbNumber, cancellationMode, courierPartner, courierPartnerOther, fetchOrderMetrics, manualRefundAmount, manualRefundMethod, manualRefundRef, manualRefundUtr, markOrderMetricsDirty, metricsQuery, patchOrderRow, pendingStatus, selectedOrder, toast]);
+    }, [cancellationMode, fetchOrderMetrics, manualRefundAmount, manualRefundMethod, manualRefundRef, manualRefundUtr, markOrderMetricsDirty, metricsQuery, patchOrderRow, pendingStatus, selectedOrder, toast]);
+
+    const handleQuickComplete = useCallback(async (order, event) => {
+        event?.stopPropagation?.();
+        if (!order || isAttemptEntry(order)) return;
+        const current = normalizeOrderStatus(order.status);
+        if (current === 'completed' || current === 'cancelled') return;
+        try {
+            const data = await orderService.updateAdminOrderStatus(order.order_id || order.id, 'completed');
+            if (data?.order) {
+                patchOrderRow(data.order);
+                if (selectedOrder && String(selectedOrder.id || selectedOrder.order_id) === String(data.order.id || data.order.order_id)) {
+                    setSelectedOrder(data.order);
+                }
+                markOrderMetricsDirty(metricsQuery);
+                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
+                toast.success('Order marked as completed');
+            }
+        } catch (error) {
+            toast.error(error.message || 'Failed to complete order');
+        }
+    }, [fetchOrderMetrics, markOrderMetricsDirty, metricsQuery, patchOrderRow, selectedOrder, toast]);
 
     const handleFetchPaymentStatus = async ({ reason = 'payment' } = {}) => {
         if (!selectedOrder) return;
@@ -1781,7 +1870,7 @@ export function Orders({
                 const target = data?.order || null;
                 if (target) {
                     setSelectedOrder(target);
-                    setPendingStatus(target.status || 'confirmed');
+                    setPendingStatus(normalizeOrderStatus(target.status || 'confirmed'));
                     setDetailsLastSyncedAt(new Date().toISOString());
                     setSettlementContext({ mode: null, isTestMode: false });
                 }
@@ -1809,72 +1898,6 @@ export function Orders({
             message: `Delete order ${order.order_ref || targetId}? This cannot be undone.`,
             confirmText: 'Delete',
             action: { type: 'delete_single', order }
-        });
-    };
-
-    const toggleRowSelection = (order, checked) => {
-        const key = getRowKey(order);
-        setSelectedRowKeys((prev) => {
-            if (checked) return prev.includes(key) ? prev : [...prev, key];
-            return prev.filter((item) => item !== key);
-        });
-    };
-
-    const toggleSelectAll = (checked) => {
-        if (!checked) {
-            setSelectedRowKeys([]);
-            return;
-        }
-        setSelectedRowKeys((orders || []).map((order) => getRowKey(order)));
-    };
-
-    const selectedRows = useMemo(() => {
-        const selectedSet = new Set(selectedRowKeys);
-        return (orders || []).filter((order) => selectedSet.has(getRowKey(order)));
-    }, [orders, selectedRowKeys]);
-
-    const allOnPageSelected = useMemo(() => {
-        if (!orders.length) return false;
-        const selectedSet = new Set(selectedRowKeys);
-        return orders.every((order) => selectedSet.has(getRowKey(order)));
-    }, [orders, selectedRowKeys]);
-
-    const selectedOrderRows = useMemo(
-        () => selectedRows.filter((row) => !isAttemptEntry(row)),
-        [selectedRows]
-    );
-
-    const selectedDeletableRows = useMemo(
-        () => selectedRows.filter((row) => canDeleteRow(row)),
-        [selectedRows]
-    );
-
-    const selectedNonDeletableCount = useMemo(
-        () => Math.max(0, selectedRows.length - selectedDeletableRows.length),
-        [selectedRows, selectedDeletableRows]
-    );
-
-    const handleBulkStatusUpdate = async () => {
-        if (!bulkStatus || selectedOrderRows.length === 0) return;
-        setConfirmModal({
-            isOpen: true,
-            type: 'default',
-            title: 'Update Selected Orders',
-            message: `Update status to "${bulkStatus}" for ${selectedOrderRows.length} selected order(s)?`,
-            confirmText: 'Update',
-            action: { type: 'bulk_status_update' }
-        });
-    };
-
-    const handleBulkDelete = async () => {
-        if (selectedDeletableRows.length === 0) return;
-        setConfirmModal({
-            isOpen: true,
-            type: 'delete',
-            title: 'Delete Selected Rows',
-            message: `Delete ${selectedDeletableRows.length} selected row(s)? This cannot be undone.`,
-            confirmText: 'Delete Selected',
-            action: { type: 'bulk_delete' }
         });
     };
 
@@ -1910,54 +1933,11 @@ export function Orders({
                 markOrderMetricsDirty(metricsQuery);
                 fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
                 toast.success('Order deleted');
-            } else if (actionType === 'bulk_status_update') {
-                setIsBulkUpdating(true);
-                const results = await Promise.all(
-                    selectedOrderRows.map((row) => orderService.updateAdminOrderStatus(row.order_id || row.id, bulkStatus))
-                );
-                results.forEach((res) => {
-                    if (res?.order) patchOrderRow(res.order);
-                });
-                setSelectedRowKeys([]);
-                markOrderMetricsDirty(metricsQuery);
-                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
-                toast.success('Bulk status update completed');
-            } else if (actionType === 'bulk_delete') {
-                setIsBulkDeleting(true);
-                await Promise.all(
-                    selectedDeletableRows.map((row) => {
-                        if (isAttemptEntry(row)) {
-                            return orderService.deleteAdminPaymentAttempt(row.attempt_id || row.id);
-                        }
-                        return orderService.deleteAdminOrder(row.order_id || row.id);
-                    })
-                );
-                selectedDeletableRows.forEach((row) => {
-                    if (isAttemptEntry(row)) {
-                        removeRow(row.attempt_id || row.id, 'attempt');
-                    } else {
-                        removeRow(row.order_id || row.id, 'order');
-                    }
-                });
-                setSelectedRowKeys([]);
-                if (isDetailsOpen) {
-                    const selectedKeysSet = new Set(selectedDeletableRows.map((row) => String(row.id || row.order_id || row.attempt_id)));
-                    const openedKey = String(selectedOrder?.id || selectedOrder?.order_id || selectedOrder?.attempt_id || '');
-                    if (selectedKeysSet.has(openedKey)) {
-                        setIsDetailsOpen(false);
-                        setSelectedOrder(null);
-                    }
-                }
-                markOrderMetricsDirty(metricsQuery);
-                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
-                toast.success('Selected rows deleted');
             }
         } catch (error) {
             toast.error(error.message || 'Action failed');
         } finally {
             setDeletingOrderId(null);
-            setIsBulkUpdating(false);
-            setIsBulkDeleting(false);
             setIsConfirmProcessing(false);
             setConfirmModal((prev) => ({ ...prev, isOpen: false, action: null }));
         }
@@ -2056,23 +2036,38 @@ export function Orders({
                 ? 'No paired printer yet. This device will use Bluetooth.'
                 : 'No paired printer yet. You can pair via Bluetooth or USB.')
             : printerSupport.reason);
+    const mobileStatusChips = [
+        { value: 'confirmed', label: 'Confirmed' },
+        { value: 'pending', label: 'Pending' },
+        { value: 'completed', label: 'Completed' },
+        { value: 'cancelled', label: 'Cancelled' }
+    ];
+    const sortOptions = [
+        { value: 'newest', label: 'Newest First' },
+        { value: 'oldest', label: 'Oldest First' },
+        { value: 'amount_high', label: 'Amount: High to Low' },
+        { value: 'amount_low', label: 'Amount: Low to High' },
+        { value: 'priority', label: 'Fulfillment Priority' }
+    ];
 
     return (
         <div className="animate-fade-in">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div className="flex items-start justify-between gap-3">
-                    <div>
-                        <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Orders</h1>
+                    <div className="w-full">
+                        <div className="flex items-center justify-between gap-3 md:block">
+                            <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Orders</h1>
+                            <div className={`inline-flex md:hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                                storefrontOpen
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                    : 'border-gray-300 bg-gray-100 text-gray-800'
+                            }`}>
+                                <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                                {storefrontOpen ? 'Store Open' : 'Store Closed'}
+                            </div>
+                        </div>
                         <p className="text-gray-500 text-sm mt-1">Track sales, payments, and order status.</p>
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => setIsFilterModalOpen(true)}
-                        className="md:hidden inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
-                        aria-label="Open order filters"
-                    >
-                        <Filter size={18} />
-                    </button>
                 </div>
                 <div className="grid grid-cols-2 gap-3 md:hidden">
                     {mobileSummaryCards.map((card) => (
@@ -2270,6 +2265,48 @@ export function Orders({
                 document.body
             )}
 
+            {isMobileSortOpen && createPortal(
+                <div className="fixed inset-0 z-[185] bg-black/40 backdrop-blur-sm flex items-end md:hidden">
+                    <div className="w-full rounded-t-[28px] bg-white border-t border-gray-200 shadow-2xl p-5">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-900">Sort Orders</h3>
+                                <p className="text-xs text-gray-500 mt-1">Choose how the mobile list should be ordered.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileSortOpen(false)}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500"
+                                aria-label="Close sort options"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+                        <div className="mt-4 space-y-2">
+                            {sortOptions.map((option) => (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    onClick={() => {
+                                        setSortBy(option.value);
+                                        setPage(1);
+                                        setIsMobileSortOpen(false);
+                                    }}
+                                    className={`w-full rounded-xl border px-4 py-3 text-left text-sm font-semibold transition ${
+                                        sortBy === option.value
+                                            ? 'border-primary bg-primary/5 text-primary'
+                                            : 'border-gray-200 bg-white text-gray-700'
+                                    }`}
+                                >
+                                    {option.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
+
             <div className="hidden md:grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
                 {cards.map((card) => (
                     <div key={card.label} className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm p-5 flex items-center gap-4 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`}>
@@ -2286,41 +2323,77 @@ export function Orders({
             </div>
 
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-100 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
-                        {selectedRowKeys.length > 0 && (
-                            <div className="flex flex-wrap md:flex-nowrap items-center gap-2">
-                                <span className="text-xs text-gray-500 whitespace-nowrap">{selectedRowKeys.length} selected</span>
-                                <select
-                                    value={bulkStatus}
-                                    onChange={(e) => setBulkStatus(e.target.value)}
-                                    className="px-2 py-1.5 rounded-md border border-gray-200 text-xs bg-white min-w-[120px]"
-                                >
-                                    <option value="pending">Pending</option>
-                                    <option value="completed">Completed</option>
-                                    <option value="cancelled">Cancelled</option>
-                                </select>
-                                <button
-                                    type="button"
-                                    onClick={handleBulkStatusUpdate}
-                                    disabled={isBulkUpdating || selectedOrderRows.length === 0}
-                                    className="px-3 py-1.5 rounded-md border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                                >
-                                    {isBulkUpdating ? 'Updating...' : 'Update Status'}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleBulkDelete}
-                                    disabled={isBulkDeleting || selectedDeletableRows.length === 0}
-                                    className="px-3 py-1.5 rounded-md border border-red-200 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                                >
-                                    {isBulkDeleting ? 'Deleting...' : 'Delete Selected'}
-                                </button>
-                            </div>
-                        )}
+                <div className="md:hidden px-4 pt-4 pb-3 border-b border-gray-100 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsMobileSortOpen(true);
+                                    setIsMobileSearchOpen(false);
+                                }}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                                aria-label="Sort orders"
+                            >
+                                <ArrowUpDown size={17} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileSearchOpen((prev) => !prev)}
+                                className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border shadow-sm ${
+                                    isMobileSearchOpen ? 'border-primary bg-primary/5 text-primary' : 'border-gray-200 bg-white text-gray-600'
+                                }`}
+                                aria-label="Search orders"
+                            >
+                                <Search size={17} />
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setIsFilterModalOpen(true)}
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                            aria-label="Open order filters"
+                        >
+                            <Filter size={17} />
+                        </button>
                     </div>
+                    {isMobileSearchOpen && (
+                        <div className="relative">
+                            <Search className="absolute left-3 top-3 text-gray-400 w-4 h-4" />
+                            <input
+                                placeholder="Search order / customer"
+                                className="w-full pl-9 pr-3 py-2.5 bg-white rounded-xl border border-gray-200 text-sm focus:border-accent outline-none"
+                                value={searchInput}
+                                onChange={(e) => setSearchInput(e.target.value)}
+                            />
+                        </div>
+                    )}
+                    <div className="grid grid-cols-4 gap-2">
+                        {mobileStatusChips.map((chip) => {
+                            const active = statusFilter === chip.value;
+                            return (
+                                <button
+                                    key={chip.value}
+                                    type="button"
+                                    onClick={() => {
+                                        const next = active ? 'all' : chip.value;
+                                        setDraftStatusFilter(next);
+                                        setStatusFilter(next);
+                                        setPage(1);
+                                    }}
+                                    className={`w-full rounded-full border px-2 py-2 text-[11px] font-semibold leading-none transition ${
+                                        active ? getOrderStatusBadgeClasses(chip.value) : 'border-gray-200 bg-white text-gray-600'
+                                    }`}
+                                >
+                                    {chip.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+                <div className="px-6 py-4 border-b border-gray-100 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                     <div className="flex flex-col md:flex-row md:items-center gap-2 w-full xl:w-auto">
-                        <div className="relative w-full md:w-auto order-1">
+                        <div className="relative hidden md:block w-full md:w-auto order-1">
                             <Filter className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
                             <select
                                 value={draftStatusFilter}
@@ -2330,13 +2403,12 @@ export function Orders({
                                 <option value="all">All Status</option>
                                 <option value="confirmed">Confirmed</option>
                                 <option value="pending">Pending</option>
-                                <option value="shipped">Shipped</option>
                                 <option value="completed">Completed</option>
                                 <option value="cancelled">Cancelled</option>
                                 <option value="failed">Failed</option>
                             </select>
                         </div>
-                        <div className="relative w-full md:w-auto order-2 md:order-3">
+                        <div className="relative hidden md:block w-full md:w-auto order-2 md:order-3">
                             <ArrowUpDown className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
                             <select
                                 value={sortBy}
@@ -2353,7 +2425,7 @@ export function Orders({
                                 <option value="priority">Fulfillment Priority (Tier)</option>
                             </select>
                         </div>
-                        <div className="relative w-full md:w-auto order-3 md:order-2">
+                        <div className="relative hidden md:block w-full md:w-auto order-3 md:order-2">
                             <Search className="absolute left-3 top-3 text-gray-400 w-4 h-4" />
                             <input
                                 placeholder="Search order / customer"
@@ -2365,20 +2437,13 @@ export function Orders({
                         <button
                             type="button"
                             onClick={openCreateManualOrder}
-                            className="w-full md:w-auto order-4 inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm font-semibold hover:bg-emerald-100"
+                            className="hidden md:inline-flex w-full md:w-auto order-4 items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm font-semibold hover:bg-emerald-100"
                         >
                             <Plus size={15} />
                             Create Order
                         </button>
                     </div>
                 </div>
-                {selectedNonDeletableCount > 0 && (
-                    <div className="px-6 pb-3">
-                        <span className="inline-flex text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1">
-                            {selectedNonDeletableCount} selected are paid and cannot be deleted
-                        </span>
-                    </div>
-                )}
                 {isLoading ? (
                     <div className="py-16 text-center text-gray-400">Loading orders...</div>
                 ) : orders.length === 0 ? (
@@ -2395,14 +2460,6 @@ export function Orders({
                             <table className="w-full text-left">
                                 <thead className="bg-gray-50 border-b border-gray-200">
                                     <tr>
-                                        <th className="px-4 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider w-10">
-                                            <input
-                                                type="checkbox"
-                                                checked={allOnPageSelected}
-                                                onChange={(e) => toggleSelectAll(e.target.checked)}
-                                                className="rounded border-gray-300 text-primary focus:ring-primary"
-                                            />
-                                        </th>
                                         <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Name</th>
                                         <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Date</th>
                                         <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Order ID</th>
@@ -2423,15 +2480,6 @@ export function Orders({
                                             onClick={() => openDetails(order)}
                                             className={`transition-colors cursor-pointer ${isFailedRow(order) ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50/50'}`}
                                         >
-                                            <td className="px-4 py-4">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={selectedRowKeys.includes(getRowKey(order))}
-                                                    onClick={(e) => e.stopPropagation()}
-                                                    onChange={(e) => toggleRowSelection(order, e.target.checked)}
-                                                    className="rounded border-gray-300 text-primary focus:ring-primary"
-                                                />
-                                            </td>
                                             <td className="px-6 py-4 text-sm text-gray-700">
                                                 <div className="font-medium">{order.customer_name || 'Guest'}</div>
                                                 <div className="flex items-center gap-2 mt-0.5">
@@ -2584,18 +2632,6 @@ export function Orders({
                                         </div>
 
                                         <div className="mt-4 flex items-center justify-end gap-2 flex-wrap">
-                                        <label
-                                            className="mr-auto inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 bg-white"
-                                            onClick={(e) => e.stopPropagation()}
-                                        >
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedRowKeys.includes(getRowKey(order))}
-                                                onChange={(e) => toggleRowSelection(order, e.target.checked)}
-                                                className="rounded border-gray-300 text-primary focus:ring-primary"
-                                                aria-label={`Select ${order.order_ref}`}
-                                            />
-                                        </label>
                                         {getWhatsappLink(order.customer_mobile) && (
                                             <a
                                                 href={getWhatsappLink(order.customer_mobile)}
@@ -2607,6 +2643,16 @@ export function Orders({
                                             >
                                                 <MessageCircle size={14} />
                                             </a>
+                                        )}
+                                        {!isAttemptEntry(order) && !['completed', 'cancelled'].includes(normalizeOrderStatus(order.status)) && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => handleQuickComplete(order, e)}
+                                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                title="Mark order as completed"
+                                            >
+                                                <CheckCircle2 size={14} />
+                                            </button>
                                         )}
                                         <button
                                             type="button"
@@ -2716,542 +2762,503 @@ export function Orders({
                                         Refreshing latest details...
                                     </div>
                                 )}
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <h3 className="text-lg font-semibold text-gray-900">{selectedOrder.order_ref}</h3>
-                                        <div className="mt-2">
-                                            <p className="text-[11px] uppercase tracking-widest text-gray-400 font-semibold">Order Placed</p>
-                                            <p className="text-sm font-semibold text-gray-800 mt-1">{formatAdminDateTime(selectedOrder.created_at)}</p>
-                                        </div>
-                                        <p className="text-xs text-gray-500 mt-2">Invoice No: <span className="font-mono">{getInvoiceNumber(selectedOrder)}</span></p>
-                                        {detailsLastSyncedAt && (
-                                            <p className="text-[11px] text-gray-400 mt-1">
-                                                Last synced: {formatAdminDateTime(detailsLastSyncedAt)}
-                                            </p>
-                                        )}
-                                    </div>
-                                    <span className={`text-xs font-semibold px-3 py-1 rounded-full ${getOrderStatusBadgeClasses(selectedOrder.status)}`}>
-                                        {formatStatusLabel(selectedOrder.status || 'confirmed')}
-                                    </span>
-                                </div>
-                                <div className="mt-3">
-                                    <p className="text-sm font-semibold text-gray-800 truncate">{selectedOrder.customer_name || 'Guest'}</p>
-                                    <p className="text-xs text-gray-500">{selectedOrder.customer_mobile || 'No mobile number'}</p>
-                                </div>
-                                {isAttemptEntry(selectedOrder) && String(user?.role || '').toLowerCase() === 'admin' && (
-                                    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 space-y-3">
-                                        <p className="text-xs text-emerald-800 font-semibold">
-                                            Convert this failed attempt into a successful manual order.
-                                        </p>
-                                        <div>
-                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Payment Mode</label>
-                                            <select
-                                                value={attemptConversionMode}
-                                                onChange={(e) => setAttemptConversionMode(e.target.value)}
-                                                disabled={isConvertingAttempt}
-                                                className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
-                                            >
-                                                {MANUAL_PAYMENT_OPTIONS.map((mode) => (
-                                                    <option key={mode.value} value={mode.value}>{mode.label}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Reference (Optional)</label>
-                                            <input
-                                                type="text"
-                                                value={attemptConversionReference}
-                                                onChange={(e) => setAttemptConversionReference(e.target.value)}
-                                                disabled={isConvertingAttempt}
-                                                placeholder="Transaction / receipt reference"
-                                                className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Reason</label>
-                                            <textarea
-                                                value={attemptConversionReason}
-                                                onChange={(e) => setAttemptConversionReason(e.target.value)}
-                                                disabled={isConvertingAttempt}
-                                                placeholder="Document why this attempt is being converted manually"
-                                                className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700 min-h-[88px]"
-                                            />
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={handleConvertAttemptToPaidOrder}
-                                            disabled={isConvertingAttempt || String(attemptConversionReason || '').trim().length < 8}
-                                            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60"
-                                        >
-                                            {isConvertingAttempt ? 'Converting...' : 'Mark as Successful Order'}
-                                        </button>
-                                    </div>
-                                )}
-                                {!isAttemptEntry(selectedOrder) && (
-                                    <div className="mt-3 flex justify-end">
-                                        <div className="inline-flex items-center gap-2 flex-wrap justify-end">
-                                            {getWhatsappLink(selectedOrder.customer_mobile) && (
-                                                <a
-                                                    href={getWhatsappLink(selectedOrder.customer_mobile)}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                                                    title="Contact customer on WhatsApp"
-                                                >
-                                                    <MessageCircle size={16} />
-                                                </a>
-                                            )}
-                                            {canDownloadInvoice(selectedOrder) && (
-                                            <button
-                                                type="button"
-                                                onClick={(e) => handleDownloadInvoice(selectedOrder, e)}
-                                                disabled={downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id)}
-                                                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs font-semibold hover:bg-emerald-100 disabled:opacity-60"
-                                            >
-                                                <Download size={14} />
-                                                {downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id) ? 'Generating...' : 'Download Invoice'}
-                                            </button>
-                                            )}
-                                            {canDownloadInvoice(selectedOrder) && (
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => handleSendInvoiceCommunication(selectedOrder, e)}
-                                                    disabled={sendingInvoiceId === (selectedOrder.order_id || selectedOrder.id)}
-                                                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-800 text-xs font-semibold hover:bg-blue-100 disabled:opacity-60"
-                                                >
-                                                    <Send size={14} />
-                                                    {sendingInvoiceId === (selectedOrder.order_id || selectedOrder.id) ? 'Sending...' : 'Send Invoice (Email + WhatsApp)'}
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {!isAttemptEntry(selectedOrder) && !isRefundLockedOrder(selectedOrder) && (
-                                <div className="mt-4">
-                                    <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Update Status</label>
-                                    <select
-                                        value={pendingStatus || selectedOrder.status || 'confirmed'}
-                                        onChange={(e) => setPendingStatus(e.target.value)}
-                                        disabled={isUpdatingStatus}
-                                        className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
-                                    >
-                                        <option value="pending">Pending</option>
-                                        <option value="shipped">Shipped</option>
-                                        <option value="completed">Completed</option>
-                                        <option value="cancelled">Cancelled</option>
-                                    </select>
-                                    {pendingStatus === 'shipped' && (
-                                        <div className="mt-3 grid grid-cols-1 gap-3">
-                                            <div>
-                                                <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Courier Partner</label>
-                                                <select
-                                                    value={courierPartner}
-                                                    onChange={(e) => setCourierPartner(e.target.value)}
-                                                    disabled={isUpdatingStatus}
-                                                    className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
-                                                >
-                                                    <option value="">Select courier partner</option>
-                                                    {COURIER_PARTNERS.map((partner) => (
-                                                        <option key={partner} value={partner}>{partner}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                            {courierPartner === 'Others' && (
-                                                <div>
-                                                    <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Courier Partner Name</label>
-                                                    <input
-                                                        type="text"
-                                                        value={courierPartnerOther}
-                                                        onChange={(e) => setCourierPartnerOther(e.target.value)}
-                                                        disabled={isUpdatingStatus}
-                                                        placeholder="Enter courier partner name"
-                                                        className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
-                                                    />
-                                                </div>
-                                            )}
-                                            <div>
-                                                <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">AWB Number</label>
-                                                <input
-                                                    type="text"
-                                                    value={awbNumber}
-                                                    onChange={(e) => setAwbNumber(e.target.value)}
-                                                    disabled={isUpdatingStatus}
-                                                    placeholder="Enter AWB number"
-                                                    className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
-                                                />
-                                            </div>
-                                        </div>
-                                    )}
-                                    {pendingStatus === 'cancelled' && isPaidPayment(selectedOrder) && (
-                                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
-                                            <p className="text-xs text-amber-800 font-semibold">
-                                                Shipping charge is non-refundable. Maximum refundable amount: ₹{Math.max(0, Number(selectedOrder?.total || 0) - Number(selectedOrder?.shipping_fee || 0)).toLocaleString('en-IN')}
-                                            </p>
-                                            <div>
-                                                <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Cancellation Mode</label>
-                                                <select
-                                                    value={cancellationMode}
-                                                    onChange={(e) => setCancellationMode(e.target.value)}
-                                                    disabled={isUpdatingStatus}
-                                                    className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
-                                                >
-                                                    <option value="">Select cancellation mode</option>
-                                                    {CANCELLATION_MODES.map((mode) => (
-                                                        <option key={mode.value} value={mode.value}>{mode.label}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-
-                                            {cancellationMode === 'manual' && (
-                                                <div className="grid grid-cols-1 gap-3">
+                                {(() => {
+                                    const headerTheme = getOrderHeaderTheme(selectedOrder.status);
+                                    const customerDetailsRows = [
+                                        { label: 'Name', value: selectedOrder.customer_name || 'Guest' },
+                                        { label: 'Customer Phone', value: selectedOrder.customer_mobile || '—' },
+                                        { label: 'Shipping Address', value: formatAddress(selectedOrder.shipping_address) },
+                                        ...(billingAddressEnabled ? [{ label: 'Billing Address', value: formatAddress(selectedOrder.billing_address) }] : []),
+                                        { label: 'City & State', value: (() => {
+                                            const shippingAddress = typeof selectedOrder.shipping_address === 'string'
+                                                ? JSON.parse(selectedOrder.shipping_address || '{}')
+                                                : (selectedOrder.shipping_address || {});
+                                            return [shippingAddress.city, shippingAddress.state, shippingAddress.zip].filter(Boolean).join(', ') || '—';
+                                        })() }
+                                    ];
+                                    return (
+                                        <>
+                                            <div className={`rounded-3xl p-5 shadow-lg ${headerTheme.shell}`}>
+                                                <div className="flex items-start justify-between gap-3">
                                                     <div>
-                                                        <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Refunded Amount</label>
-                                                        <input
-                                                            type="number"
-                                                            min="0"
-                                                            step="0.01"
-                                                            value={manualRefundAmount}
-                                                            onChange={(e) => setManualRefundAmount(e.target.value)}
-                                                            disabled={isUpdatingStatus}
-                                                            placeholder="Enter refunded amount"
-                                                            className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Refund Method</label>
-                                                        <select
-                                                            value={manualRefundMethod}
-                                                            onChange={(e) => setManualRefundMethod(e.target.value)}
-                                                            disabled={isUpdatingStatus}
-                                                            className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
-                                                        >
-                                                            <option value="">Select refund method</option>
-                                                            {MANUAL_REFUND_METHODS.map((method) => (
-                                                                <option key={method} value={method}>{method}</option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
-                                                    {(manualRefundMethod === 'UPI' || manualRefundMethod === 'Bank A/c Transfer') && (
-                                                        <div>
-                                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Reference Number</label>
-                                                            <input
-                                                                type="text"
-                                                                value={manualRefundRef}
-                                                                onChange={(e) => setManualRefundRef(e.target.value)}
-                                                                disabled={isUpdatingStatus}
-                                                                placeholder="Enter reference number"
-                                                                className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
-                                                            />
-                                                        </div>
-                                                    )}
-                                                    {manualRefundMethod === 'NEFT/RTGS' && (
-                                                        <div>
-                                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">UTR Number</label>
-                                                            <input
-                                                                type="text"
-                                                                value={manualRefundUtr}
-                                                                onChange={(e) => setManualRefundUtr(e.target.value)}
-                                                                disabled={isUpdatingStatus}
-                                                                placeholder="Enter UTR number"
-                                                                className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
-                                                            />
-                                                        </div>
-                                                    )}
-                                                    {manualRefundMethod === 'Voucher code' && (
-                                                        <p className="text-xs text-amber-700">
-                                                            A customer-specific coupon will be auto-generated with 180 days validity after cancellation.
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                    <button
-                                        type="button"
-                                        onClick={handleStatusUpdate}
-                                        disabled={
-                                            isUpdatingStatus ||
-                                            !selectedOrder ||
-                                            !pendingStatus ||
-                                            pendingStatus === (selectedOrder.status || 'confirmed')
-                                        }
-                                        className="mt-3 w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60"
-                                    >
-                                        {isUpdatingStatus ? 'Updating...' : 'Update Status'}
-                                    </button>
-                                </div>
-                                )}
-                                {!isAttemptEntry(selectedOrder) && isRefundLockedOrder(selectedOrder) && (
-                                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                                        Refund has been initiated for this cancelled order. Status changes are locked.
-                                    </div>
-                                )}
-
-                                <div className="mt-5 grid grid-cols-1 gap-4">
-                                    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                                        <p className="text-xs text-gray-400 font-semibold uppercase">Shipping Address</p>
-                                        <p className="text-sm text-gray-700 mt-2">{formatAddress(selectedOrder.shipping_address)}</p>
-                                    </div>
-                                    {billingAddressEnabled && (
-                                        <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                                            <p className="text-xs text-gray-400 font-semibold uppercase">Billing Address</p>
-                                            <p className="text-sm text-gray-700 mt-2">{formatAddress(selectedOrder.billing_address)}</p>
-                                        </div>
-                                    )}
-                                    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                                        <p className="text-xs text-gray-400 font-semibold uppercase">Payment Details</p>
-                                        <div className="mt-2 space-y-1 text-sm text-gray-700">
-                                            <p><span className="text-gray-500">Method:</span> {getPaymentMethodLabel(selectedOrder)}</p>
-                                            <p><span className="text-gray-500">Status:</span> {getPaymentStatusLabel(selectedOrder)}</p>
-                                            <p><span className="text-gray-500">Reference:</span> <span className="font-mono text-xs">{getPaymentReference(selectedOrder)}</span></p>
-                                            <p><span className="text-gray-500">Invoice No:</span> <span className="font-mono text-xs">{getInvoiceNumber(selectedOrder)}</span></p>
-                                            {selectedOrder?.courier_partner && (
-                                                <p><span className="text-gray-500">Courier:</span> {selectedOrder.courier_partner}</p>
-                                            )}
-                                            {selectedOrder?.awb_number && (
-                                                <p><span className="text-gray-500">AWB:</span> <span className="font-mono text-xs">{selectedOrder.awb_number}</span></p>
-                                            )}
-                                            {selectedOrder?.failure_reason && (
-                                                <p><span className="text-gray-500">Failure:</span> {selectedOrder.failure_reason}</p>
-                                            )}
-                                            {hasRefundInitiated(selectedOrder) && (
-                                                <>
-                                                    <p><span className="text-gray-500">Refund Amount:</span> {getRefundAmount(selectedOrder) > 0 ? `₹${getRefundAmount(selectedOrder).toLocaleString()}` : '—'}</p>
-                                                    <p><span className="text-gray-500">Refund Ref:</span> <span className="font-mono text-xs">{getRefundReference(selectedOrder) || '—'}</span></p>
-                                                    <p><span className="text-gray-500">Refund Status:</span> {String(selectedOrder?.refund_status || '').trim() || '—'}</p>
-                                                    <p><span className="text-gray-500">Refund Mode:</span> {selectedOrder?.refund_mode || '—'}</p>
-                                                    <p><span className="text-gray-500">Refund Method:</span> {selectedOrder?.refund_method || '—'}</p>
-                                                    <p><span className="text-gray-500">Manual Ref:</span> <span className="font-mono text-xs">{selectedOrder?.manual_refund_ref || '—'}</span></p>
-                                                    <p><span className="text-gray-500">Manual UTR:</span> <span className="font-mono text-xs">{selectedOrder?.manual_refund_utr || '—'}</span></p>
-                                                    <p><span className="text-gray-500">Refund Voucher:</span> <span className="font-mono text-xs">{getRefundVoucherCode(selectedOrder) || '—'}</span></p>
-                                                    <p><span className="text-gray-500">Non-refundable Shipping:</span> ₹{Number(selectedOrder?.refund_notes?.nonRefundableShippingFee ?? selectedOrder?.shipping_fee ?? 0).toLocaleString('en-IN')}</p>
-                                                </>
-                                            )}
-                                            {String(selectedOrder?.payment_gateway || '').toLowerCase() === 'razorpay' && (
-                                                <p className="text-xs text-amber-700 mt-2">
-                                                    EMI refund reversals are controlled by the customer&apos;s issuing bank timeline. Shipping charge is non-refundable.
-                                                </p>
-                                            )}
-                                            {selectedOrder.status === 'pending' && (
-                                                <p><span className="text-gray-500">Pending For:</span> {getPendingDurationLabel(selectedOrder.created_at)}</p>
-                                            )}
-                                            {canFetchPaymentStatus(selectedOrder) && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleFetchPaymentStatus({ reason: 'payment' })}
-                                                    disabled={isFetchingPaymentStatus}
-                                                    className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100 disabled:opacity-60"
-                                                >
-                                                    <RefreshCw size={14} className={isFetchingPaymentStatus ? 'animate-spin' : ''} />
-                                                    {isFetchingPaymentStatus ? 'Syncing...' : 'Sync Payment / Settlement'}
-                                                </button>
-                                            )}
-                                            {canCheckRefundStatus(selectedOrder) && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleFetchPaymentStatus({ reason: 'refund' })}
-                                                    disabled={isFetchingPaymentStatus}
-                                                    className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-800 text-xs font-semibold hover:bg-blue-100 disabled:opacity-60"
-                                                >
-                                                    <RefreshCw size={14} className={isFetchingPaymentStatus ? 'animate-spin' : ''} />
-                                                    {isFetchingPaymentStatus ? 'Checking...' : 'Check Refund Status'}
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
-                                    {!isAttemptEntry(selectedOrder) && (
-                                        <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                                            <p className="text-xs text-gray-400 font-semibold uppercase">Settlement Details</p>
-                                            {selectedOrder?.settlement_snapshot ? (
-                                                <div className="mt-2 space-y-1 text-sm text-gray-700">
-                                                    <p><span className="text-gray-500">Settlement ID:</span> <span className="font-mono text-xs">{selectedOrder.settlement_snapshot.id || selectedOrder.settlement_id || '—'}</span></p>
-                                                    <p><span className="text-gray-500">Status:</span> {selectedOrder.settlement_snapshot.status || '—'}</p>
-                                                    <p><span className="text-gray-500">Settlement Amount:</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.amount)}</p>
-                                                    <p><span className="text-gray-500">Charges (Fees):</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.fees)}</p>
-                                                    <p><span className="text-gray-500">Tax:</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.tax)}</p>
-                                                    <p><span className="text-gray-500">Net Credited:</span> {formatSettlementAmount(
-                                                        selectedOrder.settlement_snapshot.net_amount
-                                                        ?? (Number(selectedOrder.settlement_snapshot.amount || 0) - Number(selectedOrder.settlement_snapshot.fees || 0) - Number(selectedOrder.settlement_snapshot.tax || 0))
-                                                    )}</p>
-                                                    <p><span className="text-gray-500">UTR:</span> <span className="font-mono text-xs">{selectedOrder.settlement_snapshot.utr || '—'}</span></p>
-                                                    <p><span className="text-gray-500">Created At:</span> {selectedOrder.settlement_snapshot.created_at ? formatAdminDateTime(new Date(Number(selectedOrder.settlement_snapshot.created_at) * 1000).toISOString()) : '—'}</p>
-                                                </div>
-                                            ) : (
-                                                <div className="mt-2 space-y-1">
-                                                    <p className="text-sm text-gray-500">
-                                                        Settlement info is not available yet for this payment.
-                                                    </p>
-                                                    {settlementContext?.isTestMode && (
-                                                        <p className="text-xs text-amber-700">
-                                                            Razorpay is in test mode. Settlement records are usually not generated in test mode.
-                                                        </p>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                    {selectedOrder && (
-                                        <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                                            <p className="text-xs text-gray-400 font-semibold uppercase">Promotion</p>
-                                            <div className="mt-2 space-y-1 text-sm text-gray-700">
-                                                {(() => {
-                                                    const couponSplit = getCouponDiscountSplit(selectedOrder);
-                                                    const memberProductDiscount = Number(selectedOrder.loyalty_discount_total || 0);
-                                                    const memberShippingDiscount = Number(selectedOrder.loyalty_shipping_discount_total || 0);
-                                                    const hasMemberBenefit = memberProductDiscount > 0 || memberShippingDiscount > 0;
-                                                    return (
-                                                        <>
-                                                <p><span className="text-gray-500">Membership Tier:</span> {getTierLabel(selectedOrder)}</p>
-                                                <p><span className="text-gray-500">Coupon:</span> {selectedOrder.coupon_code || '—'}</p>
-                                                <p><span className="text-gray-500">Type:</span> {selectedOrder.coupon_type || '—'}</p>
-                                                <p><span className="text-gray-500">Coupon Discount:</span> ₹{Number(selectedOrder.coupon_discount_value || 0).toLocaleString()}</p>
-                                                <p><span className="text-gray-500">Coupon Product Discount:</span> ₹{couponSplit.productDiscount.toLocaleString()}</p>
-                                                <p><span className="text-gray-500">Coupon Shipping Discount:</span> ₹{couponSplit.shippingDiscount.toLocaleString()}</p>
-                                                <p><span className="text-gray-500">Member Product Discount:</span> ₹{memberProductDiscount.toLocaleString()}</p>
-                                                <p><span className="text-gray-500">Member Shipping Discount:</span> ₹{memberShippingDiscount.toLocaleString()}</p>
-                                                {!hasMemberBenefit && Number(selectedOrder.coupon_discount_value || 0) > 0 && (
-                                                    <p className="text-xs text-emerald-700">
-                                                        Discount is fully from coupon benefits. No membership perk applied.
-                                                    </p>
-                                                )}
-                                                <p><span className="text-gray-500">Total Discount:</span> ₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</p>
-                                                <p><span className="text-gray-500">Source:</span> {isAbandonedRecoveryOrder(selectedOrder) ? 'Abandoned cart recovery' : (selectedOrder.source_channel || 'checkout')}</p>
-                                                        </>
-                                                    );
-                                                })()}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="mt-5 border border-gray-200 rounded-xl overflow-hidden">
-                                    <div className="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase">Items</div>
-                                    <div className="divide-y divide-gray-100">
-                                        {(selectedOrder.items || []).map((item) => {
-                                            const snapshot = item?.item_snapshot && typeof item.item_snapshot === 'object' ? item.item_snapshot : null;
-                                            const quantity = Number(item.quantity ?? snapshot?.quantity ?? 0);
-                                            const unitPrice = Number(item.price ?? snapshot?.unitPrice ?? 0);
-                                            const lineTotal = Number(item.line_total ?? snapshot?.lineTotal ?? (unitPrice * quantity));
-                                            const itemTax = Number(item.tax_amount ?? snapshot?.taxAmount ?? 0);
-                                            const itemTaxRate = Number(item.tax_rate_percent ?? snapshot?.taxRatePercent ?? 0);
-                                            const itemTaxCode = item.tax_code || snapshot?.taxCode || item.tax_name || snapshot?.taxName || '';
-                                            const parsedWarrantyMonths = Number(snapshot?.polishWarrantyMonths ?? 0);
-                                            const itemWarrantyMonths = [6, 7, 8, 9, 12].includes(parsedWarrantyMonths) ? parsedWarrantyMonths : null;
-                                            const itemTitle = getOrderItemTitle(item);
-                                            const itemVariantTitle = getOrderItemVariantTitle(item);
-                                            const itemCategoryLabel = getOrderItemCategoryLabel(item);
-                                            const itemImageUrl = getOrderItemImageUrl(item);
-                                            return (
-                                                <div key={item.id} className="flex items-center gap-4 p-4">
-                                                    <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden border border-gray-200">
-                                                        {itemImageUrl && <img src={itemImageUrl} alt={itemTitle} className="w-full h-full object-cover" />}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="text-sm font-semibold text-gray-800 line-clamp-1">{itemTitle}</p>
-                                                        {itemVariantTitle && <p className="text-xs text-gray-500 line-clamp-1">{itemVariantTitle}</p>}
-                                                        {itemCategoryLabel && <p className="text-[11px] text-gray-400 line-clamp-1">Category: {itemCategoryLabel}</p>}
-                                                        {itemWarrantyMonths && <p className="text-[11px] text-gray-400 line-clamp-1">Polish Warranty: {itemWarrantyMonths} months</p>}
-                                                        <p className="text-xs text-gray-400 mt-1">
-                                                            ₹{unitPrice.toLocaleString()} x {quantity}
-                                                        </p>
-                                                    </div>
-                                                    <div className="text-right text-sm font-semibold text-gray-800">
-                                                        ₹{lineTotal.toLocaleString()}
-                                                        {itemTax > 0 && (
-                                                            <p className="text-[11px] text-gray-500 font-medium">
-                                                                {(() => {
-                                                                    const gst = getGstDisplayDetails({
-                                                                        taxAmount: itemTax,
-                                                                        taxRatePercent: itemTaxRate,
-                                                                        taxLabel: itemTaxCode
-                                                                    });
-                                                                    return `${gst.title}: ${gst.totalAmountLabel}`;
-                                                                })()}
+                                                        <p className={`text-[11px] uppercase tracking-[0.24em] font-semibold ${headerTheme.rowLabel}`}>Order</p>
+                                                        <h3 className="mt-2 text-2xl font-bold text-white">#{selectedOrder.order_ref}</h3>
+                                                        <p className={`mt-2 text-sm font-medium ${headerTheme.subtle}`}>{formatAdminDateTime(selectedOrder.created_at)}</p>
+                                                        {detailsLastSyncedAt && (
+                                                            <p className={`mt-1 text-[11px] ${headerTheme.micro}`}>
+                                                                Last synced: {formatAdminDateTime(detailsLastSyncedAt)}
                                                             </p>
                                                         )}
                                                     </div>
+                                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getOrderHeaderBadgeClasses(selectedOrder.status)}`}>
+                                                        {formatStatusLabel(selectedOrder.status || 'confirmed')}
+                                                    </span>
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-
-                                <div className="mt-5 grid grid-cols-1 gap-2 text-sm">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-gray-500">Subtotal</span>
-                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.subtotal || 0).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-gray-500">Shipping</span>
-                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.shipping_fee || 0).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-gray-500">Base Price (Before Discounts)</span>
-                                        <span className="font-semibold text-gray-800">₹{Math.max(0, Number(selectedOrder.subtotal || 0) + Number(selectedOrder.shipping_fee || 0)).toLocaleString()}</span>
-                                    </div>
-                                    {Number(selectedOrder.coupon_discount_value || 0) > 0 && (
-                                        <div className="flex items-center justify-between text-emerald-700">
-                                            <span>Coupon{selectedOrder.coupon_code ? ` (${selectedOrder.coupon_code})` : ''}</span>
-                                            <span className="font-semibold">- ₹{Number(selectedOrder.coupon_discount_value || 0).toLocaleString()}</span>
-                                        </div>
-                                    )}
-                                    {Number(selectedOrder.loyalty_discount_total || 0) > 0 && (
-                                        <div className="flex items-center justify-between text-blue-700">
-                                            <span>Member Discount</span>
-                                            <span className="font-semibold">- ₹{Number(selectedOrder.loyalty_discount_total || 0).toLocaleString()}</span>
-                                        </div>
-                                    )}
-                                    {Number(selectedOrder.loyalty_shipping_discount_total || 0) > 0 && (
-                                        <div className="flex items-center justify-between text-blue-700">
-                                            <span>Member Shipping Benefit</span>
-                                            <span className="font-semibold">- ₹{Number(selectedOrder.loyalty_shipping_discount_total || 0).toLocaleString()}</span>
-                                        </div>
-                                    )}
-                                    <div className="flex items-center justify-between text-emerald-700">
-                                        <span>Total Savings</span>
-                                        <span className="font-semibold">₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-gray-500">Taxable Value After Discounts</span>
-                                        <span className="font-semibold text-gray-800">₹{Math.max(0, Number(selectedOrder.subtotal || 0) + Number(selectedOrder.shipping_fee || 0) - Number(selectedOrder.coupon_discount_value || 0) - Number(selectedOrder.loyalty_discount_total || 0) - Number(selectedOrder.loyalty_shipping_discount_total || 0)).toLocaleString()}</span>
-                                    </div>
-                                    {Number(selectedOrder.tax_total || 0) > 0 && (
-                                        <div className="flex items-start justify-between">
-                                            <span className="text-gray-500">
-                                                GST
-                                                <span className="block text-[11px] text-gray-400">
-                                                    {getGstDisplayDetails({ taxAmount: Number(selectedOrder.tax_total || 0) }).splitAmountLabel}
-                                                </span>
-                                            </span>
-                                            <span className="font-semibold text-gray-800">₹{Number(selectedOrder.tax_total || 0).toLocaleString()}</span>
-                                        </div>
-                                    )}
-                                    <div className="flex items-center justify-between text-base font-semibold">
-                                        <span>Total</span>
-                                        <span>₹{Number(selectedOrder.total || 0).toLocaleString()}</span>
-                                    </div>
-                                </div>
-
-                                <div className="mt-6">
-                                    <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Status Timeline</p>
-                                    <div className="mt-3 space-y-3">
-                                        {(selectedOrder.events || []).map((evt) => (
-                                            <div key={evt.id} className="flex items-center justify-between text-sm">
-                                                <span className="font-semibold text-gray-700 capitalize">{evt.status}</span>
-                                                <span className="text-xs text-gray-400">{formatAdminDateTime(evt.created_at)}</span>
+                                                <div className="mt-4 flex flex-wrap items-center gap-2">
+                                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getPaymentHeaderBadgeClasses(selectedOrder.payment_status)}`}>
+                                                        {getPaymentStatusLabel(selectedOrder)}
+                                                    </span>
+                                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${headerTheme.accent}`}>
+                                                        {getTierLabel(selectedOrder)}
+                                                    </span>
+                                                    {normalizeOrderStatus(selectedOrder.status) === 'pending' && (
+                                                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${headerTheme.accent}`}>
+                                                            {getPendingDurationLabel(selectedOrder.created_at)}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="mt-4 border-t border-white/15 pt-4">
+                                                    <p className="text-lg font-semibold text-white truncate">{selectedOrder.customer_name || 'Guest'}</p>
+                                                    <p className={`mt-1 text-sm ${headerTheme.subtle}`}>{selectedOrder.customer_mobile || 'No mobile number'}</p>
+                                                    <p className={`mt-2 text-xs ${headerTheme.micro}`}>Invoice No: <span className="font-mono">{getInvoiceNumber(selectedOrder)}</span></p>
+                                                </div>
                                             </div>
-                                        ))}
-                                        {(!selectedOrder.events || selectedOrder.events.length === 0) && (
-                                            <p className="text-sm text-gray-400">No timeline data yet.</p>
-                                        )}
-                                    </div>
-                                </div>
+                                            <div className="mt-4">
+                                                {!isAttemptEntry(selectedOrder) && (
+                                                    <div className="flex justify-end">
+                                                        <div className="inline-flex items-center gap-2 justify-end">
+                                                            {getCallLink(selectedOrder.customer_mobile) && (
+                                                                <a
+                                                                    href={getCallLink(selectedOrder.customer_mobile)}
+                                                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 bg-white/90 text-slate-700 hover:bg-white"
+                                                                    title="Call customer"
+                                                                >
+                                                                    <Phone size={16} />
+                                                                </a>
+                                                            )}
+                                                            {getWhatsappLink(selectedOrder.customer_mobile) && (
+                                                                <a
+                                                                    href={getWhatsappLink(selectedOrder.customer_mobile)}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                                                    title="Contact customer on WhatsApp"
+                                                                >
+                                                                    <MessageCircle size={16} />
+                                                                </a>
+                                                            )}
+                                                            {canDownloadInvoice(selectedOrder) && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => handleDownloadInvoice(selectedOrder, e)}
+                                                                    disabled={downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id)}
+                                                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+                                                                    title={downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id) ? 'Generating invoice' : 'Download invoice'}
+                                                                >
+                                                                    <Download size={16} />
+                                                                </button>
+                                                            )}
+                                                            {canDownloadInvoice(selectedOrder) && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => handleSendInvoiceCommunication(selectedOrder, e)}
+                                                                    disabled={sendingInvoiceId === (selectedOrder.order_id || selectedOrder.id)}
+                                                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+                                                                    title={sendingInvoiceId === (selectedOrder.order_id || selectedOrder.id) ? 'Sending invoice' : 'Send invoice to email + WhatsApp'}
+                                                                >
+                                                                    <Send size={16} />
+                                                                </button>
+                                                            )}
+                                                            {canDeleteRow(selectedOrder) && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => handleDeleteOrder(e, selectedOrder)}
+                                                                    disabled={deletingOrderId === (selectedOrder.order_id || selectedOrder.id)}
+                                                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-60"
+                                                                    title="Delete order"
+                                                                >
+                                                                    <Trash2 size={16} />
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                                {isAttemptEntry(selectedOrder) && String(user?.role || '').toLowerCase() === 'admin' && (
+                                                    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 space-y-3">
+                                                        <p className="text-xs text-emerald-800 font-semibold">
+                                                            Convert this failed attempt into a successful manual order.
+                                                        </p>
+                                                        <div>
+                                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Payment Mode</label>
+                                                            <select
+                                                                value={attemptConversionMode}
+                                                                onChange={(e) => setAttemptConversionMode(e.target.value)}
+                                                                disabled={isConvertingAttempt}
+                                                                className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
+                                                            >
+                                                                {MANUAL_PAYMENT_OPTIONS.map((mode) => (
+                                                                    <option key={mode.value} value={mode.value}>{mode.label}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Reference (Optional)</label>
+                                                            <input
+                                                                type="text"
+                                                                value={attemptConversionReference}
+                                                                onChange={(e) => setAttemptConversionReference(e.target.value)}
+                                                                disabled={isConvertingAttempt}
+                                                                placeholder="Transaction / receipt reference"
+                                                                className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Reason</label>
+                                                            <textarea
+                                                                value={attemptConversionReason}
+                                                                onChange={(e) => setAttemptConversionReason(e.target.value)}
+                                                                disabled={isConvertingAttempt}
+                                                                placeholder="Document why this attempt is being converted manually"
+                                                                className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700 min-h-[88px]"
+                                                            />
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleConvertAttemptToPaidOrder}
+                                                            disabled={isConvertingAttempt || String(attemptConversionReason || '').trim().length < 8}
+                                                            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60"
+                                                        >
+                                                            {isConvertingAttempt ? 'Converting...' : 'Mark as Successful Order'}
+                                                        </button>
+                                                    </div>
+                                                )}
+                                                {!isAttemptEntry(selectedOrder) && !isRefundLockedOrder(selectedOrder) && (
+                                                    <div className="mt-4">
+                                                        <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Update Status</label>
+                                                        <select
+                                                            value={pendingStatus || normalizeOrderStatus(selectedOrder.status) || 'confirmed'}
+                                                            onChange={(e) => setPendingStatus(e.target.value)}
+                                                            disabled={isUpdatingStatus}
+                                                            className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                                        >
+                                                            {getAvailableStatusOptions(selectedOrder.status).map((option) => (
+                                                                <option key={option.value} value={option.value}>{option.label}</option>
+                                                            ))}
+                                                        </select>
+                                                        {pendingStatus === 'cancelled' && isPaidPayment(selectedOrder) && (
+                                                            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
+                                                                <p className="text-xs text-amber-800 font-semibold">
+                                                                    Shipping charge is non-refundable. Maximum refundable amount: ₹{Math.max(0, Number(selectedOrder?.total || 0) - Number(selectedOrder?.shipping_fee || 0)).toLocaleString('en-IN')}
+                                                                </p>
+                                                                <div>
+                                                                    <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Cancellation Mode</label>
+                                                                    <select
+                                                                        value={cancellationMode}
+                                                                        onChange={(e) => setCancellationMode(e.target.value)}
+                                                                        disabled={isUpdatingStatus}
+                                                                        className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                                                    >
+                                                                        <option value="">Select cancellation mode</option>
+                                                                        {CANCELLATION_MODES.map((mode) => (
+                                                                            <option key={mode.value} value={mode.value}>{mode.label}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+                                                                {cancellationMode === 'manual' && (
+                                                                    <div className="grid grid-cols-1 gap-3">
+                                                                        <div>
+                                                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Refunded Amount</label>
+                                                                            <input type="number" min="0" step="0.01" value={manualRefundAmount} onChange={(e) => setManualRefundAmount(e.target.value)} disabled={isUpdatingStatus} placeholder="Enter refunded amount" className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none" />
+                                                                        </div>
+                                                                        <div>
+                                                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Refund Method</label>
+                                                                            <select value={manualRefundMethod} onChange={(e) => setManualRefundMethod(e.target.value)} disabled={isUpdatingStatus} className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none">
+                                                                                <option value="">Select refund method</option>
+                                                                                {MANUAL_REFUND_METHODS.map((method) => (
+                                                                                    <option key={method} value={method}>{method}</option>
+                                                                                ))}
+                                                                            </select>
+                                                                        </div>
+                                                                        {(manualRefundMethod === 'UPI' || manualRefundMethod === 'Bank A/c Transfer') && (
+                                                                            <div>
+                                                                                <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Reference Number</label>
+                                                                                <input type="text" value={manualRefundRef} onChange={(e) => setManualRefundRef(e.target.value)} disabled={isUpdatingStatus} placeholder="Enter reference number" className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none" />
+                                                                            </div>
+                                                                        )}
+                                                                        {manualRefundMethod === 'NEFT/RTGS' && (
+                                                                            <div>
+                                                                                <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">UTR Number</label>
+                                                                                <input type="text" value={manualRefundUtr} onChange={(e) => setManualRefundUtr(e.target.value)} disabled={isUpdatingStatus} placeholder="Enter UTR number" className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none" />
+                                                                            </div>
+                                                                        )}
+                                                                        {manualRefundMethod === 'Voucher code' && (
+                                                                            <p className="text-xs text-amber-700">
+                                                                                A customer-specific coupon will be auto-generated with 180 days validity after cancellation.
+                                                                            </p>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleStatusUpdate}
+                                                            disabled={isUpdatingStatus || !selectedOrder || !pendingStatus || pendingStatus === normalizeOrderStatus(selectedOrder.status || 'confirmed')}
+                                                            className="mt-3 w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60"
+                                                        >
+                                                            {isUpdatingStatus ? 'Updating...' : 'Update Status'}
+                                                        </button>
+                                                    </div>
+                                                )}
+                                                {!isAttemptEntry(selectedOrder) && isRefundLockedOrder(selectedOrder) && (
+                                                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                                                        Refund has been initiated for this cancelled order. Status changes are locked.
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="mt-5 border border-gray-200 rounded-xl overflow-hidden">
+                                                <div className="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase">Items</div>
+                                                <div className="divide-y divide-gray-100">
+                                                    {(selectedOrder.items || []).map((item) => {
+                                                        const snapshot = item?.item_snapshot && typeof item.item_snapshot === 'object' ? item.item_snapshot : null;
+                                                        const quantity = Number(item.quantity ?? snapshot?.quantity ?? 0);
+                                                        const unitPrice = Number(item.price ?? snapshot?.unitPrice ?? 0);
+                                                        const lineTotal = Number(item.line_total ?? snapshot?.lineTotal ?? (unitPrice * quantity));
+                                                        const itemTax = Number(item.tax_amount ?? snapshot?.taxAmount ?? 0);
+                                                        const itemTaxRate = Number(item.tax_rate_percent ?? snapshot?.taxRatePercent ?? 0);
+                                                        const itemTaxCode = item.tax_code || snapshot?.taxCode || item.tax_name || snapshot?.taxName || '';
+                                                        const parsedWarrantyMonths = Number(snapshot?.polishWarrantyMonths ?? 0);
+                                                        const itemWarrantyMonths = [6, 7, 8, 9, 12].includes(parsedWarrantyMonths) ? parsedWarrantyMonths : null;
+                                                        const itemTitle = getOrderItemTitle(item);
+                                                        const itemVariantTitle = getOrderItemVariantTitle(item);
+                                                        const itemCategoryLabel = getOrderItemCategoryLabel(item);
+                                                        const itemImageUrl = getOrderItemImageUrl(item);
+                                                        return (
+                                                            <div key={item.id} className="flex items-center gap-4 p-4">
+                                                                <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden border border-gray-200">
+                                                                    {itemImageUrl && <img src={itemImageUrl} alt={itemTitle} className="w-full h-full object-cover" />}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="text-sm font-semibold text-gray-800 line-clamp-1">{itemTitle}</p>
+                                                                    {itemVariantTitle && <p className="text-xs text-gray-500 line-clamp-1">{itemVariantTitle}</p>}
+                                                                    {itemCategoryLabel && <p className="text-[11px] text-gray-400 line-clamp-1">Category: {itemCategoryLabel}</p>}
+                                                                    {itemWarrantyMonths && <p className="text-[11px] text-gray-400 line-clamp-1">Polish Warranty: {itemWarrantyMonths} months</p>}
+                                                                    <p className="text-xs text-gray-400 mt-1">₹{unitPrice.toLocaleString()} x {quantity}</p>
+                                                                </div>
+                                                                <div className="text-right text-sm font-semibold text-gray-800">
+                                                                    ₹{lineTotal.toLocaleString()}
+                                                                    {itemTax > 0 && (
+                                                                        <p className="text-[11px] text-gray-500 font-medium">
+                                                                            {(() => {
+                                                                                const gst = getGstDisplayDetails({ taxAmount: itemTax, taxRatePercent: itemTaxRate, taxLabel: itemTaxCode });
+                                                                                return `${gst.title}: ${gst.totalAmountLabel}`;
+                                                                            })()}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-5 grid grid-cols-1 gap-2 text-sm border border-gray-200 rounded-xl p-4 bg-gray-50">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-gray-500">Subtotal</span>
+                                                    <span className="font-semibold text-gray-800">₹{Number(selectedOrder.subtotal || 0).toLocaleString()}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-gray-500">Shipping</span>
+                                                    <span className="font-semibold text-gray-800">₹{Number(selectedOrder.shipping_fee || 0).toLocaleString()}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-gray-500">Base Price (Before Discounts)</span>
+                                                    <span className="font-semibold text-gray-800">₹{Math.max(0, Number(selectedOrder.subtotal || 0) + Number(selectedOrder.shipping_fee || 0)).toLocaleString()}</span>
+                                                </div>
+                                                {Number(selectedOrder.coupon_discount_value || 0) > 0 && (
+                                                    <div className="flex items-center justify-between text-emerald-700">
+                                                        <span>Coupon{selectedOrder.coupon_code ? ` (${selectedOrder.coupon_code})` : ''}</span>
+                                                        <span className="font-semibold">- ₹{Number(selectedOrder.coupon_discount_value || 0).toLocaleString()}</span>
+                                                    </div>
+                                                )}
+                                                {Number(selectedOrder.loyalty_discount_total || 0) > 0 && (
+                                                    <div className="flex items-center justify-between text-blue-700">
+                                                        <span>Member Discount</span>
+                                                        <span className="font-semibold">- ₹{Number(selectedOrder.loyalty_discount_total || 0).toLocaleString()}</span>
+                                                    </div>
+                                                )}
+                                                {Number(selectedOrder.loyalty_shipping_discount_total || 0) > 0 && (
+                                                    <div className="flex items-center justify-between text-blue-700">
+                                                        <span>Member Shipping Benefit</span>
+                                                        <span className="font-semibold">- ₹{Number(selectedOrder.loyalty_shipping_discount_total || 0).toLocaleString()}</span>
+                                                    </div>
+                                                )}
+                                                <div className="flex items-center justify-between text-emerald-700">
+                                                    <span>Total Savings</span>
+                                                    <span className="font-semibold">₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-gray-500">Taxable Value After Discounts</span>
+                                                    <span className="font-semibold text-gray-800">₹{Math.max(0, Number(selectedOrder.subtotal || 0) + Number(selectedOrder.shipping_fee || 0) - Number(selectedOrder.coupon_discount_value || 0) - Number(selectedOrder.loyalty_discount_total || 0) - Number(selectedOrder.loyalty_shipping_discount_total || 0)).toLocaleString()}</span>
+                                                </div>
+                                                {Number(selectedOrder.tax_total || 0) > 0 && (
+                                                    <div className="flex items-start justify-between">
+                                                        <span className="text-gray-500">
+                                                            GST
+                                                            <span className="block text-[11px] text-gray-400">
+                                                                {getGstDisplayDetails({ taxAmount: Number(selectedOrder.tax_total || 0) }).splitAmountLabel}
+                                                            </span>
+                                                        </span>
+                                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.tax_total || 0).toLocaleString()}</span>
+                                                    </div>
+                                                )}
+                                                <div className="flex items-center justify-between text-base font-semibold">
+                                                    <span>Total</span>
+                                                    <span>₹{Number(selectedOrder.total || 0).toLocaleString()}</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-5 border border-gray-200 rounded-xl overflow-hidden">
+                                                <div className="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase">Customer Details</div>
+                                                <div className="divide-y divide-gray-100">
+                                                    {customerDetailsRows.map((row) => (
+                                                        <div key={row.label} className="grid grid-cols-[120px_minmax(0,1fr)] gap-4 px-4 py-3 text-sm">
+                                                            <div className="text-gray-500">{row.label}</div>
+                                                            <div className="text-gray-800 whitespace-pre-line break-words">{row.value || '—'}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-5 border border-gray-200 rounded-xl p-4 bg-gray-50">
+                                                <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Status Timeline</p>
+                                                <div className="mt-3 space-y-3">
+                                                    {(selectedOrder.events || []).map((evt) => (
+                                                        <div key={evt.id} className="flex items-center justify-between text-sm">
+                                                            <span className="font-semibold text-gray-700 capitalize">{evt.status}</span>
+                                                            <span className="text-xs text-gray-400">{formatAdminDateTime(evt.created_at)}</span>
+                                                        </div>
+                                                    ))}
+                                                    {(!selectedOrder.events || selectedOrder.events.length === 0) && (
+                                                        <p className="text-sm text-gray-400">No timeline data yet.</p>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-5 grid grid-cols-1 gap-4">
+                                                <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
+                                                    <p className="text-xs text-gray-400 font-semibold uppercase">Payment Details</p>
+                                                    <div className="mt-2 space-y-1 text-sm text-gray-700">
+                                                        <p><span className="text-gray-500">Method:</span> {getPaymentMethodLabel(selectedOrder)}</p>
+                                                        <p><span className="text-gray-500">Status:</span> {getPaymentStatusLabel(selectedOrder)}</p>
+                                                        <p><span className="text-gray-500">Reference:</span> <span className="font-mono text-xs">{getPaymentReference(selectedOrder)}</span></p>
+                                                        <p><span className="text-gray-500">Invoice No:</span> <span className="font-mono text-xs">{getInvoiceNumber(selectedOrder)}</span></p>
+                                                        {selectedOrder?.failure_reason && (
+                                                            <p><span className="text-gray-500">Failure:</span> {selectedOrder.failure_reason}</p>
+                                                        )}
+                                                        {hasRefundInitiated(selectedOrder) && (
+                                                            <>
+                                                                <p><span className="text-gray-500">Refund Amount:</span> {getRefundAmount(selectedOrder) > 0 ? `₹${getRefundAmount(selectedOrder).toLocaleString()}` : '—'}</p>
+                                                                <p><span className="text-gray-500">Refund Ref:</span> <span className="font-mono text-xs">{getRefundReference(selectedOrder) || '—'}</span></p>
+                                                                <p><span className="text-gray-500">Refund Status:</span> {String(selectedOrder?.refund_status || '').trim() || '—'}</p>
+                                                                <p><span className="text-gray-500">Refund Mode:</span> {selectedOrder?.refund_mode || '—'}</p>
+                                                                <p><span className="text-gray-500">Refund Method:</span> {selectedOrder?.refund_method || '—'}</p>
+                                                                <p><span className="text-gray-500">Manual Ref:</span> <span className="font-mono text-xs">{selectedOrder?.manual_refund_ref || '—'}</span></p>
+                                                                <p><span className="text-gray-500">Manual UTR:</span> <span className="font-mono text-xs">{selectedOrder?.manual_refund_utr || '—'}</span></p>
+                                                                <p><span className="text-gray-500">Refund Voucher:</span> <span className="font-mono text-xs">{getRefundVoucherCode(selectedOrder) || '—'}</span></p>
+                                                                <p><span className="text-gray-500">Non-refundable Shipping:</span> ₹{Number(selectedOrder?.refund_notes?.nonRefundableShippingFee ?? selectedOrder?.shipping_fee ?? 0).toLocaleString('en-IN')}</p>
+                                                            </>
+                                                        )}
+                                                        {String(selectedOrder?.payment_gateway || '').toLowerCase() === 'razorpay' && (
+                                                            <p className="text-xs text-amber-700 mt-2">
+                                                                EMI refund reversals are controlled by the customer&apos;s issuing bank timeline. Shipping charge is non-refundable.
+                                                            </p>
+                                                        )}
+                                                        {normalizeOrderStatus(selectedOrder.status) === 'pending' && (
+                                                            <p><span className="text-gray-500">Pending For:</span> {getPendingDurationLabel(selectedOrder.created_at)}</p>
+                                                        )}
+                                                        {canFetchPaymentStatus(selectedOrder) && (
+                                                            <button type="button" onClick={() => handleFetchPaymentStatus({ reason: 'payment' })} disabled={isFetchingPaymentStatus} className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100 disabled:opacity-60">
+                                                                <RefreshCw size={14} className={isFetchingPaymentStatus ? 'animate-spin' : ''} />
+                                                                {isFetchingPaymentStatus ? 'Syncing...' : 'Sync Payment / Settlement'}
+                                                            </button>
+                                                        )}
+                                                        {canCheckRefundStatus(selectedOrder) && (
+                                                            <button type="button" onClick={() => handleFetchPaymentStatus({ reason: 'refund' })} disabled={isFetchingPaymentStatus} className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-800 text-xs font-semibold hover:bg-blue-100 disabled:opacity-60">
+                                                                <RefreshCw size={14} className={isFetchingPaymentStatus ? 'animate-spin' : ''} />
+                                                                {isFetchingPaymentStatus ? 'Checking...' : 'Check Refund Status'}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {!isAttemptEntry(selectedOrder) && (
+                                                    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
+                                                        <p className="text-xs text-gray-400 font-semibold uppercase">Settlement Details</p>
+                                                        {selectedOrder?.settlement_snapshot ? (
+                                                            <div className="mt-2 space-y-1 text-sm text-gray-700">
+                                                                <p><span className="text-gray-500">Settlement ID:</span> <span className="font-mono text-xs">{selectedOrder.settlement_snapshot.id || selectedOrder.settlement_id || '—'}</span></p>
+                                                                <p><span className="text-gray-500">Status:</span> {selectedOrder.settlement_snapshot.status || '—'}</p>
+                                                                <p><span className="text-gray-500">Settlement Amount:</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.amount)}</p>
+                                                                <p><span className="text-gray-500">Charges (Fees):</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.fees)}</p>
+                                                                <p><span className="text-gray-500">Tax:</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.tax)}</p>
+                                                                <p><span className="text-gray-500">Net Credited:</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.net_amount ?? (Number(selectedOrder.settlement_snapshot.amount || 0) - Number(selectedOrder.settlement_snapshot.fees || 0) - Number(selectedOrder.settlement_snapshot.tax || 0)))}</p>
+                                                                <p><span className="text-gray-500">UTR:</span> <span className="font-mono text-xs">{selectedOrder.settlement_snapshot.utr || '—'}</span></p>
+                                                                <p><span className="text-gray-500">Created At:</span> {selectedOrder.settlement_snapshot.created_at ? formatAdminDateTime(new Date(Number(selectedOrder.settlement_snapshot.created_at) * 1000).toISOString()) : '—'}</p>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="mt-2 space-y-1">
+                                                                <p className="text-sm text-gray-500">Settlement info is not available yet for this payment.</p>
+                                                                {settlementContext?.isTestMode && (
+                                                                    <p className="text-xs text-amber-700">
+                                                                        Razorpay is in test mode. Settlement records are usually not generated in test mode.
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
+                                                    <p className="text-xs text-gray-400 font-semibold uppercase">Promotion</p>
+                                                    <div className="mt-2 space-y-1 text-sm text-gray-700">
+                                                        {(() => {
+                                                            const couponSplit = getCouponDiscountSplit(selectedOrder);
+                                                            const memberProductDiscount = Number(selectedOrder.loyalty_discount_total || 0);
+                                                            const memberShippingDiscount = Number(selectedOrder.loyalty_shipping_discount_total || 0);
+                                                            const hasMemberBenefit = memberProductDiscount > 0 || memberShippingDiscount > 0;
+                                                            return (
+                                                                <>
+                                                                    <p><span className="text-gray-500">Membership Tier:</span> {getTierLabel(selectedOrder)}</p>
+                                                                    <p><span className="text-gray-500">Coupon:</span> {selectedOrder.coupon_code || '—'}</p>
+                                                                    <p><span className="text-gray-500">Type:</span> {selectedOrder.coupon_type || '—'}</p>
+                                                                    <p><span className="text-gray-500">Coupon Discount:</span> ₹{Number(selectedOrder.coupon_discount_value || 0).toLocaleString()}</p>
+                                                                    <p><span className="text-gray-500">Coupon Product Discount:</span> ₹{couponSplit.productDiscount.toLocaleString()}</p>
+                                                                    <p><span className="text-gray-500">Coupon Shipping Discount:</span> ₹{couponSplit.shippingDiscount.toLocaleString()}</p>
+                                                                    <p><span className="text-gray-500">Member Product Discount:</span> ₹{memberProductDiscount.toLocaleString()}</p>
+                                                                    <p><span className="text-gray-500">Member Shipping Discount:</span> ₹{memberShippingDiscount.toLocaleString()}</p>
+                                                                    {!hasMemberBenefit && Number(selectedOrder.coupon_discount_value || 0) > 0 && (
+                                                                        <p className="text-xs text-emerald-700">
+                                                                            Discount is fully from coupon benefits. No membership perk applied.
+                                                                        </p>
+                                                                    )}
+                                                                    <p><span className="text-gray-500">Total Discount:</span> ₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</p>
+                                                                    <p><span className="text-gray-500">Source:</span> {isAbandonedRecoveryOrder(selectedOrder) ? 'Abandoned cart recovery' : (selectedOrder.source_channel || 'checkout')}</p>
+                                                                </>
+                                                            );
+                                                        })()}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
                             </>
                         )}
                     </div>
                 </div>,
                 document.body
+            )}
+            {!isDetailsOpen && (
+                <button
+                    type="button"
+                    onClick={openCreateManualOrder}
+                    className="md:hidden fixed bottom-24 right-4 z-[175] inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-2xl shadow-emerald-600/30 hover:bg-emerald-500"
+                    aria-label="Create order"
+                >
+                    <Plus size={22} />
+                </button>
             )}
             {isCreateOrderOpen && createPortal(
                 <div className="fixed inset-0 z-[90]">
@@ -3338,6 +3345,26 @@ export function Orders({
                                             placeholder="Receipt / transaction reference"
                                         />
                                     </label>
+                                    {selectedManualCustomer && customerNeedsManualMobile && (
+                                        <label className="text-sm text-gray-600 md:col-span-2">
+                                            Customer Mobile
+                                            <input
+                                                className={`input-field mt-1 ${manualCreateAttempted && (manualValidationState.missingCustomerMobile || manualValidationState.invalidCustomerMobile) ? 'border-red-300 focus:border-red-400' : ''}`}
+                                                value={manualOrderForm.mobile}
+                                                onChange={(e) => setManualOrderForm((prev) => ({ ...prev, mobile: normalizeMobileDigits(e.target.value).slice(0, 14) }))}
+                                                inputMode="numeric"
+                                                maxLength={14}
+                                                placeholder="Enter customer mobile number"
+                                            />
+                                            <p className="mt-1 text-xs text-gray-500">This mobile will be saved to the customer profile when the order is created.</p>
+                                            {manualCreateAttempted && manualValidationState.missingCustomerMobile && (
+                                                <p className="mt-1 text-xs text-red-600">Enter a customer mobile number to continue.</p>
+                                            )}
+                                            {manualCreateAttempted && !manualValidationState.missingCustomerMobile && manualValidationState.invalidCustomerMobile && (
+                                                <p className="mt-1 text-xs text-red-600">Mobile must contain 10-14 digits.</p>
+                                            )}
+                                        </label>
+                                    )}
                                     <label className="text-sm text-gray-600 md:col-span-2">
                                         Coupon (Optional)
                                         <select

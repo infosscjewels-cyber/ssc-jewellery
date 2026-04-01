@@ -32,9 +32,11 @@ const formatTimelineDate = (value) => {
     });
 };
 
-const STATUS_STEPS = ['confirmed', 'shipped', 'completed'];
+const STATUS_STEPS = ['confirmed', 'completed'];
 const normalizeStatus = (status) => {
-    return status || 'confirmed';
+    const normalized = String(status || 'confirmed').trim().toLowerCase();
+    if (normalized === 'shipped') return 'completed';
+    return normalized || 'confirmed';
 };
 const formatStatusLabel = (status) => {
     const normalized = normalizeStatus(status);
@@ -44,8 +46,6 @@ const getStatusBadgeClasses = (status) => {
     switch (normalizeStatus(status)) {
         case 'completed':
             return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-        case 'shipped':
-            return 'bg-blue-50 text-blue-700 border-blue-200';
         case 'pending':
             return 'bg-amber-50 text-amber-700 border-amber-200';
         case 'cancelled':
@@ -513,7 +513,7 @@ export default function Orders() {
                                     <div className="mt-3">
                                         {isPendingDelayState(selectedOrder) && (
                                             <div className="mb-3 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg">
-                                                Processing delay: your order is still in queue and will move to shipped once dispatch begins.
+                                                Processing delay: your order is still in queue and will be marked completed once fulfilment is closed.
                                             </div>
                                         )}
                                         <input

@@ -234,9 +234,22 @@ const matchesAdminSearch = (order, query = {}) => {
 const matchesAdminStatus = (order, query = {}) => {
     const status = String(query.status || 'all').toLowerCase();
     if (status === 'all') return true;
+    const createdTs = new Date(order?.created_at || order?.createdAt || 0).getTime();
+    const ageHours = Number.isFinite(createdTs) && createdTs > 0
+        ? (Date.now() - createdTs) / (1000 * 60 * 60)
+        : null;
+    const isOverdueConfirmed = String(order?.status || '').toLowerCase() === 'confirmed'
+        && Number.isFinite(ageHours)
+        && ageHours >= 24;
     if (status === 'failed') {
         return String(order?.status || '').toLowerCase() === 'failed'
             || String(order?.payment_status || '').toLowerCase() === 'failed';
+    }
+    if (status === 'pending') {
+        return String(order?.status || '').toLowerCase() === 'pending' || isOverdueConfirmed;
+    }
+    if (status === 'confirmed') {
+        return String(order?.status || '').toLowerCase() === 'confirmed' && !isOverdueConfirmed;
     }
     return String(order?.status || '').toLowerCase() === status;
 };
@@ -495,28 +508,29 @@ export const orderService = {
         sortBy = 'newest',
         sourceChannel = 'all'
     }) => {
+        const queryMeta = { page, limit, status, search, startDate, endDate, quickRange, sortBy, sourceChannel };
         const cacheKey = `${page}_${limit}_${status}_${search}_${startDate}_${endDate}_${quickRange}_${sortBy}_${sourceChannel}`;
         const cached = adminOrdersCache[cacheKey];
         if (cached && Date.now() - cached.ts < ADMIN_CACHE_TTL) {
-            return cached.data;
+            const filteredOrders = sortAdminOrders(
+                (Array.isArray(cached?.data?.orders) ? cached.data.orders : []).filter((order) => orderMatchesAdminQuery(order, queryMeta)),
+                queryMeta
+            );
+            return {
+                ...cached.data,
+                orders: filteredOrders
+            };
         }
         const query = `?page=${page}&limit=${limit}&status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&quickRange=${encodeURIComponent(quickRange)}&sortBy=${encodeURIComponent(sortBy)}&sourceChannel=${encodeURIComponent(sourceChannel)}`;
         const res = await getWithRetry(`${API_URL}/admin${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
-        data.orders = sortAdminOrders(Array.isArray(data?.orders) ? data.orders : [], {
-            page,
-            limit,
-            status,
-            search,
-            startDate,
-            endDate,
-            quickRange,
-            sortBy,
-            sourceChannel
-        });
+        data.orders = sortAdminOrders(
+            (Array.isArray(data?.orders) ? data.orders : []).filter((order) => orderMatchesAdminQuery(order, queryMeta)),
+            queryMeta
+        );
         adminOrdersCache[cacheKey] = {
             ts: Date.now(),
-            query: { page, limit, status, search, startDate, endDate, quickRange, sortBy, sourceChannel },
+            query: queryMeta,
             data
         };
         return data;

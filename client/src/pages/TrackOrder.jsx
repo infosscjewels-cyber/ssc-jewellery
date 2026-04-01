@@ -19,20 +19,22 @@ const formatDate = (value) => {
 };
 
 const normalizeStatus = (status = '') => String(status || '').trim().toLowerCase() || 'confirmed';
+const resolveStatus = (status = '') => {
+    const value = normalizeStatus(status);
+    return value === 'shipped' ? 'completed' : value;
+};
 
 const getStatusPill = (status = '') => {
-    const value = normalizeStatus(status);
+    const value = resolveStatus(status);
     if (value === 'completed') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    if (value === 'shipped') return 'bg-blue-50 text-blue-700 border-blue-200';
     if (value === 'pending') return 'bg-amber-50 text-amber-700 border-amber-200';
     if (value === 'cancelled') return 'bg-red-50 text-red-700 border-red-200';
     return 'bg-gray-100 text-gray-700 border-gray-200';
 };
 
 const getPrimaryLabel = (order = null) => {
-    const status = normalizeStatus(order?.status);
+    const status = resolveStatus(order?.status);
     if (status === 'completed') return 'Delivered';
-    if (status === 'shipped') return 'Out for delivery';
     if (status === 'pending') return 'Processing';
     if (status === 'cancelled') return 'Cancelled';
     return 'Confirmed';
@@ -137,7 +139,7 @@ export default function TrackOrder() {
                                 </div>
 
                                 <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-                                    <StatusTile title="Current Status" value={String(order?.status || 'confirmed')}>
+                                    <StatusTile title="Current Status" value={getPrimaryLabel(order)}>
                                         <Clock3 size={14} />
                                     </StatusTile>
                                     <StatusTile title="Last Update" value={formatDate(order?.updated_at || latestEvent?.created_at)}>

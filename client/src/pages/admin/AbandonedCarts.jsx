@@ -27,28 +27,28 @@ const sortOptions = [
 ];
 const KPI_CARD_THEMES = {
     sky: {
-        shell: 'bg-sky-950 border-sky-500/70',
-        label: 'text-sky-100',
+        shell: 'bg-gradient-to-br from-sky-800 via-sky-900 to-indigo-950 border-sky-300/65',
+        label: 'text-sky-50',
         value: 'text-white',
-        iconGhost: 'text-sky-300/25'
+        iconGhost: 'text-sky-200/25'
     },
     emerald: {
-        shell: 'bg-emerald-950 border-emerald-500/70',
-        label: 'text-emerald-100',
+        shell: 'bg-gradient-to-br from-emerald-800 via-emerald-900 to-teal-950 border-emerald-300/65',
+        label: 'text-emerald-50',
         value: 'text-white',
-        iconGhost: 'text-emerald-300/25'
+        iconGhost: 'text-emerald-200/25'
     },
     amber: {
-        shell: 'bg-amber-950 border-amber-500/70',
-        label: 'text-amber-100',
+        shell: 'bg-gradient-to-br from-amber-700 via-amber-900 to-orange-950 border-amber-300/65',
+        label: 'text-amber-50',
         value: 'text-white',
-        iconGhost: 'text-amber-300/25'
+        iconGhost: 'text-amber-200/25'
     },
     violet: {
-        shell: 'bg-violet-950 border-violet-500/70',
-        label: 'text-violet-100',
+        shell: 'bg-gradient-to-br from-violet-800 via-violet-900 to-fuchsia-950 border-violet-300/65',
+        label: 'text-violet-50',
         value: 'text-white',
-        iconGhost: 'text-violet-300/25'
+        iconGhost: 'text-violet-200/25'
     }
 };
 
@@ -80,12 +80,12 @@ const parseIntegerCsv = (value, { min = 0, fieldLabel = 'Field' } = {}) => {
 
 const statusClass = (status) => {
     const key = String(status || '').toLowerCase();
-    if (key === 'pending') return 'bg-violet-950 text-violet-100 border border-violet-700';
-    if (key === 'recovered') return 'bg-emerald-950 text-emerald-100 border border-emerald-700';
-    if (key === 'active') return 'bg-blue-950 text-blue-100 border border-blue-700';
-    if (key === 'expired') return 'bg-amber-950 text-amber-100 border border-amber-700';
-    if (key === 'cancelled') return 'bg-slate-800 text-slate-100 border border-slate-600';
-    return 'bg-slate-900 text-slate-100 border border-slate-700';
+    if (key === 'pending') return 'bg-violet-900 text-violet-50 border border-violet-600';
+    if (key === 'recovered') return 'bg-emerald-900 text-emerald-50 border border-emerald-600';
+    if (key === 'active') return 'bg-blue-900 text-blue-50 border border-blue-600';
+    if (key === 'expired') return 'bg-amber-900 text-amber-50 border border-amber-600';
+    if (key === 'cancelled') return 'bg-slate-700 text-slate-50 border border-slate-500';
+    return 'bg-slate-800 text-slate-50 border border-slate-600';
 };
 const inr = (value) => `₹${Number(value || 0).toLocaleString()}`;
 const formatCustomerContacts = (journey) => {
