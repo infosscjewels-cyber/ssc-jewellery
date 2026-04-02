@@ -18,66 +18,55 @@ const QUICK_RANGES = [
     { value: 'custom', label: 'Custom Range' }
 ];
 const DAILY_TREND_PAGE_SIZE = 6;
+const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const KPI_CARD_THEMES = {
-    gold: {
-        shell: 'bg-gradient-to-br from-amber-800 via-amber-900 to-stone-950 border-amber-300/70',
-        label: 'text-amber-50',
-        value: 'text-white',
-        icon: 'text-amber-200',
-        accent: 'text-amber-100',
-        subtext: 'text-amber-50/80'
-    },
-    emerald: {
-        shell: 'bg-gradient-to-br from-slate-700 via-slate-800 to-slate-950 border-slate-400/65',
-        label: 'text-slate-50',
-        value: 'text-white',
-        icon: 'text-slate-200',
-        accent: 'text-slate-100',
-        subtext: 'text-slate-50/80'
-    },
     sky: {
-        shell: 'bg-gradient-to-br from-teal-800 via-teal-900 to-cyan-950 border-teal-300/65',
-        label: 'text-teal-50',
+        shell: 'bg-gradient-to-br from-sky-500 via-sky-600 to-cyan-800 border-sky-200/70',
+        label: 'text-sky-50',
         value: 'text-white',
-        icon: 'text-teal-200',
-        accent: 'text-teal-100',
-        subtext: 'text-teal-50/80'
+        icon: 'text-sky-100',
+        accent: 'text-sky-50',
+        subtext: 'text-sky-50/85'
     },
-    violet: {
-        shell: 'bg-gradient-to-br from-fuchsia-800 via-fuchsia-900 to-purple-950 border-fuchsia-300/65',
+    green: {
+        shell: 'bg-gradient-to-br from-lime-400 via-emerald-500 to-green-700 border-lime-200/70',
+        label: 'text-lime-50',
+        value: 'text-white',
+        icon: 'text-lime-100',
+        accent: 'text-lime-50',
+        subtext: 'text-lime-50/85'
+    },
+    pink: {
+        shell: 'bg-gradient-to-br from-fuchsia-500 via-pink-600 to-rose-800 border-fuchsia-200/70',
         label: 'text-fuchsia-50',
         value: 'text-white',
-        icon: 'text-fuchsia-200',
-        accent: 'text-fuchsia-100',
-        subtext: 'text-fuchsia-50/80'
+        icon: 'text-fuchsia-100',
+        accent: 'text-fuchsia-50',
+        subtext: 'text-fuchsia-50/85'
     },
-    amber: {
-        shell: 'bg-gradient-to-br from-yellow-700 via-amber-800 to-orange-950 border-yellow-300/65',
-        label: 'text-yellow-50',
+    brown: {
+        shell: 'bg-gradient-to-br from-amber-700 via-stone-700 to-stone-900 border-amber-200/70',
+        label: 'text-amber-50',
         value: 'text-white',
-        icon: 'text-yellow-200',
-        accent: 'text-yellow-100',
-        subtext: 'text-yellow-50/80'
+        icon: 'text-amber-100',
+        accent: 'text-amber-50',
+        subtext: 'text-amber-50/85'
     },
-    rose: {
-        shell: 'bg-gradient-to-br from-red-800 via-red-900 to-rose-950 border-red-300/65',
+    red: {
+        shell: 'bg-gradient-to-br from-red-600 via-rose-700 to-red-900 border-red-200/70',
         label: 'text-red-50',
         value: 'text-white',
-        icon: 'text-red-200',
-        accent: 'text-red-100',
-        subtext: 'text-red-50/80'
-    },
-    cyan: {
-        shell: 'bg-gradient-to-br from-indigo-800 via-indigo-900 to-blue-950 border-indigo-300/65',
-        label: 'text-indigo-50',
-        value: 'text-white',
-        icon: 'text-indigo-200',
-        accent: 'text-indigo-100',
-        subtext: 'text-indigo-50/80'
+        icon: 'text-red-100',
+        accent: 'text-red-50',
+        subtext: 'text-red-50/85'
     }
 };
+const applyKpiThemeRotation = (cards = []) => cards.map((card, index) => ({
+    ...card,
+    theme: KPI_THEME_SEQUENCE[index % KPI_THEME_SEQUENCE.length]
+}));
 const toRangeDays = ({ quickRange = 'last_30_days', startDate = '', endDate = '' } = {}) => {
     if (quickRange === 'last_7_days') return 7;
     if (quickRange === 'last_90_days') return 90;
@@ -93,9 +82,9 @@ const toRangeDays = ({ quickRange = 'last_30_days', startDate = '', endDate = ''
 };
 
 const priorityStyles = {
-    high: 'bg-red-900 text-red-50 border-red-600',
-    medium: 'bg-amber-900 text-amber-50 border-amber-600',
-    low: 'bg-slate-800 text-slate-50 border-slate-600'
+    high: 'bg-red-100 text-red-800 border-red-200',
+    medium: 'bg-amber-100 text-amber-900 border-amber-200',
+    low: 'bg-sky-100 text-sky-800 border-sky-200'
 };
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 700;
@@ -447,11 +436,11 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     };
     const getTierBadgeClasses = (tier = 'regular') => {
         const value = String(tier || 'regular').toLowerCase();
-        if (value === 'platinum') return 'bg-sky-900 text-sky-50';
-        if (value === 'gold') return 'bg-yellow-800 text-yellow-50';
-        if (value === 'silver') return 'bg-slate-700 text-slate-50';
-        if (value === 'bronze') return 'bg-amber-900 text-amber-50';
-        return 'bg-gray-700 text-gray-50';
+        if (value === 'platinum') return 'bg-sky-100 text-sky-800 border border-sky-200';
+        if (value === 'gold') return 'bg-lime-100 text-lime-800 border border-lime-200';
+        if (value === 'silver') return 'bg-fuchsia-100 text-fuchsia-800 border border-fuchsia-200';
+        if (value === 'bronze') return 'bg-amber-100 text-amber-900 border border-amber-200';
+        return 'bg-rose-100 text-rose-800 border border-rose-200';
     };
     const tierLabel = (tier = 'regular') => {
         const value = String(tier || 'regular').toLowerCase();
@@ -478,17 +467,18 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
 
     const cards = advancedAnalyticsEnabled
         ? [
-            { label: 'Final Sales', value: formatCurrency(overview.netSales), icon: IndianRupee, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_net_sales', theme: 'gold', helper: comparison ? `Vs comparison: ${Number(comparison.netSales || 0) > 0 ? '+' : ''}${Number(comparison.netSales || 0).toFixed(1)}%` : '' },
-            { label: 'Total Sales', value: formatCurrency(overview.grossSales), icon: TrendingUp, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_gross_sales', theme: 'sky' },
-            { label: 'Orders', value: Number(overview.totalOrders || 0).toLocaleString('en-IN'), icon: ShoppingBag, target: { tab: 'orders', status: statusFilter || 'all' }, widgetId: 'kpi_orders', theme: 'violet', helper: comparison ? `Vs comparison: ${Number(comparison.totalOrders || 0) > 0 ? '+' : ''}${Number(comparison.totalOrders || 0).toFixed(1)}%` : '' },
-            { label: 'Average Order Value', value: formatCurrency(overview.averageOrderValue), icon: Activity, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_aov', theme: 'amber' },
-            { label: 'Cancelled', value: Number(overview.cancelledOrders || 0).toLocaleString('en-IN'), icon: AlertTriangle, target: { tab: 'orders', status: 'cancelled' }, widgetId: 'kpi_cancelled_orders', theme: 'rose' },
-            { label: 'Repeat Rate', value: `${Number(overview.repeatRate || 0).toFixed(1)}%`, icon: Users, target: { tab: 'customers' }, widgetId: 'kpi_repeat_rate', theme: 'cyan' }
+            { label: 'Final Sales', value: formatCurrency(overview.netSales), icon: IndianRupee, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_net_sales', helper: comparison ? `Vs comparison: ${Number(comparison.netSales || 0) > 0 ? '+' : ''}${Number(comparison.netSales || 0).toFixed(1)}%` : '' },
+            { label: 'Total Sales', value: formatCurrency(overview.grossSales), icon: TrendingUp, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_gross_sales' },
+            { label: 'Orders', value: Number(overview.totalOrders || 0).toLocaleString('en-IN'), icon: ShoppingBag, target: { tab: 'orders', status: statusFilter || 'all' }, widgetId: 'kpi_orders', helper: comparison ? `Vs comparison: ${Number(comparison.totalOrders || 0) > 0 ? '+' : ''}${Number(comparison.totalOrders || 0).toFixed(1)}%` : '' },
+            { label: 'Average Order Value', value: formatCurrency(overview.averageOrderValue), icon: Activity, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_aov' },
+            { label: 'Cancelled', value: Number(overview.cancelledOrders || 0).toLocaleString('en-IN'), icon: AlertTriangle, target: { tab: 'orders', status: 'cancelled' }, widgetId: 'kpi_cancelled_orders' },
+            { label: 'Repeat Rate', value: `${Number(overview.repeatRate || 0).toFixed(1)}%`, icon: Users, target: { tab: 'customers' }, widgetId: 'kpi_repeat_rate' }
         ]
         : [
-            { label: 'Orders', value: Number(overview.totalOrders || 0).toLocaleString('en-IN'), icon: ShoppingBag, target: { tab: 'orders', status: statusFilter || 'all' }, widgetId: 'kpi_orders', theme: 'violet', helper: `${Number(funnel.paid || 0).toLocaleString('en-IN')} paid orders` },
-            { label: 'Abandoned Carts', value: Number(abandonedTotals.totalJourneys || 0).toLocaleString('en-IN'), icon: Route, target: { tab: 'abandoned' }, widgetId: 'kpi_abandoned_carts', theme: 'sky', helper: `${Number(abandonedTotals.activeJourneys || 0).toLocaleString('en-IN')} active recovery journeys` }
+            { label: 'Orders', value: Number(overview.totalOrders || 0).toLocaleString('en-IN'), icon: ShoppingBag, target: { tab: 'orders', status: statusFilter || 'all' }, widgetId: 'kpi_orders', helper: `${Number(funnel.paid || 0).toLocaleString('en-IN')} paid orders` },
+            { label: 'Abandoned Carts', value: Number(abandonedTotals.totalJourneys || 0).toLocaleString('en-IN'), icon: Route, target: { tab: 'abandoned' }, widgetId: 'kpi_abandoned_carts', helper: `${Number(abandonedTotals.activeJourneys || 0).toLocaleString('en-IN')} active recovery journeys` }
         ];
+    const themedCards = useMemo(() => applyKpiThemeRotation(cards), [cards]);
     const refreshGoals = async () => {
         const goalData = await adminService.getDashboardGoals();
         const rows = Array.isArray(goalData?.goals) ? goalData.goals : [];
@@ -753,7 +743,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             ) : (
                 <>
                     <div className={`grid gap-4 ${advancedAnalyticsEnabled ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' : 'grid-cols-2'}`}>
-                        {cards.map((card) => (
+                        {themedCards.map((card) => (
                             <button
                                 key={card.label}
                                 type="button"
@@ -926,12 +916,12 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
 
                     {advancedAnalyticsEnabled && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                            {[
-                                { label: 'New Customer Revenue', value: formatCurrency(growth.newCustomerRevenue), helper: `Returning: ${formatCurrency(growth.returningCustomerRevenue)}`, icon: Users, theme: 'gold' },
-                                { label: 'Coupon Impact', value: formatCurrency(growth.couponDiscountTotal), helper: `${Number(growth.couponOrders || 0)} orders used coupons`, icon: Target, theme: 'amber' },
-                                { label: 'Failed Payments (6h)', value: Number(risk.failedPaymentsCurrent6h || 0).toLocaleString('en-IN'), helper: `vs prev 6h: ${Number(risk.failedPaymentsSpikePct || 0)}%`, icon: ShieldAlert, theme: 'rose' },
-                                { label: 'Pending Aging', value: `${Number(risk.pendingAging?.over72h || 0)} over 72h`, helper: `24-72h: ${Number(risk.pendingAging?.from24hTo72h || 0)}, <24h: ${Number(risk.pendingAging?.under24h || 0)}`, icon: CalendarDays, theme: 'sky' }
-                            ].map((card) => (
+                            {applyKpiThemeRotation([
+                                { label: 'New Customer Revenue', value: formatCurrency(growth.newCustomerRevenue), helper: `Returning: ${formatCurrency(growth.returningCustomerRevenue)}`, icon: Users },
+                                { label: 'Coupon Impact', value: formatCurrency(growth.couponDiscountTotal), helper: `${Number(growth.couponOrders || 0)} orders used coupons`, icon: Target },
+                                { label: 'Failed Payments (6h)', value: Number(risk.failedPaymentsCurrent6h || 0).toLocaleString('en-IN'), helper: `vs prev 6h: ${Number(risk.failedPaymentsSpikePct || 0)}%`, icon: ShieldAlert },
+                                { label: 'Pending Aging', value: `${Number(risk.pendingAging?.over72h || 0)} over 72h`, helper: `24-72h: ${Number(risk.pendingAging?.from24hTo72h || 0)}, <24h: ${Number(risk.pendingAging?.under24h || 0)}`, icon: CalendarDays }
+                            ]).map((card) => (
                                 <div key={card.label} className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${KPI_CARD_THEMES[card.theme].shell}`}>
                                     <p className={`text-xs uppercase tracking-[0.2em] flex items-center gap-1 ${KPI_CARD_THEMES[card.theme].label}`}><card.icon size={12} />{card.label}</p>
                                     <p className={`text-xl font-semibold mt-2 ${KPI_CARD_THEMES[card.theme].value}`}>{card.value}</p>

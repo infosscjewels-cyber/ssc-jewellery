@@ -5,9 +5,12 @@ import { useAuth } from '../../context/AuthContext';
 import {
     Calendar,
     Loader2,
+    Mail,
     MessageCircle,
+    Phone,
     Plus,
     Search,
+    SlidersHorizontal,
     ShoppingCart,
     Sparkles,
     TicketPercent,
@@ -75,6 +78,11 @@ const getWhatsappLink = (mobile = '') => {
     return `https://wa.me/${full}`;
 };
 
+const getCallLink = (mobile = '') => {
+    const digits = String(mobile || '').replace(/\D/g, '');
+    return digits ? `tel:${digits}` : null;
+};
+
 const isBirthdayToday = (dob) => {
     if (!dob) return false;
     const [_, month, day] = String(dob).split('T')[0].split('-');
@@ -125,6 +133,7 @@ const getCartLastActivityLabel = (user = {}) => {
 };
 
 export default function Customers({
+    storefrontOpen = true,
     onOpenLoyalty,
     onCreateOrderForCustomer,
     focusCustomerId = null,
@@ -138,6 +147,9 @@ export default function Customers({
     const [tierFilter, setTierFilter] = useState('all');
     const [birthdayOnly, setBirthdayOnly] = useState(false);
     const [page, setPage] = useState(1);
+    const [isMobileBirthdayModalOpen, setIsMobileBirthdayModalOpen] = useState(false);
+    const [isMobileTierModalOpen, setIsMobileTierModalOpen] = useState(false);
+    const [isMobileSearchModalOpen, setIsMobileSearchModalOpen] = useState(false);
 
     const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'default', title: '', message: '', targetUser: null });
     const [addModalRole, setAddModalRole] = useState(null);
@@ -507,6 +519,114 @@ export default function Customers({
                 roleToAdd={addModalRole}
             />
 
+            {isMobileBirthdayModalOpen && createPortal(
+                <div className="fixed inset-0 z-[120] flex items-end md:hidden">
+                    <button
+                        type="button"
+                        className="absolute inset-0 bg-black/45 backdrop-blur-sm"
+                        onClick={() => setIsMobileBirthdayModalOpen(false)}
+                        aria-label="Close birthday filter"
+                    />
+                    <div className="relative w-full rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-2xl max-h-[82vh] overflow-y-auto">
+                        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-200" />
+                        <h3 className="text-lg font-bold text-gray-900">Birthdays</h3>
+                        <p className="mt-1 text-sm text-gray-500">Highlight customers celebrating today.</p>
+                        <button
+                            type="button"
+                            onClick={() => setBirthdayOnly((prev) => !prev)}
+                            className={`mt-4 flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                                birthdayOnly
+                                    ? 'border-amber-200 bg-amber-50 text-amber-800'
+                                    : 'border-gray-200 bg-white text-gray-700'
+                            }`}
+                        >
+                            <span className="inline-flex items-center gap-2">
+                                <Sparkles size={16} />
+                                Birthdays Today
+                            </span>
+                            <span>{birthdayOnly ? 'On' : 'Off'}</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setIsMobileBirthdayModalOpen(false)}
+                            className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {isMobileTierModalOpen && createPortal(
+                <div className="fixed inset-0 z-[120] flex items-end md:hidden">
+                    <button
+                        type="button"
+                        className="absolute inset-0 bg-black/45 backdrop-blur-sm"
+                        onClick={() => setIsMobileTierModalOpen(false)}
+                        aria-label="Close tier filter"
+                    />
+                    <div className="relative w-full rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-2xl max-h-[82vh] overflow-y-auto">
+                        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-200" />
+                        <h3 className="text-lg font-bold text-gray-900">Customer Tier</h3>
+                        <p className="mt-1 text-sm text-gray-500">Filter customers by loyalty tier.</p>
+                        <select
+                            value={tierFilter}
+                            onChange={(e) => setTierFilter(e.target.value)}
+                            className="mt-4 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:border-accent"
+                        >
+                            <option value="all">All Tiers</option>
+                            <option value="regular">Basic</option>
+                            <option value="silver">Silver</option>
+                            <option value="gold">Gold</option>
+                            <option value="platinum">Platinum</option>
+                        </select>
+                        <button
+                            type="button"
+                            onClick={() => setIsMobileTierModalOpen(false)}
+                            className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {isMobileSearchModalOpen && createPortal(
+                <div className="fixed inset-0 z-[120] flex items-end md:hidden">
+                    <button
+                        type="button"
+                        className="absolute inset-0 bg-black/45 backdrop-blur-sm"
+                        onClick={() => setIsMobileSearchModalOpen(false)}
+                        aria-label="Close customer search"
+                    />
+                    <div className="relative w-full rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-2xl max-h-[82vh] overflow-y-auto">
+                        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-200" />
+                        <h3 className="text-lg font-bold text-gray-900">Search Customers</h3>
+                        <p className="mt-1 text-sm text-gray-500">Search by name, mobile, or email.</p>
+                        <div className="relative mt-4">
+                            <Search className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
+                            <input
+                                placeholder="Search customers..."
+                                className="w-full rounded-2xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm shadow-sm outline-none focus:border-accent"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                autoFocus
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setIsMobileSearchModalOpen(false)}
+                            className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>,
+                document.body
+            )}
+
             {couponModalUser && createPortal(
                 <div className="fixed inset-0 z-[80] flex items-start sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
                     <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl p-6 space-y-4 max-h-[calc(100vh-2rem)] overflow-y-auto my-auto">
@@ -780,12 +900,22 @@ export default function Customers({
                 document.body
             )}
 
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
-                    <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Customer Management</h1>
-                    <p className="text-gray-500 text-sm mt-1">Manage staff access and customers</p>
+                    <div className="flex items-center justify-between gap-3 md:block">
+                        <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Customers</h1>
+                        <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold md:hidden ${
+                            storefrontOpen
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                : 'border-gray-300 bg-gray-100 text-gray-800'
+                        }`}>
+                            <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                            {storefrontOpen ? 'Store Open' : 'Store Closed'}
+                        </div>
+                    </div>
+                    <p className="text-gray-500 text-sm mt-1">Manage customers</p>
                 </div>
-                <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+                <div className="hidden md:flex flex-col md:flex-row gap-2 w-full md:w-auto">
                     <button type="button" onClick={() => setBirthdayOnly((prev) => !prev)} className={`flex items-center gap-2 px-4 py-3 rounded-xl border shadow-sm text-sm font-semibold transition-all ${birthdayOnly ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-white border-gray-200 text-gray-600 hover:border-accent'}`}>
                         <Sparkles size={16} /> Birthdays Today
                     </button>
@@ -804,6 +934,56 @@ export default function Customers({
                         <Sparkles size={18} /><span className="whitespace-nowrap">Loyalty</span>
                     </button>
                 </div>
+                <div className="flex items-center justify-end gap-2 md:hidden">
+                    <button
+                        type="button"
+                        onClick={() => setIsMobileBirthdayModalOpen(true)}
+                        className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
+                            birthdayOnly
+                                ? 'border-amber-200 bg-amber-50 text-amber-700'
+                                : 'border-gray-200 bg-white text-gray-600'
+                        }`}
+                        title="Birthdays Today"
+                        aria-label="Birthdays Today"
+                    >
+                        <Sparkles size={18} />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setIsMobileTierModalOpen(true)}
+                        className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
+                            tierFilter !== 'all'
+                                ? 'border-sky-200 bg-sky-50 text-sky-700'
+                                : 'border-gray-200 bg-white text-gray-600'
+                        }`}
+                        title="Filter by Tier"
+                        aria-label="Filter by Tier"
+                    >
+                        <SlidersHorizontal size={18} />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setIsMobileSearchModalOpen(true)}
+                        className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
+                            searchTerm
+                                ? 'border-primary/20 bg-primary/5 text-primary'
+                                : 'border-gray-200 bg-white text-gray-600'
+                        }`}
+                        title="Search Customers"
+                        aria-label="Search Customers"
+                    >
+                        <Search size={18} />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => onOpenLoyalty?.()}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:border-accent hover:text-primary"
+                        title="Loyalty"
+                        aria-label="Loyalty"
+                    >
+                        <Sparkles size={18} />
+                    </button>
+                </div>
             </div>
 
             {isLoading ? (
@@ -814,7 +994,7 @@ export default function Customers({
                         <Users size={72} className="bg-emboss-icon absolute right-2 bottom-2 text-gray-100" />
                         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Customers</h3>
-                            <button onClick={() => setAddModalRole('customer')} className="w-36 bg-primary hover:bg-primary-light text-accent font-bold px-3 py-2 rounded-lg text-xs shadow-lg shadow-primary/20 flex items-center justify-center gap-2 transition-all active:scale-95">
+                            <button onClick={() => setAddModalRole('customer')} className="hidden md:inline-flex w-36 bg-primary hover:bg-primary-light text-accent font-bold px-3 py-2 rounded-lg text-xs shadow-lg shadow-primary/20 items-center justify-center gap-2 transition-all active:scale-95">
                                 <Plus size={14} strokeWidth={3} /> Add Customer
                             </button>
                         </div>
@@ -830,6 +1010,7 @@ export default function Customers({
                             <tbody className="divide-y divide-gray-100">
                                 {paginatedCustomersOnly.map((user) => {
                                     const waLink = getWhatsappLink(user.mobile);
+                                    const callLink = getCallLink(user.mobile);
                                     const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
                                     const cartLastActivity = getCartLastActivityLabel(user);
                                     const isBasicTier = String(user.loyaltyTier || 'regular').toLowerCase() === 'regular';
@@ -859,10 +1040,21 @@ export default function Customers({
                                                 )}
                                             </td>
                                             <td className="px-6 py-4">
-                                                <div className="text-sm text-gray-900">{user.email || '—'}</div>
-                                                <div className="text-xs text-gray-500">{user.mobile || '—'}</div>
+                                                <div className="flex items-center gap-2 text-sm text-gray-900">
+                                                    <Mail size={14} className="shrink-0 text-gray-400" />
+                                                    <span>{user.email || '—'}</span>
+                                                </div>
+                                                <div className="mt-1 flex items-center gap-2 text-xs text-gray-500">
+                                                    <Phone size={13} className="shrink-0 text-gray-400" />
+                                                    <span>{user.mobile || '—'}</span>
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4 text-right flex justify-end gap-2">
+                                                {callLink && (
+                                                    <a href={callLink} onClick={(e) => e.stopPropagation()} className="text-gray-400 hover:text-sky-700 hover:bg-sky-50 p-2 rounded-lg transition-all" title="Call Customer">
+                                                        <Phone size={18} />
+                                                    </a>
+                                                )}
                                                 <button onClick={(e) => { e.stopPropagation(); openIssueCouponModal(user); }} className="text-gray-400 hover:text-indigo-700 hover:bg-indigo-50 p-2 rounded-lg transition-all" title="Issue Coupon">
                                                     <TicketPercent size={18} />
                                                 </button>
@@ -913,13 +1105,14 @@ export default function Customers({
                                 <div className="grid grid-cols-1 gap-3">
                                     {paginatedCustomersOnly.map((user) => {
                                         const waLink = getWhatsappLink(user.mobile);
+                                        const callLink = getCallLink(user.mobile);
                                         const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
                                         const cartLastActivity = getCartLastActivityLabel(user);
                                         const isBasicTier = String(user.loyaltyTier || 'regular').toLowerCase() === 'regular';
                                         const profileImage = getCustomerProfileImage(user);
                                         return (
-                                            <div key={`m-${user.id}`} onClick={() => openProfile(user)} className={`rounded-xl border p-3 bg-white ${isBirthdayToday(user.dob) ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'}`}>
-                                                <div className="flex items-center gap-2">
+                                            <div key={`m-${user.id}`} onClick={() => openProfile(user)} className={`rounded-xl border p-4 bg-white ${isBirthdayToday(user.dob) ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'}`}>
+                                                <div className="flex items-start gap-3">
                                                     <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-primary/10 text-primary overflow-hidden">
                                                         {profileImage ? (
                                                             <img src={profileImage} alt={user.name || 'Customer'} className="w-full h-full object-cover" />
@@ -927,17 +1120,34 @@ export default function Customers({
                                                             String(user.name || 'U').charAt(0)
                                                         )}
                                                     </div>
-                                                    <div className="min-w-0">
-                                                        <p className="text-sm font-semibold text-gray-900 line-clamp-1">{user.name}</p>
-                                                        {user.isActive === false && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-700 border border-red-200 mt-1">Inactive</span>}
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-start justify-between gap-3">
+                                                            <p className="text-sm font-semibold text-gray-900 line-clamp-1">{user.name}</p>
+                                                            {user.isActive === false && <span className="inline-flex items-center whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-700 border border-red-200">Inactive</span>}
+                                                        </div>
+                                                        <div className="mt-2 flex items-center gap-2 text-[11px] text-gray-600">
+                                                            <Phone size={12} className="shrink-0 text-gray-400" />
+                                                            <p className="min-w-0 line-clamp-1">{user.mobile || '—'}</p>
+                                                        </div>
+                                                        <div className="mt-1 flex items-center gap-2 text-[11px] text-gray-500">
+                                                            <Mail size={12} className="shrink-0 text-gray-400" />
+                                                            <p className="min-w-0 line-clamp-1">{user.email || '—'}</p>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                                <p className="text-[11px] text-gray-500 mt-2 line-clamp-1">{user.mobile || '—'}</p>
-                                                <p className="text-[11px] text-gray-500 line-clamp-1">{user.email || '—'}</p>
-                                                <div className="mt-2">
-                                                    {isBasicTier ? <span className="text-[11px] text-gray-400">Tier: -</span> : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700">{tierLabel(user.loyaltyTier || '')}</span>}
+                                                <div className="mt-3 flex items-center gap-2">
+                                                    {isBasicTier ? (
+                                                        <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[10px] font-medium text-gray-500">Basic</span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-medium text-slate-700">{tierLabel(user.loyaltyTier || '')}</span>
+                                                    )}
                                                 </div>
-                                                <div className="mt-3 flex items-center justify-end gap-1">
+                                                <div className="mt-4 flex items-center justify-end gap-1.5">
+                                                    {callLink && (
+                                                        <a href={callLink} onClick={(e) => e.stopPropagation()} className="text-gray-400 hover:text-sky-700 hover:bg-sky-50 p-1.5 rounded-md transition-all" title="Call Customer">
+                                                            <Phone size={16} />
+                                                        </a>
+                                                    )}
                                                     <button onClick={(e) => { e.stopPropagation(); openIssueCouponModal(user); }} className="text-gray-400 hover:text-indigo-700 hover:bg-indigo-50 p-1.5 rounded-md transition-all" title="Issue Coupon">
                                                         <TicketPercent size={16} />
                                                     </button>
@@ -975,6 +1185,18 @@ export default function Customers({
                             ))}
                             <button onClick={() => setPage((prev) => Math.min(customerTotalPages, prev + 1))} disabled={page === customerTotalPages} className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 disabled:opacity-40">Next</button>
                         </div>
+                    )}
+
+                    {!addModalRole && (
+                        <button
+                            type="button"
+                            onClick={() => setAddModalRole('customer')}
+                            className="fixed bottom-24 right-4 z-30 inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-white shadow-xl shadow-emerald-500/30 transition hover:bg-emerald-600 md:hidden"
+                            aria-label="Add Customer"
+                            title="Add Customer"
+                        >
+                            <Plus size={24} strokeWidth={2.5} />
+                        </button>
                     )}
                 </>
             )}

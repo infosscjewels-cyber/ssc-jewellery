@@ -33,50 +33,48 @@ const QUICK_RANGES = [
 ];
 
 const MAX_RANGE_DAYS = 90;
+const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
 const KPI_CARD_THEMES = {
-    gold: {
-        shell: 'bg-gradient-to-br from-amber-800 via-amber-900 to-stone-950 border-amber-300/70',
-        label: 'text-amber-50',
-        value: 'text-white',
-        iconChip: 'text-amber-100 bg-amber-200/15 border-amber-200/30',
-        iconGhost: 'text-amber-200/25'
-    },
     sky: {
-        shell: 'bg-gradient-to-br from-blue-800 via-blue-900 to-indigo-950 border-blue-300/65',
-        label: 'text-blue-50',
+        shell: 'bg-gradient-to-br from-sky-500 via-sky-600 to-cyan-800 border-sky-200/70',
+        label: 'text-sky-50',
         value: 'text-white',
-        iconChip: 'text-blue-100 bg-blue-200/15 border-blue-200/30',
-        iconGhost: 'text-blue-200/25'
+        iconChip: 'text-sky-100 bg-sky-200/15 border-sky-200/30',
+        iconGhost: 'text-sky-100/25'
     },
-    emerald: {
-        shell: 'bg-gradient-to-br from-emerald-800 via-green-900 to-emerald-950 border-green-300/65',
-        label: 'text-green-50',
+    green: {
+        shell: 'bg-gradient-to-br from-lime-400 via-emerald-500 to-green-700 border-lime-200/70',
+        label: 'text-lime-50',
         value: 'text-white',
-        iconChip: 'text-green-100 bg-green-200/15 border-green-200/30',
-        iconGhost: 'text-green-200/25'
+        iconChip: 'text-lime-100 bg-lime-200/15 border-lime-200/30',
+        iconGhost: 'text-lime-100/25'
     },
-    amber: {
-        shell: 'bg-gradient-to-br from-red-800 via-red-900 to-rose-950 border-red-300/65',
-        label: 'text-red-50',
-        value: 'text-white',
-        iconChip: 'text-red-100 bg-red-200/15 border-red-200/30',
-        iconGhost: 'text-red-200/25'
-    },
-    violet: {
-        shell: 'bg-gradient-to-br from-fuchsia-800 via-fuchsia-900 to-purple-950 border-fuchsia-300/65',
+    pink: {
+        shell: 'bg-gradient-to-br from-fuchsia-500 via-pink-600 to-rose-800 border-fuchsia-200/70',
         label: 'text-fuchsia-50',
         value: 'text-white',
         iconChip: 'text-fuchsia-100 bg-fuchsia-200/15 border-fuchsia-200/30',
-        iconGhost: 'text-fuchsia-200/25'
+        iconGhost: 'text-fuchsia-100/25'
     },
-    slate: {
-        shell: 'bg-gradient-to-br from-slate-600 via-slate-700 to-slate-900 border-slate-300/60',
-        label: 'text-slate-50',
+    brown: {
+        shell: 'bg-gradient-to-br from-amber-700 via-stone-700 to-stone-900 border-amber-200/70',
+        label: 'text-amber-50',
         value: 'text-white',
-        iconChip: 'text-slate-100 bg-slate-200/15 border-slate-200/30',
-        iconGhost: 'text-slate-200/25'
+        iconChip: 'text-amber-100 bg-amber-200/15 border-amber-200/30',
+        iconGhost: 'text-amber-100/25'
+    },
+    red: {
+        shell: 'bg-gradient-to-br from-red-600 via-rose-700 to-red-900 border-red-200/70',
+        label: 'text-red-50',
+        value: 'text-white',
+        iconChip: 'text-red-100 bg-red-200/15 border-red-200/30',
+        iconGhost: 'text-red-100/25'
     }
 };
+const applyKpiThemeRotation = (cards = [], startIndex = 0) => cards.map((card, index) => ({
+    ...card,
+    theme: KPI_THEME_SEQUENCE[(startIndex + index) % KPI_THEME_SEQUENCE.length]
+}));
 const CANCELLATION_MODES = [
     { value: 'razorpay', label: 'Razorpay Refund' },
     { value: 'manual', label: 'Manual Refund' }
@@ -104,12 +102,12 @@ const formatStatusLabel = (status) => {
 };
 const getOrderStatusBadgeClasses = (status) => {
     const normalized = normalizeOrderStatus(status);
-    if (normalized === 'confirmed') return 'bg-blue-900 text-blue-50 border border-blue-600';
-    if (normalized === 'pending') return 'bg-amber-900 text-amber-50 border border-amber-600';
-    if (normalized === 'completed') return 'bg-emerald-900 text-emerald-50 border border-emerald-600';
-    if (normalized === 'failed') return 'bg-red-900 text-red-50 border border-red-600';
-    if (normalized === 'cancelled') return 'bg-slate-700 text-slate-50 border border-slate-500';
-    return 'bg-slate-800 text-slate-50 border border-slate-600';
+    if (normalized === 'confirmed') return 'bg-sky-100 text-sky-800 border border-sky-200';
+    if (normalized === 'pending') return 'bg-amber-100 text-amber-900 border border-amber-200';
+    if (normalized === 'completed') return 'bg-lime-100 text-lime-800 border border-lime-200';
+    if (normalized === 'failed') return 'bg-rose-100 text-rose-800 border border-rose-200';
+    if (normalized === 'cancelled') return 'bg-red-100 text-red-800 border border-red-200';
+    return 'bg-fuchsia-100 text-fuchsia-800 border border-fuchsia-200';
 };
 const getOrderHeaderTheme = (status) => {
     const normalized = normalizeOrderStatus(status);
@@ -190,19 +188,19 @@ const orderMatchesStatusFilter = (order, filterValue = 'all') => {
 };
 const getPaymentStatusBadgeClasses = (status) => {
     const normalized = String(status || '').trim().toLowerCase();
-    if (normalized === 'paid') return 'bg-emerald-900 text-emerald-50 border border-emerald-600';
-    if (['failed', 'expired'].includes(normalized)) return 'bg-red-900 text-red-50 border border-red-600';
-    if (['pending', 'created', 'attempted'].includes(normalized)) return 'bg-amber-900 text-amber-50 border border-amber-600';
-    if (normalized === 'refunded') return 'bg-sky-900 text-sky-50 border border-sky-600';
-    return 'bg-slate-800 text-slate-50 border border-slate-600';
+    if (normalized === 'paid') return 'bg-lime-100 text-lime-800 border border-lime-200';
+    if (['failed', 'expired'].includes(normalized)) return 'bg-red-100 text-red-800 border border-red-200';
+    if (['pending', 'created', 'attempted'].includes(normalized)) return 'bg-amber-100 text-amber-900 border border-amber-200';
+    if (normalized === 'refunded') return 'bg-sky-100 text-sky-800 border border-sky-200';
+    return 'bg-fuchsia-100 text-fuchsia-800 border border-fuchsia-200';
 };
 const getPaymentHeaderBadgeClasses = (status) => {
     const normalized = String(status || '').trim().toLowerCase();
-    if (normalized === 'paid') return 'bg-white/90 text-emerald-900 border border-emerald-100';
-    if (['failed', 'expired'].includes(normalized)) return 'bg-white/90 text-red-800 border border-red-100';
-    if (['pending', 'created', 'attempted'].includes(normalized)) return 'bg-white/90 text-amber-900 border border-amber-100';
-    if (normalized === 'refunded') return 'bg-white/90 text-sky-900 border border-sky-100';
-    return 'bg-white/90 text-slate-800 border border-white/60';
+    if (normalized === 'paid') return 'bg-lime-50/95 text-lime-900 border border-lime-100';
+    if (['failed', 'expired'].includes(normalized)) return 'bg-red-50/95 text-red-900 border border-red-100';
+    if (['pending', 'created', 'attempted'].includes(normalized)) return 'bg-amber-50/95 text-amber-900 border border-amber-100';
+    if (normalized === 'refunded') return 'bg-sky-50/95 text-sky-900 border border-sky-100';
+    return 'bg-fuchsia-50/95 text-fuchsia-900 border border-fuchsia-100';
 };
 const getManualUnitPrice = (product = {}, variant = null) => {
     return Number(
@@ -497,11 +495,11 @@ export function Orders({
     };
     const getTierBadgeClasses = (order) => {
         const tier = String(order?.loyalty_tier || order?.loyaltyTier || 'regular').toLowerCase();
-        if (tier === 'platinum') return 'bg-sky-900 text-sky-50 border border-sky-600';
-        if (tier === 'gold') return 'bg-yellow-800 text-yellow-50 border border-yellow-600';
-        if (tier === 'silver') return 'bg-slate-700 text-slate-50 border border-slate-500';
-        if (tier === 'bronze') return 'bg-amber-900 text-amber-50 border border-amber-600';
-        return 'bg-gray-700 text-gray-50 border border-gray-500';
+        if (tier === 'platinum') return 'bg-sky-100 text-sky-800 border border-sky-200';
+        if (tier === 'gold') return 'bg-lime-100 text-lime-800 border border-lime-200';
+        if (tier === 'silver') return 'bg-fuchsia-100 text-fuchsia-800 border border-fuchsia-200';
+        if (tier === 'bronze') return 'bg-amber-100 text-amber-900 border border-amber-200';
+        return 'bg-rose-100 text-rose-800 border border-rose-200';
     };
     const isAttemptEntry = (order) => String(order?.entity_type || '').toLowerCase() === 'attempt';
     const isAbandonedRecoveryOrder = (order) => Boolean(order?.is_abandoned_recovery || order?.source_channel === 'abandoned_recovery');
@@ -1996,33 +1994,32 @@ export function Orders({
         }
         return selectedStatusCount;
     }, [effectiveMetrics?.confirmedOrders, selectedStatusCount, statusFilter]);
-    const cards = useMemo(() => ([
+    const cards = useMemo(() => applyKpiThemeRotation([
         {
             label: 'Total Orders',
             value: effectiveMetrics?.totalOrders || 0,
-            icon: Package,
-            theme: 'violet'
+            icon: Package
         },
         {
             label: 'Total Revenue',
             value: `₹${Number(effectiveMetrics?.totalRevenue || 0).toLocaleString()}`,
-            icon: IndianRupee,
-            theme: 'emerald'
+            icon: IndianRupee
         },
         {
             label: 'Pending',
             value: effectiveMetrics?.pendingOrders || 0,
-            icon: Clock3,
-            theme: 'amber'
+            icon: Clock3
         },
         {
             label: dynamicStatusLabel,
             value: dynamicStatusValue,
-            icon: CheckCircle2,
-            theme: 'slate'
+            icon: CheckCircle2
         }
     ]), [dynamicStatusLabel, dynamicStatusValue, effectiveMetrics]);
-    const mobileSummaryCards = useMemo(() => cards.slice(0, 2), [cards]);
+    const mobileSummaryCards = useMemo(
+        () => applyKpiThemeRotation(cards.slice(0, 2), 2),
+        [cards]
+    );
     const activeLabelOrder = labelPrintModalOrder;
     const activeLabelOrderId = activeLabelOrder?.order_id || activeLabelOrder?.id || '';
     const activeFromValidation = activeLabelOrder ? getFromLabelValidation(activeLabelOrder) : { ok: false, missing: [] };
@@ -2939,7 +2936,7 @@ export function Orders({
                                                             disabled={isUpdatingStatus}
                                                             className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
                                                         >
-                                                            <option value="">Select next status</option>
+                                                            <option value="">{formatStatusLabel(selectedOrder.status || 'confirmed')}</option>
                                                             {getAvailableStatusOptions(selectedOrder.status).map((option) => (
                                                                 <option key={option.value} value={option.value}>{option.label}</option>
                                                             ))}

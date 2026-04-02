@@ -513,7 +513,7 @@ export default function AdminDashboard() {
                 )}
 
                 <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
-                    <div className={`mb-6 flex items-center justify-end ${activeTab === 'orders' || activeTab === 'products' || activeTab === 'categories' ? 'hidden md:flex' : ''}`}>
+                    <div className={`mb-6 flex items-center justify-end ${activeTab === 'orders' || activeTab === 'products' || activeTab === 'categories' || activeTab === 'customers' || activeTab === 'loyalty' || activeTab === 'abandoned' ? 'hidden md:flex' : ''}`}>
                         <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
                             storefrontOpen
                                 ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
@@ -564,6 +564,7 @@ export default function AdminDashboard() {
                     {activeTab === 'categories' && <Categories onNavigate={setActiveTab} storefrontOpen={storefrontOpen} />}
                     {activeTab === 'customers' && (
                         <Customers
+                            storefrontOpen={storefrontOpen}
                             onOpenLoyalty={() => setActiveTab('loyalty')}
                             onCreateOrderForCustomer={(userId) => {
                                 setActiveTab('orders');
@@ -600,7 +601,7 @@ export default function AdminDashboard() {
                         />
                     )}
                     {activeTab === 'abandoned' && <AbandonedCarts storefrontOpen={storefrontOpen} />}
-                    {activeTab === 'loyalty' && <LoyaltySettings onBack={() => setActiveTab('customers')} />}
+                    {activeTab === 'loyalty' && <LoyaltySettings onBack={() => setActiveTab('customers')} storefrontOpen={storefrontOpen} />}
                     {activeTab === 'companyInfo' && <CompanyInfo />}
                 </div>
 

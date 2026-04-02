@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, Filter, RefreshCw, Search, Settings2, ShoppingCart, X } from 'lucide-react';
+import { ArrowUpDown, Download, Filter, Mail, MessageCircle, RefreshCw, Search, Settings2, ShoppingCart, X } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { formatAdminDateTime } from '../../utils/dateFormat';
@@ -25,32 +25,43 @@ const sortOptions = [
     { value: 'lowest_value', label: 'Lowest Cart Value' },
     { value: 'next_due', label: 'Next Due' }
 ];
+const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
 const KPI_CARD_THEMES = {
     sky: {
-        shell: 'bg-gradient-to-br from-sky-800 via-sky-900 to-indigo-950 border-sky-300/65',
+        shell: 'bg-gradient-to-br from-sky-500 via-sky-600 to-cyan-800 border-sky-200/70',
         label: 'text-sky-50',
         value: 'text-white',
-        iconGhost: 'text-sky-200/25'
+        iconGhost: 'text-sky-100/25'
     },
-    emerald: {
-        shell: 'bg-gradient-to-br from-emerald-800 via-emerald-900 to-teal-950 border-emerald-300/65',
-        label: 'text-emerald-50',
+    green: {
+        shell: 'bg-gradient-to-br from-lime-400 via-emerald-500 to-green-700 border-lime-200/70',
+        label: 'text-lime-50',
         value: 'text-white',
-        iconGhost: 'text-emerald-200/25'
+        iconGhost: 'text-lime-100/25'
     },
-    amber: {
-        shell: 'bg-gradient-to-br from-amber-700 via-amber-900 to-orange-950 border-amber-300/65',
+    pink: {
+        shell: 'bg-gradient-to-br from-fuchsia-500 via-pink-600 to-rose-800 border-fuchsia-200/70',
+        label: 'text-fuchsia-50',
+        value: 'text-white',
+        iconGhost: 'text-fuchsia-100/25'
+    },
+    brown: {
+        shell: 'bg-gradient-to-br from-amber-700 via-stone-700 to-stone-900 border-amber-200/70',
         label: 'text-amber-50',
         value: 'text-white',
-        iconGhost: 'text-amber-200/25'
+        iconGhost: 'text-amber-100/25'
     },
-    violet: {
-        shell: 'bg-gradient-to-br from-violet-800 via-violet-900 to-fuchsia-950 border-violet-300/65',
-        label: 'text-violet-50',
+    red: {
+        shell: 'bg-gradient-to-br from-red-600 via-rose-700 to-red-900 border-red-200/70',
+        label: 'text-red-50',
         value: 'text-white',
-        iconGhost: 'text-violet-200/25'
+        iconGhost: 'text-red-100/25'
     }
 };
+const applyKpiThemeRotation = (cards = [], startIndex = 0) => cards.map((card, index) => ({
+    ...card,
+    theme: KPI_THEME_SEQUENCE[(startIndex + index) % KPI_THEME_SEQUENCE.length]
+}));
 
 const numberArrayInput = (value) => {
     if (Array.isArray(value)) return value.join(',');
@@ -80,12 +91,12 @@ const parseIntegerCsv = (value, { min = 0, fieldLabel = 'Field' } = {}) => {
 
 const statusClass = (status) => {
     const key = String(status || '').toLowerCase();
-    if (key === 'pending') return 'bg-violet-900 text-violet-50 border border-violet-600';
-    if (key === 'recovered') return 'bg-emerald-900 text-emerald-50 border border-emerald-600';
-    if (key === 'active') return 'bg-blue-900 text-blue-50 border border-blue-600';
-    if (key === 'expired') return 'bg-amber-900 text-amber-50 border border-amber-600';
-    if (key === 'cancelled') return 'bg-slate-700 text-slate-50 border border-slate-500';
-    return 'bg-slate-800 text-slate-50 border border-slate-600';
+    if (key === 'pending') return 'bg-amber-100 text-amber-900 border border-amber-200';
+    if (key === 'recovered') return 'bg-lime-100 text-lime-800 border border-lime-200';
+    if (key === 'active') return 'bg-sky-100 text-sky-800 border border-sky-200';
+    if (key === 'expired') return 'bg-fuchsia-100 text-fuchsia-800 border border-fuchsia-200';
+    if (key === 'cancelled') return 'bg-red-100 text-red-800 border border-red-200';
+    return 'bg-amber-100 text-amber-900 border border-amber-200';
 };
 const inr = (value) => `₹${Number(value || 0).toLocaleString()}`;
 const formatCustomerContacts = (journey) => {
@@ -93,6 +104,26 @@ const formatCustomerContacts = (journey) => {
     const mobile = String(journey?.customer_mobile || '').trim();
     if (email && mobile) return `${email} | ${mobile}`;
     return email || mobile || '—';
+};
+const getWhatsappPreviewText = (attempt = {}) => {
+    const whatsapp = attempt?.response_json?.whatsapp || {};
+    return (
+        whatsapp.preview
+        || whatsapp.message
+        || whatsapp.body
+        || whatsapp.content
+        || whatsapp.reason
+        || attempt?.error_message
+        || 'No WhatsApp preview available for this attempt yet.'
+    );
+};
+
+const getEmailPreviewText = (attempt = {}) => {
+    const email = attempt?.response_json?.email || {};
+    const subject = email.subject ? `Subject: ${email.subject}` : '';
+    const body = email.preview || email.message || email.body || email.content || email.reason || '';
+    const parts = [subject, body].filter(Boolean);
+    return parts.join('\n\n') || attempt?.error_message || 'No email preview available for this attempt yet.';
 };
 const JOURNEY_PAGE_SIZE = 20;
 const MAX_CAMPAIGN_ATTEMPTS = 6;
@@ -140,6 +171,9 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     const [searchInput, setSearchInput] = useState('');
     const [page, setPage] = useState(1);
     const [rangeDays, setRangeDays] = useState(30);
+    const [isMobileStatusModalOpen, setIsMobileStatusModalOpen] = useState(false);
+    const [isMobileSortModalOpen, setIsMobileSortModalOpen] = useState(false);
+    const [isMobileSearchModalOpen, setIsMobileSearchModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [isSavingCampaign, setIsSavingCampaign] = useState(false);
     const [isProcessingNow, setIsProcessingNow] = useState(false);
@@ -147,6 +181,11 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [selectedTimeline, setSelectedTimeline] = useState(null);
     const [isTimelineLoading, setIsTimelineLoading] = useState(false);
+    const [isCartOpen, setIsCartOpen] = useState(false);
+    const [isCartLoading, setIsCartLoading] = useState(false);
+    const [cartItems, setCartItems] = useState([]);
+    const [cartJourney, setCartJourney] = useState(null);
+    const [messagePreview, setMessagePreview] = useState({ isOpen: false, channel: '', title: '', content: '', loading: false });
     const [attemptDelaysInput, setAttemptDelaysInput] = useState('');
     const [discountLadderInput, setDiscountLadderInput] = useState('');
     const realtimeRefreshTimerRef = useRef(null);
@@ -227,13 +266,14 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     const cards = useMemo(() => {
         const effectiveInsights = sharedInsights || insights;
         const totals = effectiveInsights?.totals || {};
-        return [
-            { label: 'Total Journeys', value: Number(totals.totalJourneys || 0), theme: 'sky' },
-            { label: 'Recovered', value: Number(totals.recoveredJourneys || 0), theme: 'emerald' },
-            { label: 'Recovery Rate', value: `${Number(totals.recoveryRate || 0).toFixed(2)}%`, theme: 'amber' },
-            { label: 'Recovered Value', value: inr(totals.recoveredValue || 0), theme: 'violet' }
-        ];
+        return applyKpiThemeRotation([
+            { label: 'Total Journeys', value: Number(totals.totalJourneys || 0) },
+            { label: 'Recovered', value: Number(totals.recoveredJourneys || 0) },
+            { label: 'Recovery Rate', value: `${Number(totals.recoveryRate || 0).toFixed(2)}%` },
+            { label: 'Recovered Value', value: inr(totals.recoveredValue || 0) }
+        ]);
     }, [insights, sharedInsights]);
+    const mobileSummaryCards = useMemo(() => applyKpiThemeRotation(cards.slice(0, 2), 3), [cards]);
 
     const totalPages = useMemo(
         () => Math.max(1, Math.ceil(Number(journeyTotal || 0) / JOURNEY_PAGE_SIZE)),
@@ -414,6 +454,60 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     }, [toast]);
 
     const closeTimeline = () => setSelectedTimeline(null);
+
+    const openCart = useCallback(async (journey) => {
+        if (!journey?.user_id) {
+            toast.error('Cart is unavailable for this journey');
+            return;
+        }
+        setCartJourney(journey);
+        setIsCartOpen(true);
+        setIsCartLoading(true);
+        try {
+            const data = await adminService.getUserCart(journey.user_id);
+            setCartItems(Array.isArray(data?.items) ? data.items : []);
+        } catch (error) {
+            toast.error(error?.message || 'Failed to load cart');
+            setCartItems([]);
+        } finally {
+            setIsCartLoading(false);
+        }
+    }, [toast]);
+
+    const openMessagePreview = useCallback(async (journey, channel) => {
+        const label = channel === 'whatsapp' ? 'WhatsApp' : 'Email';
+        setMessagePreview({
+            isOpen: true,
+            channel,
+            title: `${label} Preview`,
+            content: '',
+            loading: true
+        });
+        try {
+            const timeline = await adminService.getAbandonedCartJourneyTimeline(journey.id);
+            const attempts = Array.isArray(timeline?.attempts) ? timeline.attempts : [];
+            const latestAttempt = [...attempts].reverse().find((attempt) => {
+                const channels = Array.isArray(attempt?.channels_json) ? attempt.channels_json : Array.isArray(attempt?.channels) ? attempt.channels : [];
+                return channels.includes(channel) || attempt?.response_json?.[channel];
+            }) || attempts[attempts.length - 1] || {};
+            const content = channel === 'whatsapp' ? getWhatsappPreviewText(latestAttempt) : getEmailPreviewText(latestAttempt);
+            setMessagePreview({
+                isOpen: true,
+                channel,
+                title: `${label} Preview`,
+                content,
+                loading: false
+            });
+        } catch (error) {
+            setMessagePreview({
+                isOpen: true,
+                channel,
+                title: `${label} Preview`,
+                content: error?.message || `Failed to load ${label.toLowerCase()} preview`,
+                loading: false
+            });
+        }
+    }, []);
 
     const toCsvCell = (value) => {
         const safe = String(value ?? '').replace(/"/g, '""');
@@ -708,8 +802,18 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     return (
         <div className="animate-fade-in space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Abandoned Cart Recovery</h1>
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3 md:block">
+                        <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Abandoned Cart Recovery</h1>
+                        <div className={`inline-flex shrink-0 whitespace-nowrap items-center gap-2 rounded-full border px-2.5 py-1.5 text-xs font-semibold md:hidden ${
+                            storefrontOpen
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                : 'border-gray-300 bg-gray-100 text-gray-800'
+                        }`}>
+                            <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                            {storefrontOpen ? 'Store Open' : 'Store Closed'}
+                        </div>
+                    </div>
                     <p className="text-sm text-gray-500 mt-1">Campaign settings, recovery insights, journeys and timelines.</p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -717,7 +821,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                         type="button"
                         onClick={handleExportReport}
                         disabled={isExporting || isLoading}
-                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
+                        className="hidden md:inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
                     >
                         <Download size={14} />
                         {isExporting ? 'Exporting...' : 'Export Report'}
@@ -733,7 +837,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                     <select
                         value={rangeDays}
                         onChange={(e) => setRangeDays(Number(e.target.value || 30))}
-                        className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
+                        className="hidden md:block px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
                     >
                         <option value={7}>Last 7 days</option>
                         <option value={30}>Last 30 days</option>
@@ -751,7 +855,17 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 gap-4 md:hidden">
+                {mobileSummaryCards.map((card) => (
+                    <div key={`mobile-${card.label}`} className={`emboss-card relative aspect-square overflow-hidden rounded-2xl border shadow-sm p-5 ${KPI_CARD_THEMES[card.theme || 'brown'].shell}`}>
+                        <ShoppingCart size={54} className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || 'brown'].iconGhost}`} />
+                        <p className={`text-xs uppercase tracking-widest font-semibold ${KPI_CARD_THEMES[card.theme || 'brown'].label}`}>{card.label}</p>
+                        <p className={`text-xl font-bold mt-1 ${KPI_CARD_THEMES[card.theme || 'brown'].value}`}>{card.value}</p>
+                    </div>
+                ))}
+            </div>
+
+            <div className="hidden md:grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 {cards.map((card) => (
                     <div key={card.label} className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm p-5 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`}>
                         <ShoppingCart size={54} className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || 'sky'].iconGhost}`} />
@@ -764,7 +878,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                 <div className="px-5 py-4 border-b border-gray-100 flex flex-col md:flex-row md:items-center gap-2 md:justify-between">
                     <p className="text-sm text-gray-500">Journeys ({journeyTotal})</p>
-                    <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+                    <div className="hidden md:flex flex-col md:flex-row gap-2 w-full md:w-auto">
                         <div className="relative">
                             <Filter className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
                             <select value={status} onChange={(e) => setStatus(e.target.value)} className="pl-9 pr-7 py-2 rounded-lg border border-gray-200 bg-white text-sm w-full md:w-auto">
@@ -778,6 +892,41 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                             <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
                             <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="pl-9 pr-3 py-2 rounded-lg border border-gray-200 bg-white text-sm w-full md:w-64" placeholder="Search customer / id" />
                         </div>
+                    </div>
+                    <div className="flex items-center justify-end gap-2 md:hidden">
+                        <button
+                            type="button"
+                            onClick={() => setIsMobileStatusModalOpen(true)}
+                            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
+                                status !== 'all' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-gray-200 bg-white text-gray-600'
+                            }`}
+                            title="Filter Status"
+                            aria-label="Filter Status"
+                        >
+                            <Filter size={18} />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setIsMobileSortModalOpen(true)}
+                            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
+                                sortBy !== 'newest' ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-gray-200 bg-white text-gray-600'
+                            }`}
+                            title="Sort Journeys"
+                            aria-label="Sort Journeys"
+                        >
+                            <ArrowUpDown size={18} />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setIsMobileSearchModalOpen(true)}
+                            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
+                                searchInput ? 'border-primary/20 bg-primary/5 text-primary' : 'border-gray-200 bg-white text-gray-600'
+                            }`}
+                            title="Search Journeys"
+                            aria-label="Search Journeys"
+                        >
+                            <Search size={18} />
+                        </button>
                     </div>
                 </div>
 
@@ -869,9 +1018,22 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                         <p className="text-xs text-gray-500">{journey.next_attempt_at ? `#${Number(journey.last_attempt_no || 0) + 1} · ${formatAdminDateTime(journey.next_attempt_at)}` : '—'}</p>
                                     </div>
                                 </div>
-                                <div className="mt-3 flex justify-end">
+                                <div className="mt-3 flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-1.5">
+                                        {journey.user_id && (
+                                            <button type="button" onClick={() => openCart(journey)} className="relative p-1.5 rounded-md border border-gray-200 text-gray-500 transition-colors hover:text-primary hover:bg-gray-50" title="View Cart">
+                                                <ShoppingCart size={14} />
+                                            </button>
+                                        )}
+                                        <button type="button" onClick={() => openMessagePreview(journey, 'whatsapp')} className="p-1.5 rounded-md border border-gray-200 text-gray-500 transition-colors hover:text-green-700 hover:bg-green-50" title="Preview WhatsApp">
+                                            <MessageCircle size={14} />
+                                        </button>
+                                        <button type="button" onClick={() => openMessagePreview(journey, 'email')} className="p-1.5 rounded-md border border-gray-200 text-gray-500 transition-colors hover:text-sky-700 hover:bg-sky-50" title="Preview Email">
+                                            <Mail size={14} />
+                                        </button>
+                                    </div>
                                     {journey.source_type === 'candidate' ? (
-                                        <span className="text-[11px] font-medium text-gray-400">Waiting for inactivity window</span>
+                                        <span className="text-right text-[11px] font-medium text-gray-400">Waiting for inactivity window</span>
                                     ) : (
                                         <button type="button" onClick={() => openTimeline(journey.id)} className="px-3 py-1.5 rounded-md border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50">Timeline</button>
                                     )}
@@ -950,6 +1112,127 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                 {isSavingCampaign ? 'Saving...' : 'Save Settings'}
                             </button>
                         </div>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {isMobileStatusModalOpen && createPortal(
+                <div className="fixed inset-0 z-[100] flex items-end md:hidden">
+                    <button type="button" className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={() => setIsMobileStatusModalOpen(false)} aria-label="Close status filter" />
+                    <div className="relative w-full rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-2xl max-h-[82vh] overflow-y-auto">
+                        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-200" />
+                        <h3 className="text-lg font-bold text-gray-900">Journey Status</h3>
+                        <p className="mt-1 text-sm text-gray-500">Filter abandoned cart journeys by status.</p>
+                        <select value={status} onChange={(e) => setStatus(e.target.value)} className="mt-4 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:border-accent">
+                            {journeyStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                        <button type="button" onClick={() => setIsMobileStatusModalOpen(false)} className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light">
+                            Close
+                        </button>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {isMobileSortModalOpen && createPortal(
+                <div className="fixed inset-0 z-[100] flex items-end md:hidden">
+                    <button type="button" className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={() => setIsMobileSortModalOpen(false)} aria-label="Close sort modal" />
+                    <div className="relative w-full rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-2xl max-h-[82vh] overflow-y-auto">
+                        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-200" />
+                        <h3 className="text-lg font-bold text-gray-900">Sort Journeys</h3>
+                        <p className="mt-1 text-sm text-gray-500">Choose how to order the journey list.</p>
+                        <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="mt-4 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:border-accent">
+                            {sortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                        <button type="button" onClick={() => setIsMobileSortModalOpen(false)} className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light">
+                            Close
+                        </button>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {isMobileSearchModalOpen && createPortal(
+                <div className="fixed inset-0 z-[100] flex items-end md:hidden">
+                    <button type="button" className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={() => setIsMobileSearchModalOpen(false)} aria-label="Close search modal" />
+                    <div className="relative w-full rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-2xl max-h-[82vh] overflow-y-auto">
+                        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-200" />
+                        <h3 className="text-lg font-bold text-gray-900">Search Journeys</h3>
+                        <p className="mt-1 text-sm text-gray-500">Search by customer name, mobile, email, or journey id.</p>
+                        <div className="relative mt-4">
+                            <Search className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
+                            <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="w-full rounded-2xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm shadow-sm outline-none focus:border-accent" placeholder="Search customer / id" autoFocus />
+                        </div>
+                        <button type="button" onClick={() => setIsMobileSearchModalOpen(false)} className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light">
+                            Close
+                        </button>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {isCartOpen && createPortal(
+                <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/45 backdrop-blur-sm p-4">
+                    <div className="w-full max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl bg-white border border-gray-200 shadow-2xl p-5">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-800">Customer Cart</h3>
+                                <p className="text-xs text-gray-500 mt-1">{cartJourney?.customer_name || 'Guest'}</p>
+                            </div>
+                            <button type="button" onClick={() => setIsCartOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+                                <X size={16} />
+                            </button>
+                        </div>
+                        {isCartLoading ? (
+                            <div className="py-10 text-center text-gray-400">Loading cart...</div>
+                        ) : cartItems.length === 0 ? (
+                            <div className="py-8">
+                                <EmptyState image={cartIllustration} alt="No cart items" title="No cart items" description="This customer does not have active cart items right now." compact />
+                            </div>
+                        ) : (
+                            <div className="mt-4 space-y-3">
+                                {cartItems.map((item) => (
+                                    <div key={`${item.productId || item.product_id}-${item.variantId || item.variant_id || 'base'}`} className="rounded-xl border border-gray-200 p-3">
+                                        <div className="flex items-start gap-3">
+                                            {item.image ? <img src={item.image} alt={item.title} className="h-14 w-14 rounded-lg object-cover border border-gray-200" /> : <div className="h-14 w-14 rounded-lg bg-gray-100 border border-gray-200" />}
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-sm font-semibold text-gray-800 line-clamp-1">{item.title}</p>
+                                                {item.variantTitle && <p className="text-xs text-gray-500 line-clamp-1 mt-1">{item.variantTitle}</p>}
+                                                <div className="mt-2 flex items-center justify-between gap-3">
+                                                    <p className="text-xs text-gray-500">Qty: {item.quantity}</p>
+                                                    <p className="text-sm font-semibold text-gray-800">{inr(item.price || 0)}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {messagePreview.isOpen && createPortal(
+                <div className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center bg-black/45 backdrop-blur-sm p-4">
+                    <div className="w-full max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto rounded-2xl bg-white border border-gray-200 shadow-2xl p-5">
+                        <div className="flex items-center justify-between gap-3">
+                            <h3 className="text-lg font-semibold text-gray-800">{messagePreview.title}</h3>
+                            <button type="button" onClick={() => setMessagePreview({ isOpen: false, channel: '', title: '', content: '', loading: false })} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+                                <X size={16} />
+                            </button>
+                        </div>
+                        {messagePreview.loading ? (
+                            <div className="py-10 text-center text-gray-400">Loading preview...</div>
+                        ) : (
+                            <pre className="mt-4 whitespace-pre-wrap rounded-2xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 font-sans">
+                                {messagePreview.content}
+                            </pre>
+                        )}
+                        <button type="button" onClick={() => setMessagePreview({ isOpen: false, channel: '', title: '', content: '', loading: false })} className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light">
+                            Close
+                        </button>
                     </div>
                 </div>,
                 document.body

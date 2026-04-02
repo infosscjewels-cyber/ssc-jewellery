@@ -247,7 +247,7 @@ const normalizeCategoryOptions = (value) => {
     });
 };
 
-export default function LoyaltySettings({ onBack }) {
+export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
     const toast = useToast();
     const [rows, setRows] = useState([]);
     const [activeTier, setActiveTier] = useState('regular');
@@ -837,14 +837,30 @@ export default function LoyaltySettings({ onBack }) {
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-                <div>
-                    <h2 className="text-2xl md:text-3xl font-serif text-primary font-bold">Loyalty Settings</h2>
-                    <p className="text-gray-500 text-sm mt-1">Manage tiers, coupons, and popup settings.</p>
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 md:hidden">
+                        <button type="button" onClick={onBack} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50">
+                            <ArrowLeft size={16} />
+                        </button>
+                        <h2 className="min-w-0 flex-1 truncate text-xl font-serif font-bold text-primary">Loyalty Settings</h2>
+                        <div className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                            storefrontOpen
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                : 'border-gray-300 bg-gray-100 text-gray-800'
+                        }`}>
+                            <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                            {storefrontOpen ? 'Store Open' : 'Store Closed'}
+                        </div>
+                    </div>
+                    <div className="hidden md:flex md:items-center md:justify-between md:gap-3">
+                        <h2 className="text-2xl md:text-3xl font-serif text-primary font-bold">Loyalty Settings</h2>
+                        <button type="button" onClick={onBack} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                            <ArrowLeft size={16} /> Back
+                        </button>
+                    </div>
+                    <p className="mt-3 text-gray-500 text-sm md:mt-1">Manage tiers, coupons, and popup settings.</p>
                 </div>
-                <button type="button" onClick={onBack} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">
-                    <ArrowLeft size={16} /> Back
-                </button>
             </div>
 
             <div className="flex flex-col gap-4">
