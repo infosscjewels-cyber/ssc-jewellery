@@ -72,6 +72,7 @@ const orderRoutes = require('./routes/orderRoutes');
 const wishlistRoutes = require('./routes/wishlistRoutes');
 console.log('Boot: route modules loaded');
 const Order = require('./models/Order');
+const Product = require('./models/Product');
 const User = require('./models/User');
 const { PaymentAttempt } = require('./models/PaymentAttempt');
 console.log('Boot: model modules loaded');
@@ -297,6 +298,13 @@ const startServer = async () => {
             console.log('Boot: waiting for DB readiness');
             await db.ready;
             console.log('Boot: DB ready');
+            const relatedProductsBackfill = await Product.backfillRelatedProductsDefaults().catch((error) => {
+                console.error('Boot: related products default backfill failed:', error?.message || error);
+                return { updated: 0 };
+            });
+            if (Number(relatedProductsBackfill?.updated || 0) > 0) {
+                console.log(`Boot: related products defaults backfilled for ${relatedProductsBackfill.updated} product(s)`);
+            }
         } else {
             console.log('Boot: DB readiness promise not found, continuing');
         }

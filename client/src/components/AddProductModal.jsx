@@ -20,6 +20,23 @@ const productStatusToggleEnabled = String(import.meta.env.VITE_ENABLE_PRODUCT_ST
 const inventoryTrackingEnabled = String(import.meta.env.VITE_ENABLE_INVENTORY_TRACKING || '')
     .trim()
     .toLowerCase() === 'true';
+const DEFAULT_RELATED_PRODUCTS_TITLE = 'You May also like';
+const chooseRandomRelatedCategory = (availableCategories = [], selectedCategories = []) => {
+    const selectedPool = [...new Set((Array.isArray(selectedCategories) ? selectedCategories : []).map((entry) => String(entry || '').trim()).filter(Boolean))];
+    const availablePool = [...new Set((Array.isArray(availableCategories) ? availableCategories : []).map((entry) => String(entry || '').trim()).filter(Boolean))];
+    const pool = selectedPool.length > 0 ? selectedPool : availablePool;
+    if (!pool.length) return '';
+    return pool[Math.floor(Math.random() * pool.length)] || '';
+};
+const normalizeRelatedProductsState = (value = {}, availableCategories = [], selectedCategories = []) => {
+    const config = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const hasExplicitShow = typeof config.show === 'boolean';
+    return {
+        show: hasExplicitShow ? config.show : true,
+        title: String(config.title || '').trim() || DEFAULT_RELATED_PRODUCTS_TITLE,
+        category: String(config.category || '').trim() || chooseRandomRelatedCategory(availableCategories, selectedCategories)
+    };
+};
 
 export default function AddProductModal({ isOpen, onClose, onConfirm, productToEdit = null, usageAudienceConfig = {}, subCategoriesEnabled = false }) {
     const getYoutubeVideoId = (value = '') => {
@@ -183,9 +200,10 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                     setMediaItems(productToEdit.media.map(m => ({ ...m, id: Math.random().toString(36), isExisting: true })));
                 }
                 
+                const selectedCategories = Array.isArray(productToEdit.categories) ? productToEdit.categories : [];
                 setAdditionalInfo(productToEdit.additional_info || []);
                 setOptions(productToEdit.options || []);
-                setRelatedProducts(productToEdit.related_products || { show: false, title: '', category: '' });
+                setRelatedProducts(normalizeRelatedProductsState(productToEdit.related_products, selectedCategories, selectedCategories));
                 if (productToEdit.variants && productToEdit.variants.length > 0) {
                     setVariants(productToEdit.variants.map(v => ({
                         ...v, 
@@ -213,10 +231,30 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                     subCategory: ''
                 });
                 setMediaItems([]); setAdditionalInfo([]); setOptions([]); setVariants([]);
-                setRelatedProducts({ show: false, title: '', category: '' });
+                setRelatedProducts(normalizeRelatedProductsState({}, [], []));
             }
         }
     }, [productToEdit, isOpen]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        setRelatedProducts((prev) => {
+            const next = { ...prev };
+            let changed = false;
+            if (!String(next.title || '').trim()) {
+                next.title = DEFAULT_RELATED_PRODUCTS_TITLE;
+                changed = true;
+            }
+            if (next.show && !String(next.category || '').trim()) {
+                const fallbackCategory = chooseRandomRelatedCategory(availableCategories, formData.categories);
+                if (fallbackCategory) {
+                    next.category = fallbackCategory;
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
+    }, [isOpen, availableCategories, formData.categories]);
 
     // --- FIX: Lock Body Scroll when Modal is Open ---
     useEffect(() => {
@@ -1052,7 +1090,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                                 value={relatedProducts.title} 
                                                 onChange={(e) => setRelatedProducts(prev => ({ ...prev, title: e.target.value }))}
                                                 className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none" 
-                                                placeholder="e.g., You May Also Like" 
+                                                placeholder={DEFAULT_RELATED_PRODUCTS_TITLE}
                                             />
                                         </div>
                                         <div className="space-y-2">

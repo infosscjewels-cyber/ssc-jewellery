@@ -89,6 +89,7 @@ const serializePublicProduct = (product = {}) => {
     const lowStockThreshold = Number(product.low_stock_threshold || 0);
     const hasStock = !forcedOutOfStock && (!tracked || quantity > 0);
     const isLowStock = tracked && trackLowStock && quantity > 0 && quantity <= lowStockThreshold;
+    const categories = safeParse(product.categories, []);
     return {
         id: product.id,
         title: product.title,
@@ -101,10 +102,10 @@ const serializePublicProduct = (product = {}) => {
         weight_kg: product.weight_kg,
         status: product.status,
         media: safeParse(product.media, []),
-        categories: safeParse(product.categories, []),
+        categories,
         usageAudience: normalizeUsageAudience(product.usageAudience || product.usage_audience),
         subCategory: normalizeSubCategory(product.subCategory || product.sub_category),
-        related_products: safeParse(product.related_products, {}),
+        related_products: Product.normalizeRelatedProductsConfig(product.related_products, categories),
         additional_info: safeParse(product.additional_info, []),
         polish_warranty_months: product.polish_warranty_months,
         options: safeParse(product.options, []),
@@ -316,7 +317,10 @@ const createProduct = async (req, res) => {
             categories: asArray(req.body.categories, { allowSingleString: true }),
             usageAudience: normalizeUsageAudience(req.body.usageAudience || ''),
             subCategory: '',
-            related_products: asObject(req.body.related_products),
+            related_products: Product.normalizeRelatedProductsConfig(
+                asObject(req.body.related_products),
+                asArray(req.body.categories, { allowSingleString: true })
+            ),
             additional_info: asArray(req.body.additional_info),
             options: asArray(req.body.options),
             variants: asArray(req.body.variants)
@@ -431,7 +435,10 @@ const updateProduct = async (req, res) => {
             categories: asArray(req.body.categories, { allowSingleString: true }),
             usageAudience: normalizeUsageAudience(req.body.usageAudience || existingProduct?.usageAudience || existingProduct?.usage_audience || ''),
             subCategory: '',
-            related_products: asObject(req.body.related_products),
+            related_products: Product.normalizeRelatedProductsConfig(
+                asObject(req.body.related_products),
+                asArray(req.body.categories, { allowSingleString: true })
+            ),
             additional_info: asArray(req.body.additional_info),
             options: asArray(req.body.options),
             variants: asArray(req.body.variants)

@@ -1,6 +1,8 @@
 const db = require('../config/db');
 
 class Product {
+    static DEFAULT_RELATED_PRODUCTS_TITLE = 'You May also like';
+
     static parseJsonSafe(value, fallback = null) {
         if (value == null) return fallback;
         if (typeof value === 'object') return value;
@@ -33,6 +35,48 @@ class Product {
                 .map((value) => Product.normalizeSubCategory(value))
                 .filter(Boolean)
         )].sort((a, b) => a.localeCompare(b));
+    }
+
+    static normalizeRelatedProductsConfig(value = {}, fallbackCategories = []) {
+        const parsed = Product.parseJsonSafe(value, {});
+        const config = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        const categories = [...new Set(
+            (Array.isArray(fallbackCategories) ? fallbackCategories : [])
+                .map((entry) => String(entry || '').trim())
+                .filter(Boolean)
+        )];
+        const normalizedCategory = String(config.category || '').trim();
+        const hasExplicitShow = typeof config.show === 'boolean';
+        const normalizedTitle = String(config.title || '').trim() || Product.DEFAULT_RELATED_PRODUCTS_TITLE;
+
+        return {
+            show: hasExplicitShow ? config.show : true,
+            title: normalizedTitle,
+            category: normalizedCategory || categories[0] || ''
+        };
+    }
+
+    static async backfillRelatedProductsDefaults() {
+        const [rows] = await db.execute('SELECT id, categories, related_products FROM products');
+        if (!Array.isArray(rows) || rows.length === 0) return { updated: 0 };
+
+        let updated = 0;
+        for (const row of rows) {
+            const categories = Product.parseJsonSafe(row.categories, []);
+            const normalized = Product.normalizeRelatedProductsConfig(row.related_products, categories);
+            const nextConfig = {
+                ...normalized,
+                show: true
+            };
+            const current = Product.parseJsonSafe(row.related_products, {});
+            const currentSerialized = JSON.stringify(current && typeof current === 'object' && !Array.isArray(current) ? current : {});
+            const nextSerialized = JSON.stringify(nextConfig);
+            if (currentSerialized === nextSerialized) continue;
+            await db.execute('UPDATE products SET related_products = ? WHERE id = ?', [nextSerialized, row.id]);
+            updated += 1;
+        }
+
+        return { updated };
     }
 
     static getDefaultSystemCategories() {
@@ -155,13 +199,14 @@ class Product {
     }
 
     static parseProductRow(row = {}) {
+        const categories = typeof row.categories === 'string' ? JSON.parse(row.categories) : (row.categories || []);
         return {
             ...row,
             media: typeof row.media === 'string' ? JSON.parse(row.media) : (row.media || []),
-            categories: typeof row.categories === 'string' ? JSON.parse(row.categories) : (row.categories || []),
+            categories,
             usageAudience: Product.normalizeUsageAudience(row.usage_audience),
             subCategory: Product.normalizeSubCategory(row.sub_category),
-            related_products: typeof row.related_products === 'string' ? JSON.parse(row.related_products) : (row.related_products || {}),
+            related_products: Product.normalizeRelatedProductsConfig(row.related_products, categories),
             additional_info: typeof row.additional_info === 'string' ? JSON.parse(row.additional_info) : (row.additional_info || []),
             options: typeof row.options === 'string' ? JSON.parse(row.options) : (row.options || []),
             variants: Array.isArray(row.variants) ? row.variants : []
@@ -579,7 +624,7 @@ class Product {
         product.categories = typeof product.categories === 'string' ? JSON.parse(product.categories) : (product.categories || []);
         product.usageAudience = Product.normalizeUsageAudience(product.usage_audience);
         product.subCategory = Product.normalizeSubCategory(product.sub_category);
-        product.related_products = typeof product.related_products === 'string' ? JSON.parse(product.related_products) : (product.related_products || {});
+        product.related_products = Product.normalizeRelatedProductsConfig(product.related_products, product.categories);
         product.additional_info = typeof product.additional_info === 'string' ? JSON.parse(product.additional_info) : (product.additional_info || []);
         product.options = typeof product.options === 'string' ? JSON.parse(product.options) : (product.options || []);
         product.variant_options = typeof product.variant_options === 'string' ? JSON.parse(product.variant_options) : (product.variant_options || {});
@@ -617,7 +662,7 @@ class Product {
                 JSON.stringify(data.categories || []), 
                 Product.normalizeUsageAudience(data.usageAudience) || null,
                 Product.normalizeSubCategory(data.subCategory) || null,
-                JSON.stringify(data.related_products || {}),
+                JSON.stringify(Product.normalizeRelatedProductsConfig(data.related_products, data.categories)),
                 JSON.stringify(data.additional_info || []),
                 Number.isFinite(Number(data.polish_warranty_months)) ? Number(data.polish_warranty_months) : 6,
                 JSON.stringify(data.options || []), // [NEW]
@@ -692,8 +737,10 @@ class Product {
                         ? 'sub_category'
                         : key;
                 fields.push(`${columnName} = ?`);
-                if (['media','categories','related_products','additional_info','options'].includes(key)) {
+                if (['media','categories','additional_info','options'].includes(key)) {
                     values.push(JSON.stringify(data[key]));
+                } else if (key === 'related_products') {
+                    values.push(JSON.stringify(Product.normalizeRelatedProductsConfig(data[key], data.categories)));
                 } else if (key === 'usageAudience') {
                     values.push(Product.normalizeUsageAudience(data[key]) || null);
                 } else if (key === 'subCategory') {
