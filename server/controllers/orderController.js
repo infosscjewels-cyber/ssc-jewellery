@@ -32,6 +32,7 @@ const MANUAL_REFUND_METHODS = [
     'Voucher code'
 ];
 const MANUAL_PAYMENT_MODES = ['cash', 'upi', 'bank_transfer', 'card_swipe', 'net_banking', 'manual'];
+const ACTIVE_ORDER_LIFECYCLE_EMAIL_STAGES = new Set(['confirmed', 'completed', 'cancelled', 'invoice']);
 const ORDER_TRANSITIONS = Object.freeze({
     confirmed: new Set(['completed', 'cancelled']),
     pending: new Set(['completed', 'cancelled']),
@@ -2601,6 +2602,11 @@ const triggerOrderLifecycleEmail = async ({
     const orderUserId = order?.user_id || order?.userId || null;
     if (!orderUserId) return;
     try {
+        const requestedStage = String(stage || '').trim().toLowerCase();
+        const normalizedStage = ['shipped', 'shipped_followup', 'delivered'].includes(requestedStage)
+            ? 'completed'
+            : requestedStage;
+        if (!ACTIVE_ORDER_LIFECYCLE_EMAIL_STAGES.has(normalizedStage)) return;
         const hydratedOrder = order?.id ? await Order.getById(order.id) : null;
         const orderForCommunication = hydratedOrder || order;
         const customer = await User.findById(orderForCommunication.user_id || orderForCommunication.userId || orderUserId);
@@ -2609,11 +2615,11 @@ const triggerOrderLifecycleEmail = async ({
             return;
         }
         let invoiceAttachment = null;
-        const stageKey = String(stage || '').trim().toLowerCase();
+        const stageKey = normalizedStage;
         const paymentStatus = String(orderForCommunication?.payment_status || '').trim().toLowerCase();
         const shouldAttachInvoice = Boolean(includeInvoice)
             || (
-                ['confirmed', 'confirmation', 'processing', 'shipped', 'shipped_followup', 'completed', 'delivered', 'cancelled', 'updated']
+                ['confirmed', 'completed', 'cancelled', 'invoice']
                     .includes(stageKey)
                 && ['paid', 'refunded'].includes(paymentStatus)
             );
@@ -2633,7 +2639,7 @@ const triggerOrderLifecycleEmail = async ({
         }
         const includeInvoiceInMail = shouldAttachInvoice && Boolean(invoiceAttachment);
         const result = await sendOrderLifecycleCommunication({
-            stage,
+            stage: normalizedStage,
             customer,
             order: orderForCommunication,
             includeInvoice: includeInvoiceInMail,

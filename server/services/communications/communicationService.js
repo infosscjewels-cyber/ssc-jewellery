@@ -343,21 +343,18 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
     const recipient = normalizeCustomer(customer);
     const orderRef = order?.order_ref || order?.orderRef || order?.id || 'N/A';
     const safeStage = String(stage || 'updated').trim().toLowerCase();
-    const stageKey = (safeStage === 'confirmed' || safeStage === 'confirmation')
-        ? (Number(order?.discount_total || 0) > 0 ? 'confirmation_discount' : 'confirmation_no_discount')
+    const normalizedStage = ['shipped', 'shipped_followup', 'delivered'].includes(safeStage)
+        ? 'completed'
         : safeStage;
+    const stageKey = (normalizedStage === 'confirmed' || normalizedStage === 'confirmation')
+        ? (Number(order?.discount_total || 0) > 0 ? 'confirmation_discount' : 'confirmation_no_discount')
+        : normalizedStage;
     const seed = `${stageKey}|${orderRef}|${recipient.email || recipient.mobile || recipient.name}`;
 
     const subjects = {
         confirmation_discount: Array.from({ length: 10 }, (_, i) => `Order Confirmed: ${orderRef} | Savings Applied (${i + 1}/10)`),
         confirmation_no_discount: Array.from({ length: 10 }, (_, i) => `Order Confirmed: ${orderRef} (${i + 1}/10)`),
-        pending_delay: Array.from({ length: 10 }, (_, i) => `Delay update for order ${orderRef} (${i + 1}/10)`),
-        pending: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} is pending (${i + 1}/10)`),
-        processing: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} is processing (${i + 1}/10)`),
-        shipped: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} has shipped (${i + 1}/10)`),
-        shipped_followup: Array.from({ length: 10 }, (_, i) => `A quick delivery check for order ${orderRef} (${i + 1}/10)`),
-        completed: Array.from({ length: 10 }, (_, i) => `Thank you for choosing SSC Jewellery (${orderRef}) (${i + 1}/10)`),
-        delivered: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} delivered (${i + 1}/10)`),
+        completed: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} is complete (${i + 1}/10)`),
         invoice: Array.from({ length: 10 }, (_, i) => `Invoice for order ${orderRef} (${i + 1}/10)`),
         cancelled: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} cancelled (${i + 1}/10)`),
         failed: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} needs attention (${i + 1}/10)`)
@@ -371,13 +368,7 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
     const stageSummary = {
         confirmation_discount: `Your order <strong>${orderRef}</strong> has been confirmed${createdDate ? ` on <strong>${createdDate}</strong>` : ''}. You saved <strong>${formatCurrency(discount)}</strong>.`,
         confirmation_no_discount: `Your order <strong>${orderRef}</strong> has been confirmed${createdDate ? ` on <strong>${createdDate}</strong>` : ''}.`,
-        pending_delay: `Your order <strong>${orderRef}</strong> is delayed. Our team has escalated this and is prioritizing fulfillment.`,
-        pending: `Your order <strong>${orderRef}</strong> is currently pending and queued for processing.`,
-        processing: `Your order <strong>${orderRef}</strong> is now under active processing by our fulfillment team.`,
-        shipped: `Your order <strong>${orderRef}</strong> has been dispatched and is in transit.`,
-        shipped_followup: `Your order <strong>${orderRef}</strong> is marked as shipped. We hope it has reached you safely.`,
-        completed: `Thank you for shopping with us. We are grateful for your trust in SSC Jewellery.`,
-        delivered: `Your order <strong>${orderRef}</strong> has been delivered successfully.`,
+        completed: `Your order <strong>${orderRef}</strong> has been fulfilled successfully and is now marked complete. Thank you for shopping with SSC Jewellery.`,
         invoice: `Please find the invoice for your order <strong>${orderRef}</strong>${createdDate ? ` placed on <strong>${createdDate}</strong>` : ''}.`,
         cancelled: `Your order <strong>${orderRef}</strong> has been cancelled in our system.`,
         failed: `Your order <strong>${orderRef}</strong> requires your attention before we can proceed.`
@@ -386,13 +377,7 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
     const actionItemsByStage = {
         confirmation_discount: ['Review your order details in your account.', 'Keep this email for future reference.', 'Reply to this email if any correction is needed.'],
         confirmation_no_discount: ['Review your order details in your account.', 'Keep this email for future reference.', 'Reply to this email if any correction is needed.'],
-        pending_delay: ['No action is needed right now.', 'Reply if the delivery is time-sensitive.', 'Our administration team will send the next update shortly.'],
-        pending: ['No action is needed from your side.', 'Keep your contact details reachable.', 'Reply if you need to update shipping details.'],
-        processing: ['No action is required at this stage.', 'We will notify you at dispatch.', 'Contact us if you need urgent delivery advice.'],
-        shipped: ['Track your order from your account page.', 'Keep delivery phone accessible.', 'Reply for support if tracking appears delayed.'],
-        shipped_followup: ['Please confirm receipt using the link shared below.', 'Reply if you need any assistance from our support team.', 'We will update the order status as soon as you confirm receipt.'],
-        completed: ['Enjoy your purchase and keep this email for your records.', 'Reply if you need support with product or service.', 'We would love to serve you again soon.'],
-        delivered: ['Please verify package contents after delivery.', 'Reach us immediately if there is any issue.', 'Share your experience with our team.'],
+        completed: ['Keep this email for your records.', 'Reply if you need support with your order or product.', 'We would love to serve you again soon.'],
         invoice: ['Keep this invoice for your records.', 'Review billing details and tax lines carefully.', 'Reply if any billing information needs correction.'],
         cancelled: ['Review cancellation and refund details in your account.', 'For EMI refunds, contact your issuing bank for statement timeline updates if needed.', 'Reply to this email if any refund detail looks incorrect.'],
         failed: ['Reply to this email for immediate support.', 'Recheck payment/order details in your account.', 'Our team will guide you through quick resolution.']
@@ -415,19 +400,6 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
     const greeting = pickVariant(COMMON_GREETINGS, `${seed}|greeting`).replaceAll('{name}', recipient.name);
     const closing = pickVariant(COMMON_CLOSINGS, `${seed}|closing`);
     const assurance = pickVariant(assuranceByStage, `${seed}|assurance`);
-
-    const courierPartner = String(order?.courier_partner || '').trim();
-    const awbNumber = String(order?.awb_number || '').trim();
-    const deliveryConfirmationUrl = String(order?.delivery_confirmation_url || '').trim();
-    const shipmentInfoLine = (stageKey === 'shipped' || stageKey === 'shipped_followup')
-        ? [
-            courierPartner ? `Courier partner: <strong>${courierPartner}</strong>` : null,
-            awbNumber ? `AWB number: <strong>${awbNumber}</strong>` : null
-        ].filter(Boolean).join(' | ')
-        : '';
-    const deliveryConfirmLine = stageKey === 'shipped_followup' && deliveryConfirmationUrl
-        ? `Please confirm once you receive your parcel: <a href="${deliveryConfirmationUrl}" target="_blank" rel="noreferrer">${deliveryConfirmationUrl}</a>`
-        : '';
 
     const orderRefLine = `Order reference: <strong>${orderRef}</strong>${createdDate && stageKey !== 'completed' ? ` | Date: <strong>${createdDate}</strong>` : ''}`;
     const refundMode = String(order?.refund_mode || '').trim().toLowerCase();
@@ -465,10 +437,8 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
         orderRefLine,
         `Order value: <strong>${total}</strong>`,
         snapshotLine || null,
-        shipmentInfoLine || null,
         refundDetailLine || null,
         emiCancellationWarning || null,
-        deliveryConfirmLine || null,
         invoiceLine || null
     ].filter(Boolean);
 

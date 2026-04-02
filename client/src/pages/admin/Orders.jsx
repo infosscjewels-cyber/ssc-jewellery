@@ -2687,10 +2687,20 @@ export function Orders({
                                                     <p className="mt-1 text-xs text-gray-400">{order.customer_mobile}</p>
                                                 )}
                                             </div>
-                                            <div className="flex shrink-0 items-start gap-2">
+                                            <div className="flex shrink-0 flex-col items-end gap-2">
                                                 <span className={`inline-flex min-w-[88px] items-center justify-center px-2.5 py-1 rounded-full text-xs font-semibold ${getOrderStatusBadgeClasses(order.status)}`}>
                                                     {formatStatusLabel(order.status || 'pending')}
                                                 </span>
+                                                {!isAttemptEntry(order) && !['completed', 'cancelled'].includes(normalizeOrderStatus(order.status)) && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => handleQuickComplete(order, e)}
+                                                        className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm ${theme.actionSuccess}`}
+                                                        title="Mark order as completed"
+                                                    >
+                                                        <CheckCircle2 size={14} />
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
 
@@ -2741,16 +2751,6 @@ export function Orders({
                                             >
                                                 <MessageCircle size={14} />
                                             </a>
-                                        )}
-                                        {!isAttemptEntry(order) && !['completed', 'cancelled'].includes(normalizeOrderStatus(order.status)) && (
-                                            <button
-                                                type="button"
-                                                onClick={(e) => handleQuickComplete(order, e)}
-                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm ${theme.actionSuccess}`}
-                                                title="Mark order as completed"
-                                            >
-                                                <CheckCircle2 size={14} />
-                                            </button>
                                         )}
                                             <button
                                                 type="button"
@@ -3753,7 +3753,7 @@ export function Orders({
                         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
                         onClick={closeLabelPrintModal}
                     />
-                    <div className="relative z-10 w-full max-w-2xl overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl">
+                    <div className="relative z-10 flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl">
                         <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
                             <div>
                                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gray-400">Printer Labels</p>
@@ -3770,7 +3770,7 @@ export function Orders({
                                 <X size={18} />
                             </button>
                         </div>
-                        <div className="grid gap-5 px-6 py-6 md:grid-cols-[1.2fr_0.8fr]">
+                        <div className="grid flex-1 gap-5 overflow-y-auto px-6 py-6 md:grid-cols-[1.2fr_0.8fr]">
                             <div className="space-y-4">
                                 <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-4">
                                     <div className="flex items-start gap-3">
@@ -3826,34 +3826,38 @@ export function Orders({
                             </div>
                             <div className="space-y-4">
                                 <div className="rounded-2xl border border-gray-200 bg-white p-4">
-                                    <p className="text-sm font-semibold text-gray-900">Print From Label</p>
-                                    <p className="mt-1 text-xs text-gray-500">Always uses the saved company info.</p>
-                                    {!activeFromValidation.ok && (
-                                        <p className="mt-2 text-xs text-red-600">Missing: {activeFromValidation.missing.join(', ')}</p>
+                                    <p className="text-sm font-semibold text-gray-900">Print Labels</p>
+                                    <p className="mt-1 text-xs text-gray-500">Print sender and recipient labels separately using the two actions below.</p>
+                                    {(!activeFromValidation.ok || !activeToValidation.ok) && (
+                                        <div className="mt-3 space-y-1">
+                                            {!activeFromValidation.ok && (
+                                                <p className="text-xs text-red-600">From missing: {activeFromValidation.missing.join(', ')}</p>
+                                            )}
+                                            {!activeToValidation.ok && (
+                                                <p className="text-xs text-red-600">To missing: {activeToValidation.missing.join(', ')}</p>
+                                            )}
+                                        </div>
                                     )}
-                                    <button
-                                        type="button"
-                                        onClick={() => handlePrintSingleLabel('from', activeLabelOrder)}
-                                        disabled={!activeFromValidation.ok || printingLabelId === activeLabelOrderId || isPrinterConnecting}
-                                        className="mt-4 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent hover:bg-primary-light disabled:opacity-60"
-                                    >
-                                        {printingLabelId === activeLabelOrderId && printingLabelType === 'from' ? 'Printing...' : 'Print From Label'}
-                                    </button>
-                                </div>
-                                <div className="rounded-2xl border border-gray-200 bg-white p-4">
-                                    <p className="text-sm font-semibold text-gray-900">Print To Label</p>
-                                    <p className="mt-1 text-xs text-gray-500">Always uses the saved order address snapshot.</p>
-                                    {!activeToValidation.ok && (
-                                        <p className="mt-2 text-xs text-red-600">Missing: {activeToValidation.missing.join(', ')}</p>
-                                    )}
-                                    <button
-                                        type="button"
-                                        onClick={() => handlePrintSingleLabel('to', activeLabelOrder)}
-                                        disabled={!activeToValidation.ok || printingLabelId === activeLabelOrderId || isPrinterConnecting}
-                                        className="mt-4 w-full rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/10 disabled:opacity-60"
-                                    >
-                                        {printingLabelId === activeLabelOrderId && printingLabelType === 'to' ? 'Printing...' : 'Print To Label'}
-                                    </button>
+                                    <div className="mt-4 grid grid-cols-2 gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => handlePrintSingleLabel('from', activeLabelOrder)}
+                                            disabled={!activeFromValidation.ok || printingLabelId === activeLabelOrderId || isPrinterConnecting}
+                                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent hover:bg-primary-light disabled:opacity-60"
+                                        >
+                                            <Printer size={16} />
+                                            <span>{printingLabelId === activeLabelOrderId && printingLabelType === 'from' ? 'Printing...' : 'From'}</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handlePrintSingleLabel('to', activeLabelOrder)}
+                                            disabled={!activeToValidation.ok || printingLabelId === activeLabelOrderId || isPrinterConnecting}
+                                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/10 disabled:opacity-60"
+                                        >
+                                            <Printer size={16} />
+                                            <span>{printingLabelId === activeLabelOrderId && printingLabelType === 'to' ? 'Printing...' : 'To'}</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
