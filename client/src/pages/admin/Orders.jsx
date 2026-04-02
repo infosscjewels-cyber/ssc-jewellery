@@ -3770,8 +3770,43 @@ export function Orders({
                                 <X size={18} />
                             </button>
                         </div>
-                        <div className="grid flex-1 gap-5 overflow-y-auto px-6 py-6 md:grid-cols-[1.2fr_0.8fr]">
-                            <div className="space-y-4">
+                        <div className="flex-1 overflow-y-auto px-6 py-6">
+                            <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                                <p className="text-sm font-semibold text-gray-900">Print Labels</p>
+                                <p className="mt-1 text-xs text-gray-500">Print sender and recipient labels separately using the two actions below.</p>
+                                {(!activeFromValidation.ok || !activeToValidation.ok) && (
+                                    <div className="mt-3 space-y-1">
+                                        {!activeFromValidation.ok && (
+                                            <p className="text-xs text-red-600">From missing: {activeFromValidation.missing.join(', ')}</p>
+                                        )}
+                                        {!activeToValidation.ok && (
+                                            <p className="text-xs text-red-600">To missing: {activeToValidation.missing.join(', ')}</p>
+                                        )}
+                                    </div>
+                                )}
+                                <div className="mt-4 grid grid-cols-2 gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePrintSingleLabel('from', activeLabelOrder)}
+                                        disabled={!activeFromValidation.ok || printingLabelId === activeLabelOrderId || isPrinterConnecting}
+                                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent hover:bg-primary-light disabled:opacity-60"
+                                    >
+                                        <Printer size={16} />
+                                        <span>{printingLabelId === activeLabelOrderId && printingLabelType === 'from' ? 'Printing...' : 'From'}</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handlePrintSingleLabel('to', activeLabelOrder)}
+                                        disabled={!activeToValidation.ok || printingLabelId === activeLabelOrderId || isPrinterConnecting}
+                                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/10 disabled:opacity-60"
+                                    >
+                                        <Printer size={16} />
+                                        <span>{printingLabelId === activeLabelOrderId && printingLabelType === 'to' ? 'Printing...' : 'To'}</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="mt-5 grid gap-5 md:grid-cols-[1.2fr_0.8fr]">
+                                <div className="space-y-4">
                                 <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-4">
                                     <div className="flex items-start gap-3">
                                         <div className="mt-0.5 rounded-xl bg-violet-100 p-2 text-violet-700">
@@ -3824,40 +3859,7 @@ export function Orders({
                                     </div>
                                 </div>
                             </div>
-                            <div className="space-y-4">
-                                <div className="rounded-2xl border border-gray-200 bg-white p-4">
-                                    <p className="text-sm font-semibold text-gray-900">Print Labels</p>
-                                    <p className="mt-1 text-xs text-gray-500">Print sender and recipient labels separately using the two actions below.</p>
-                                    {(!activeFromValidation.ok || !activeToValidation.ok) && (
-                                        <div className="mt-3 space-y-1">
-                                            {!activeFromValidation.ok && (
-                                                <p className="text-xs text-red-600">From missing: {activeFromValidation.missing.join(', ')}</p>
-                                            )}
-                                            {!activeToValidation.ok && (
-                                                <p className="text-xs text-red-600">To missing: {activeToValidation.missing.join(', ')}</p>
-                                            )}
-                                        </div>
-                                    )}
-                                    <div className="mt-4 grid grid-cols-2 gap-3">
-                                        <button
-                                            type="button"
-                                            onClick={() => handlePrintSingleLabel('from', activeLabelOrder)}
-                                            disabled={!activeFromValidation.ok || printingLabelId === activeLabelOrderId || isPrinterConnecting}
-                                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent hover:bg-primary-light disabled:opacity-60"
-                                        >
-                                            <Printer size={16} />
-                                            <span>{printingLabelId === activeLabelOrderId && printingLabelType === 'from' ? 'Printing...' : 'From'}</span>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handlePrintSingleLabel('to', activeLabelOrder)}
-                                            disabled={!activeToValidation.ok || printingLabelId === activeLabelOrderId || isPrinterConnecting}
-                                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/10 disabled:opacity-60"
-                                        >
-                                            <Printer size={16} />
-                                            <span>{printingLabelId === activeLabelOrderId && printingLabelType === 'to' ? 'Printing...' : 'To'}</span>
-                                        </button>
-                                    </div>
+                                <div className="space-y-4">
                                 </div>
                             </div>
                         </div>
