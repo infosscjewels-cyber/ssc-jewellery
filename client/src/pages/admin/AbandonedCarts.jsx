@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUpDown, Download, Filter, Mail, MessageCircle, Phone, RefreshCw, Search, Send, Settings2, ShoppingCart, X } from 'lucide-react';
+import { ArrowUpDown, CalendarDays, Download, Filter, Mail, MessageCircle, Phone, RefreshCw, Search, Send, Settings2, ShoppingCart, X } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { formatAdminDateTime } from '../../utils/dateFormat';
@@ -24,6 +24,17 @@ const sortOptions = [
     { value: 'highest_value', label: 'Highest Cart Value' },
     { value: 'lowest_value', label: 'Lowest Cart Value' },
     { value: 'next_due', label: 'Next Due' }
+];
+const insightRangeOptions = [
+    { value: 7, label: 'Last 7 days' },
+    { value: 30, label: 'Last 30 days' },
+    { value: 90, label: 'Last 90 days' }
+];
+const journeyWindowOptions = [
+    { value: 'last_10', label: 'Last 10 Journeys' },
+    { value: '7', label: 'Last Week' },
+    { value: '30', label: 'Last Month' },
+    { value: '90', label: 'Last 3 Months' }
 ];
 const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
 const KPI_CARD_THEMES = {
@@ -368,9 +379,11 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     const [searchInput, setSearchInput] = useState('');
     const [page, setPage] = useState(1);
     const [rangeDays, setRangeDays] = useState(30);
+    const [journeyWindow, setJourneyWindow] = useState('last_10');
     const [isMobileStatusModalOpen, setIsMobileStatusModalOpen] = useState(false);
     const [isMobileSortModalOpen, setIsMobileSortModalOpen] = useState(false);
     const [isMobileSearchModalOpen, setIsMobileSearchModalOpen] = useState(false);
+    const [isMobileRangeModalOpen, setIsMobileRangeModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [isSavingCampaign, setIsSavingCampaign] = useState(false);
     const [isProcessingNow, setIsProcessingNow] = useState(false);
@@ -388,6 +401,9 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     const realtimeRefreshTimerRef = useRef(null);
     const insightsKey = toAbandonedInsightsKey(rangeDays);
     const sharedInsights = abandonedInsightsByKey[insightsKey]?.insights || null;
+    const isLatestJourneyWindow = journeyWindow === 'last_10';
+    const journeyRangeDays = isLatestJourneyWindow ? 90 : Math.max(1, Math.min(90, Number(journeyWindow || 30)));
+    const journeyPageSize = isLatestJourneyWindow ? 10 : JOURNEY_PAGE_SIZE;
 
     const loadCampaign = useCallback(async () => {
         const data = await adminService.getAbandonedCartCampaign();
@@ -411,12 +427,13 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
             status,
             sortBy,
             search,
-            limit: JOURNEY_PAGE_SIZE,
-            offset: (Math.max(1, Number(page || 1)) - 1) * JOURNEY_PAGE_SIZE
+            rangeDays: journeyRangeDays,
+            limit: journeyPageSize,
+            offset: isLatestJourneyWindow ? 0 : (Math.max(1, Number(page || 1)) - 1) * journeyPageSize
         });
         setJourneys(data.journeys || []);
-        setJourneyTotal(Number(data.total || 0));
-    }, [page, search, sortBy, status]);
+        setJourneyTotal(isLatestJourneyWindow ? Number((data.journeys || []).length || 0) : Number(data.total || 0));
+    }, [isLatestJourneyWindow, journeyPageSize, journeyRangeDays, page, search, sortBy, status]);
 
     const loadAll = useCallback(async () => {
         setIsLoading(true);
@@ -458,7 +475,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
 
     useEffect(() => {
         setPage(1);
-    }, [status, sortBy, search]);
+    }, [status, sortBy, search, journeyWindow]);
 
     const cards = useMemo(() => {
         const effectiveInsights = sharedInsights || insights;
@@ -473,8 +490,8 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     const mobileSummaryCards = useMemo(() => applyKpiThemeRotation(cards.slice(0, 2), 3), [cards]);
 
     const totalPages = useMemo(
-        () => Math.max(1, Math.ceil(Number(journeyTotal || 0) / JOURNEY_PAGE_SIZE)),
-        [journeyTotal]
+        () => isLatestJourneyWindow ? 1 : Math.max(1, Math.ceil(Number(journeyTotal || 0) / JOURNEY_PAGE_SIZE)),
+        [isLatestJourneyWindow, journeyTotal]
     );
     const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 5), [page, totalPages]);
 
@@ -1027,9 +1044,9 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                         onChange={(e) => setRangeDays(Number(e.target.value || 30))}
                         className="hidden md:block px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
                     >
-                        <option value={7}>Last 7 days</option>
-                        <option value={30}>Last 30 days</option>
-                        <option value={90}>Last 90 days</option>
+                        {insightRangeOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
                     </select>
                     <button
                         type="button"
@@ -1073,6 +1090,12 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                 {journeyStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                             </select>
                         </div>
+                        <div className="relative">
+                            <CalendarDays className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                            <select value={journeyWindow} onChange={(e) => setJourneyWindow(String(e.target.value || 'last_10'))} className="pl-9 pr-7 py-2 rounded-lg border border-gray-200 bg-white text-sm w-full md:w-auto">
+                                {journeyWindowOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            </select>
+                        </div>
                         <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm w-full md:w-auto">
                             {sortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                         </select>
@@ -1103,6 +1126,17 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                             aria-label="Sort Journeys"
                         >
                             <ArrowUpDown size={18} />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setIsMobileRangeModalOpen(true)}
+                            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
+                                journeyWindow !== 'last_10' ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700' : 'border-gray-200 bg-white text-gray-600'
+                            }`}
+                            title="Journey duration"
+                            aria-label="Journey duration"
+                        >
+                            <CalendarDays size={18} />
                         </button>
                         <button
                             type="button"
@@ -1379,6 +1413,24 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                             {sortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                         </select>
                         <button type="button" onClick={() => setIsMobileSortModalOpen(false)} className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light">
+                            Close
+                        </button>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {isMobileRangeModalOpen && createPortal(
+                <div className="fixed inset-0 z-[100] flex items-end md:hidden">
+                    <button type="button" className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={() => setIsMobileRangeModalOpen(false)} aria-label="Close duration modal" />
+                    <div className="relative w-full rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-2xl max-h-[82vh] overflow-y-auto">
+                        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-200" />
+                        <h3 className="text-lg font-bold text-gray-900">Journey Duration</h3>
+                        <p className="mt-1 text-sm text-gray-500">Limit the list to recent abandoned-cart journeys.</p>
+                        <select value={journeyWindow} onChange={(e) => setJourneyWindow(String(e.target.value || 'last_10'))} className="mt-4 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:border-accent">
+                            {journeyWindowOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                        <button type="button" onClick={() => setIsMobileRangeModalOpen(false)} className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light">
                             Close
                         </button>
                     </div>

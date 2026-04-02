@@ -54,6 +54,15 @@ const renderGiftPrompt = (message) => (
     </div>
 );
 
+const buildPopupIdentity = (popup = null) => {
+    if (!popup || typeof popup !== 'object') return '';
+    const couponCode = String(popup?.coupon?.code || popup?.couponCode || popup?.code || '').trim().toUpperCase();
+    if (couponCode) return `coupon:${couponCode}`;
+    const popupKey = String(popup?.key || '').trim();
+    if (popupKey) return `popup:${popupKey}`;
+    return '';
+};
+
 export default function CustomerCouponPopup() {
     const { user, loading } = useAuth();
     const { socket } = useSocket();
@@ -68,15 +77,17 @@ export default function CustomerCouponPopup() {
         return window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches;
     });
     const scratchCanvasRef = useRef(null);
+    const lastShownIdentityRef = useRef('');
     const userId = String(user?.id || '').trim();
     const userRole = String(user?.role || '').toLowerCase();
     const isCustomer = Boolean(userId) && userRole === 'customer';
+    const popupIdentity = useMemo(() => buildPopupIdentity(popup), [popup]);
 
-    const storageKey = useMemo(() => {
-        if (!popup?.key) return '';
+    const shownStorageKey = useMemo(() => {
+        if (!popupIdentity) return '';
         const owner = userId ? `user:${userId}` : 'guest';
-        return `customer-popup-dismissed:${owner}:${popup.key}`;
-    }, [popup?.key, userId]);
+        return `customer-popup-shown:${owner}:${popupIdentity}`;
+    }, [popupIdentity, userId]);
 
     const loadPopupData = useCallback(async () => {
         if (loading) return;
@@ -93,15 +104,20 @@ export default function CustomerCouponPopup() {
                 setShowGiftIntro(false);
                 return;
             }
+            const nextIdentity = buildPopupIdentity(nextPopup);
             const owner = userId ? `user:${userId}` : 'guest';
-            const key = `customer-popup-dismissed:${owner}:${nextPopup.key || ''}`;
-            if (nextPopup.key && localStorage.getItem(key) === '1') {
+            const key = nextIdentity ? `customer-popup-shown:${owner}:${nextIdentity}` : '';
+            if ((nextIdentity && lastShownIdentityRef.current === nextIdentity) || (key && localStorage.getItem(key) === '1')) {
                 setPopup(nextPopup);
                 setDismissed(true);
                 setOpen(false);
                 setShowGiftIntro(false);
                 return;
             }
+            if (key) {
+                localStorage.setItem(key, '1');
+            }
+            lastShownIdentityRef.current = nextIdentity;
             setDismissed(false);
             setScratchUnlocked(false);
             setIsScratching(false);
@@ -278,8 +294,8 @@ export default function CustomerCouponPopup() {
     };
 
     const handleDontShowAgain = () => {
-        if (storageKey) {
-            localStorage.setItem(storageKey, '1');
+        if (shownStorageKey) {
+            localStorage.setItem(shownStorageKey, '1');
         }
         setOpen(false);
         setShowGiftIntro(false);

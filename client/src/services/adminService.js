@@ -233,13 +233,14 @@ export const adminService = {
         return data;
     },
 
-    getAbandonedCartJourneys: async ({ status = 'all', search = '', sortBy = 'newest', limit = 50, offset = 0 } = {}) => {
-        const cacheKey = `${status}::${search}::${sortBy}::${limit}::${offset}`;
+    getAbandonedCartJourneys: async ({ status = 'all', search = '', sortBy = 'newest', rangeDays = 30, limit = 50, offset = 0 } = {}) => {
+        const safeRangeDays = Math.max(1, Math.min(90, Number(rangeDays || 30)));
+        const cacheKey = `${status}::${search}::${sortBy}::${safeRangeDays}::${limit}::${offset}`;
         const cached = abandonedCache.journeys[cacheKey];
         if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
             return cached.data;
         }
-        const query = `?status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&sortBy=${encodeURIComponent(sortBy)}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`;
+        const query = `?status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&sortBy=${encodeURIComponent(sortBy)}&rangeDays=${encodeURIComponent(safeRangeDays)}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`;
         const res = await getWithRetry(`${API_URL}/communications/abandoned-carts/journeys${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         abandonedCache.journeys[cacheKey] = { ts: Date.now(), data };

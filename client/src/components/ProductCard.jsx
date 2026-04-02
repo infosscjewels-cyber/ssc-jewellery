@@ -18,6 +18,7 @@ const EXTRA_DISCOUNT_BY_TIER = {
 
 export default function ProductCard({ product, displayCategory = '' }) {
     const [isHovered, setIsHovered] = useState(false);
+    const [imageLoaded, setImageLoaded] = useState(false);
     const [quickAddAdded, setQuickAddAdded] = useState(false);
     const [isUpdatingQty, setIsUpdatingQty] = useState(false);
     const [heartPressed, setHeartPressed] = useState(false);
@@ -148,6 +149,10 @@ export default function ProductCard({ product, displayCategory = '' }) {
     const mainImage = product.media && product.media.length > 0 
         ? product.media[0].url 
         : placeholderImg;
+
+    useEffect(() => {
+        setImageLoaded(false);
+    }, [mainImage]);
 
     const handleWishlist = async (e) => {
         e.stopPropagation();
@@ -349,13 +354,23 @@ export default function ProductCard({ product, displayCategory = '' }) {
 
             {/* --- IMAGE AREA --- */}
             <div className="relative aspect-[4/4.65] tier-muted-surface overflow-hidden rounded-t-2xl">
+                <div className="absolute inset-0 bg-slate-100" />
                 <img 
+                    key={mainImage}
                     src={mainImage} 
                     alt={product.title}
-                    className={`w-full h-full object-cover transition-transform duration-700 ${isHovered ? 'scale-110' : 'scale-100'}`}
+                    className={`absolute inset-0 block h-full w-full object-cover transition-[transform,opacity] duration-700 will-change-transform ${isHovered ? 'scale-110' : 'scale-100'} ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
                     loading="lazy"
                     decoding="async"
-                    onError={(e) => { e.target.src = placeholderImg; }}
+                    onLoad={() => setImageLoaded(true)}
+                    onError={(e) => {
+                        if (e.currentTarget.dataset.fallbackApplied !== 'true') {
+                            e.currentTarget.dataset.fallbackApplied = 'true';
+                            e.currentTarget.src = placeholderImg;
+                            return;
+                        }
+                        setImageLoaded(true);
+                    }}
                 />
                 {isUnavailable && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/20">
