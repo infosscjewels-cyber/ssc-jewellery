@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUpDown, Download, Filter, Mail, MessageCircle, RefreshCw, Search, Settings2, ShoppingCart, X } from 'lucide-react';
+import { ArrowUpDown, Download, Filter, Mail, MessageCircle, Phone, RefreshCw, Search, Send, Settings2, ShoppingCart, X } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { formatAdminDateTime } from '../../utils/dateFormat';
@@ -28,40 +28,92 @@ const sortOptions = [
 const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
 const KPI_CARD_THEMES = {
     sky: {
-        shell: 'bg-gradient-to-br from-sky-500 via-sky-600 to-cyan-800 border-sky-200/70',
-        label: 'text-sky-50',
-        value: 'text-white',
-        iconGhost: 'text-sky-100/25'
+        shell: 'bg-gradient-to-br from-sky-200 via-sky-300 to-cyan-500 border-sky-700/80',
+        label: 'text-sky-950',
+        value: 'text-sky-950',
+        iconGhost: 'text-sky-950/20'
     },
     green: {
-        shell: 'bg-gradient-to-br from-lime-400 via-emerald-500 to-green-700 border-lime-200/70',
-        label: 'text-lime-50',
-        value: 'text-white',
-        iconGhost: 'text-lime-100/25'
+        shell: 'bg-gradient-to-br from-lime-200 via-emerald-300 to-green-500 border-emerald-700/80',
+        label: 'text-emerald-950',
+        value: 'text-emerald-950',
+        iconGhost: 'text-emerald-950/20'
     },
     pink: {
-        shell: 'bg-gradient-to-br from-fuchsia-500 via-pink-600 to-rose-800 border-fuchsia-200/70',
-        label: 'text-fuchsia-50',
-        value: 'text-white',
-        iconGhost: 'text-fuchsia-100/25'
+        shell: 'bg-gradient-to-br from-fuchsia-200 via-pink-300 to-rose-500 border-fuchsia-700/80',
+        label: 'text-rose-950',
+        value: 'text-rose-950',
+        iconGhost: 'text-rose-950/20'
     },
     brown: {
-        shell: 'bg-gradient-to-br from-amber-700 via-stone-700 to-stone-900 border-amber-200/70',
-        label: 'text-amber-50',
-        value: 'text-white',
-        iconGhost: 'text-amber-100/25'
+        shell: 'bg-gradient-to-br from-amber-200 via-orange-300 to-stone-500 border-amber-800/80',
+        label: 'text-stone-950',
+        value: 'text-stone-950',
+        iconGhost: 'text-stone-950/20'
     },
     red: {
-        shell: 'bg-gradient-to-br from-red-600 via-rose-700 to-red-900 border-red-200/70',
-        label: 'text-red-50',
-        value: 'text-white',
-        iconGhost: 'text-red-100/25'
+        shell: 'bg-gradient-to-br from-rose-200 via-red-300 to-red-500 border-red-700/80',
+        label: 'text-red-950',
+        value: 'text-red-950',
+        iconGhost: 'text-red-950/20'
     }
 };
 const applyKpiThemeRotation = (cards = [], startIndex = 0) => cards.map((card, index) => ({
     ...card,
     theme: KPI_THEME_SEQUENCE[(startIndex + index) % KPI_THEME_SEQUENCE.length]
 }));
+const MOBILE_JOURNEY_CARD_THEMES = [
+    {
+        shell: 'border-sky-200 bg-gradient-to-br from-white via-sky-50/60 to-cyan-50/75 shadow-sky-100/70',
+        strip: 'from-sky-400 via-cyan-400 to-sky-300',
+        meta: 'border-sky-100 bg-sky-50/80',
+        divider: 'border-sky-100'
+    },
+    {
+        shell: 'border-emerald-200 bg-gradient-to-br from-white via-emerald-50/60 to-lime-50/75 shadow-emerald-100/70',
+        strip: 'from-emerald-400 via-lime-400 to-emerald-300',
+        meta: 'border-emerald-100 bg-emerald-50/80',
+        divider: 'border-emerald-100'
+    },
+    {
+        shell: 'border-fuchsia-200 bg-gradient-to-br from-white via-fuchsia-50/60 to-rose-50/75 shadow-fuchsia-100/70',
+        strip: 'from-fuchsia-400 via-pink-400 to-rose-300',
+        meta: 'border-fuchsia-100 bg-fuchsia-50/80',
+        divider: 'border-fuchsia-100'
+    },
+    {
+        shell: 'border-amber-200 bg-gradient-to-br from-white via-amber-50/60 to-orange-50/75 shadow-amber-100/70',
+        strip: 'from-amber-400 via-orange-400 to-amber-300',
+        meta: 'border-amber-100 bg-amber-50/80',
+        divider: 'border-amber-100'
+    }
+];
+const getMobileJourneyCardTheme = (index = 0) => MOBILE_JOURNEY_CARD_THEMES[index % MOBILE_JOURNEY_CARD_THEMES.length];
+const getTimelineTheme = (status = '') => {
+    const key = String(status || '').toLowerCase();
+    if (key === 'cancelled') {
+        return {
+            shell: 'border-red-200 bg-gradient-to-br from-white via-rose-50/60 to-red-50/75',
+            panel: 'border-red-100 bg-red-50/70',
+            title: 'text-red-800',
+            dot: 'bg-red-500'
+        };
+    }
+    if (key === 'pending' || key === 'expired') {
+        return {
+            shell: 'border-amber-200 bg-gradient-to-br from-white via-amber-50/60 to-orange-50/75',
+            panel: 'border-amber-100 bg-amber-50/70',
+            title: 'text-amber-800',
+            dot: 'bg-amber-500'
+        };
+    }
+    return {
+        shell: 'border-emerald-200 bg-gradient-to-br from-white via-emerald-50/60 to-teal-50/75',
+        panel: 'border-emerald-100 bg-emerald-50/70',
+        title: 'text-emerald-800',
+        dot: 'bg-emerald-500'
+    };
+};
 
 const numberArrayInput = (value) => {
     if (Array.isArray(value)) return value.join(',');
@@ -91,39 +143,184 @@ const parseIntegerCsv = (value, { min = 0, fieldLabel = 'Field' } = {}) => {
 
 const statusClass = (status) => {
     const key = String(status || '').toLowerCase();
-    if (key === 'pending') return 'bg-amber-100 text-amber-900 border border-amber-200';
-    if (key === 'recovered') return 'bg-lime-100 text-lime-800 border border-lime-200';
-    if (key === 'active') return 'bg-sky-100 text-sky-800 border border-sky-200';
-    if (key === 'expired') return 'bg-fuchsia-100 text-fuchsia-800 border border-fuchsia-200';
-    if (key === 'cancelled') return 'bg-red-100 text-red-800 border border-red-200';
-    return 'bg-amber-100 text-amber-900 border border-amber-200';
+    if (key === 'pending') return 'bg-amber-200 text-amber-950 border border-amber-300';
+    if (key === 'recovered') return 'bg-lime-200 text-emerald-950 border border-lime-300';
+    if (key === 'active') return 'bg-sky-200 text-sky-950 border border-sky-300';
+    if (key === 'expired') return 'bg-fuchsia-200 text-rose-950 border border-fuchsia-300';
+    if (key === 'cancelled') return 'bg-red-200 text-red-950 border border-red-300';
+    return 'bg-amber-200 text-amber-950 border border-amber-300';
 };
 const inr = (value) => `₹${Number(value || 0).toLocaleString()}`;
+const normalizeText = (value = '') => String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+const formatCurrencyWithCode = (subunits = 0, currency = 'INR') => {
+    const amount = Number(subunits || 0) / 100;
+    return `${String(currency || 'INR').toUpperCase()} ${amount.toFixed(2)}`;
+};
+const formatPreviewDate = (value = '') => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return raw;
+    return parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+const stripHtml = (value = '') => String(value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+const firstNonEmpty = (...values) => values.map((value) => normalizeText(value)).find(Boolean) || '';
+const getCallHref = (mobile = '') => {
+    const digits = String(mobile || '').replace(/\D/g, '');
+    return digits ? `tel:${digits}` : '';
+};
+const getWhatsappHref = (mobile = '') => {
+    const digits = String(mobile || '').replace(/\D/g, '');
+    if (!digits) return '';
+    const full = digits.length === 10 ? `91${digits}` : digits;
+    return `https://wa.me/${full}`;
+};
 const formatCustomerContacts = (journey) => {
     const email = String(journey?.customer_email || '').trim();
     const mobile = String(journey?.customer_mobile || '').trim();
     if (email && mobile) return `${email} | ${mobile}`;
     return email || mobile || '—';
 };
-const getWhatsappPreviewText = (attempt = {}) => {
-    const whatsapp = attempt?.response_json?.whatsapp || {};
-    return (
-        whatsapp.preview
-        || whatsapp.message
-        || whatsapp.body
-        || whatsapp.content
-        || whatsapp.reason
-        || attempt?.error_message
-        || 'No WhatsApp preview available for this attempt yet.'
-    );
+const buildRecoverySubject = ({ attemptNo = 1, discountPercent = 0 } = {}) => {
+    const idx = Math.max(0, Number(attemptNo || 1) - 1);
+    if (Number(discountPercent || 0) > 0) {
+        const discountSubjects = [
+            `A little treat for you: ${discountPercent}% OFF on your saved cart`,
+            `Your favourites now come with ${discountPercent}% OFF`,
+            `Good news: unlock ${discountPercent}% OFF before your cart expires`,
+            `Your saved picks now have ${discountPercent}% OFF waiting`,
+            `Before it is gone: enjoy ${discountPercent}% OFF on your cart`,
+            `Final reminder: claim ${discountPercent}% OFF on your cart`,
+            `Special cart recovery: ${discountPercent}% OFF is active`,
+            `Your curated picks with ${discountPercent}% OFF are ready`,
+            `Checkout incentive: ${discountPercent}% OFF available now`,
+            `Do not miss ${discountPercent}% OFF on your saved cart`,
+            `Recovery offer unlocked: ${discountPercent}% OFF`,
+            `Secure your selection with ${discountPercent}% OFF today`
+        ];
+        return discountSubjects[Math.min(idx, discountSubjects.length - 1)];
+    }
+    const regularSubjects = [
+        'You left something beautiful behind',
+        'Your favourites are still waiting for you',
+        'Still thinking it over? Your cart is ready',
+        'Your saved picks are waiting for checkout',
+        'A quick reminder: your cart is still live',
+        'Last chance to complete your saved cart',
+        'We saved your cart so checkout is easy',
+        'Your selected items are still available',
+        'Your cart is waiting for a final step',
+        'Continue your order in one click',
+        'Your SSC Jewellery cart is preserved',
+        'Friendly reminder: your cart is active'
+    ];
+    return regularSubjects[Math.min(idx, regularSubjects.length - 1)];
 };
 
-const getEmailPreviewText = (attempt = {}) => {
-    const email = attempt?.response_json?.email || {};
-    const subject = email.subject ? `Subject: ${email.subject}` : '';
-    const body = email.preview || email.message || email.body || email.content || email.reason || '';
-    const parts = [subject, body].filter(Boolean);
-    return parts.join('\n\n') || attempt?.error_message || 'No email preview available for this attempt yet.';
+const buildAttemptReminderMessage = (attemptNo = 1) => {
+    const messages = [
+        'It looks like you added some items to your cart but did not complete your purchase.',
+        'Your saved items are still waiting in your cart.',
+        'Your selected pieces are still available for checkout.',
+        'Your cart is active and ready whenever you are.',
+        'Your favourites are still in cart and can sell out fast.',
+        'Your cart is still open and ready for a quick checkout.',
+        'This is a reminder that your saved cart is waiting.',
+        'Your cart is still available if you want to complete the order.',
+        'We kept your cart ready so you can continue easily.',
+        'Your pending cart can be completed in just a few steps.'
+    ];
+    const idx = Math.min(messages.length - 1, Math.max(0, Number(attemptNo || 1) - 1));
+    return messages[idx] || messages[0];
+};
+
+const buildWhatsappPreviewText = (attempt = {}, journey = {}) => {
+    const response = attempt?.response_json?.whatsapp || {};
+    const directText = firstNonEmpty(
+        response.preview,
+        response.message,
+        response.body,
+        response.content,
+        response.reason
+    );
+    if (directText && !['whatsapp_send_failed', 'whatsapp_disabled'].includes(String(response.reason || '').toLowerCase())) {
+        return directText;
+    }
+
+    const payload = attempt?.payload_json || {};
+    const name = normalizeText(journey?.customer_name || 'Customer') || 'Customer';
+    const attemptNo = Number(payload?.attemptNo || attempt?.attempt_no || 1);
+    const reminderMessage = firstNonEmpty(payload?.attemptMessage, buildAttemptReminderMessage(attemptNo));
+    const cartValue = formatCurrencyWithCode(payload?.cartValueSubunits || 0, journey?.currency || 'INR');
+    const discountPercent = Math.max(0, Number(payload?.discountPercent || 0));
+    const discountLabel = firstNonEmpty(payload?.discountLabel, discountPercent > 0 ? `${discountPercent}% OFF` : 'Special offer');
+    const validUntil = formatPreviewDate(payload?.validUntil || payload?.linkExpiry || '');
+    const paymentLinkUrl = firstNonEmpty(payload?.paymentLinkUrl, payload?.checkoutUrl);
+    const message = payload?.discountCode
+        ? `Hello ${name}, ${reminderMessage} Coupon: ${payload.discountCode}. Discount: ${discountLabel}. Valid Until: ${validUntil || 'Limited period'}.`
+        : `Hello ${name}, ${reminderMessage} Cart Value: ${cartValue}.`;
+    const failure = firstNonEmpty(attempt?.error_message, response.message, response.reason);
+    return [message, paymentLinkUrl ? `Link: ${paymentLinkUrl}` : '', failure && failure !== message ? `Delivery note: ${failure}` : '']
+        .filter(Boolean)
+        .join('\n\n')
+        || 'No WhatsApp preview available for this attempt yet.';
+};
+
+const buildEmailPreviewText = (attempt = {}, journey = {}) => {
+    const response = attempt?.response_json?.email || {};
+    const directSubject = firstNonEmpty(response.subject);
+    const directBody = firstNonEmpty(
+        response.preview,
+        response.message,
+        response.body,
+        response.content,
+        stripHtml(response.html)
+    );
+    if (directSubject || directBody) {
+        return [directSubject ? `Subject: ${directSubject}` : '', directBody].filter(Boolean).join('\n\n');
+    }
+
+    const payload = attempt?.payload_json || {};
+    const attemptNo = Number(payload?.attemptNo || attempt?.attempt_no || 1);
+    const discountPercent = Math.max(0, Number(payload?.discountPercent || 0));
+    const subject = buildRecoverySubject({ attemptNo, discountPercent });
+    const shippingValue = Number.isFinite(Number(payload?.shippingFeeSubunits))
+        ? formatCurrencyWithCode(payload?.shippingFeeSubunits || 0, journey?.currency || 'INR')
+        : '';
+    const totalValue = Number.isFinite(Number(payload?.totalWithShippingSubunits))
+        ? formatCurrencyWithCode(payload?.totalWithShippingSubunits || 0, journey?.currency || 'INR')
+        : '';
+    const paymentLinkUrl = firstNonEmpty(payload?.paymentLinkUrl, payload?.checkoutUrl);
+    const expiryText = formatPreviewDate(payload?.linkExpiry || '');
+    const lines = [
+        `Hi ${normalizeText(journey?.customer_name || 'there') || 'there'},`,
+        `Your cart (${formatCurrencyWithCode(payload?.cartValueSubunits || 0, journey?.currency || 'INR')}) is waiting.`,
+        shippingValue ? `Shipping: ${shippingValue}` : '',
+        totalValue ? `Total to pay: ${totalValue}` : '',
+        expiryText ? `Pay before ${expiryText}.` : '',
+        payload?.discountCode && discountPercent > 0
+            ? `Use code ${payload.discountCode} for ${discountPercent}% OFF.`
+            : 'Complete your purchase before items go out of stock.',
+        'Review your items, confirm details, and complete checkout.',
+        'Need help? Reply to this email and our support team will assist you.',
+        paymentLinkUrl ? `Continue here: ${paymentLinkUrl}` : ''
+    ].filter(Boolean).join('\n');
+    const failure = firstNonEmpty(attempt?.error_message, response.message, response.reason);
+    return [
+        subject ? `Subject: ${subject}` : '',
+        lines,
+        failure ? `Delivery note: ${failure}` : ''
+    ].filter(Boolean).join('\n\n') || 'No email preview available for this attempt yet.';
+};
+
+const attemptHasChannelData = (attempt = {}, channel = '') => {
+    const channels = Array.isArray(attempt?.channels_json) ? attempt.channels_json : Array.isArray(attempt?.channels) ? attempt.channels : [];
+    if (channels.includes(channel)) return true;
+    const response = attempt?.response_json?.[channel];
+    if (!response || typeof response !== 'object') return false;
+    const reason = String(response.reason || '').toLowerCase();
+    if (response.skipped && ['email_disabled_or_missing', 'whatsapp_disabled'].includes(reason)) return false;
+    return true;
 };
 const JOURNEY_PAGE_SIZE = 20;
 const MAX_CAMPAIGN_ATTEMPTS = 6;
@@ -486,15 +683,14 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
         try {
             const timeline = await adminService.getAbandonedCartJourneyTimeline(journey.id);
             const attempts = Array.isArray(timeline?.attempts) ? timeline.attempts : [];
-            const latestAttempt = [...attempts].reverse().find((attempt) => {
-                const channels = Array.isArray(attempt?.channels_json) ? attempt.channels_json : Array.isArray(attempt?.channels) ? attempt.channels : [];
-                return channels.includes(channel) || attempt?.response_json?.[channel];
-            }) || attempts[attempts.length - 1] || {};
-            const content = channel === 'whatsapp' ? getWhatsappPreviewText(latestAttempt) : getEmailPreviewText(latestAttempt);
+            const latestAttempt = [...attempts].reverse().find((attempt) => attemptHasChannelData(attempt, channel)) || attempts[attempts.length - 1] || {};
+            const content = channel === 'whatsapp'
+                ? buildWhatsappPreviewText(latestAttempt, journey)
+                : buildEmailPreviewText(latestAttempt, journey);
             setMessagePreview({
                 isOpen: true,
                 channel,
-                title: `${label} Preview`,
+                title: `${label} Preview${latestAttempt?.attempt_no ? ` · Attempt #${latestAttempt.attempt_no}` : ''}`,
                 content,
                 loading: false
             });
@@ -805,14 +1001,6 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-3 md:block">
                         <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Abandoned Cart Recovery</h1>
-                        <div className={`inline-flex shrink-0 whitespace-nowrap items-center gap-2 rounded-full border px-2.5 py-1.5 text-xs font-semibold md:hidden ${
-                            storefrontOpen
-                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                                : 'border-gray-300 bg-gray-100 text-gray-800'
-                        }`}>
-                            <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
-                            {storefrontOpen ? 'Store Open' : 'Store Closed'}
-                        </div>
                     </div>
                     <p className="text-sm text-gray-500 mt-1">Campaign settings, recovery insights, journeys and timelines.</p>
                 </div>
@@ -980,66 +1168,111 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                             ) : '—'}
                                         </td>
                                         <td className="px-5 py-3 text-right">
-                                            {journey.source_type === 'candidate' ? (
-                                                <span className="text-[11px] font-medium text-gray-400">Waiting for inactivity window</span>
-                                            ) : (
-                                                <button type="button" onClick={() => openTimeline(journey.id)} className="px-3 py-1.5 rounded-md border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50">Timeline</button>
-                                            )}
+                                            <div className="flex items-center justify-end gap-2">
+                                                {!!getCallHref(journey.customer_mobile) && (
+                                                    <a href={getCallHref(journey.customer_mobile)} className="p-1.5 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100" title="Call Customer">
+                                                        <Phone size={14} />
+                                                    </a>
+                                                )}
+                                                {!!getWhatsappHref(journey.customer_mobile) && (
+                                                    <a href={getWhatsappHref(journey.customer_mobile)} target="_blank" rel="noreferrer" className="p-1.5 rounded-md border border-green-200 bg-green-50 text-green-700 shadow-sm transition-colors hover:bg-green-100" title="Contact customer on WhatsApp">
+                                                        <MessageCircle size={14} />
+                                                    </a>
+                                                )}
+                                                {journey.user_id && (
+                                                    <button type="button" onClick={() => openCart(journey)} className="relative p-1.5 rounded-md border border-amber-200 bg-amber-50 text-amber-700 shadow-sm transition-colors hover:bg-amber-100" title="View Cart">
+                                                        <ShoppingCart size={14} />
+                                                    </button>
+                                                )}
+                                                <button type="button" onClick={() => openMessagePreview(journey, 'whatsapp')} className="p-1.5 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100" title="Preview WhatsApp message">
+                                                    <Send size={14} />
+                                                </button>
+                                                <button type="button" onClick={() => openMessagePreview(journey, 'email')} className="p-1.5 rounded-md border border-sky-200 bg-sky-50 text-sky-700 shadow-sm transition-colors hover:bg-sky-100" title="Preview Email">
+                                                    <Mail size={14} />
+                                                </button>
+                                                {journey.source_type === 'candidate' ? (
+                                                    <span className="ml-2 text-[11px] font-medium text-gray-400">Waiting for inactivity window</span>
+                                                ) : (
+                                                    <button type="button" onClick={() => openTimeline(journey.id)} className="px-3 py-1.5 rounded-md border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50">Timeline</button>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
-                    <div className="md:hidden divide-y divide-gray-100">
-                        {journeys.map((journey) => (
-                            <div key={journey.id} className="p-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="space-y-1">
-                                        <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Journey</p>
-                                        <p className="text-sm font-semibold text-gray-800">#{journey.id}</p>
-                                        <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Customer</p>
-                                        <p className="text-sm font-medium text-gray-700">{journey.customer_name || 'Guest'}</p>
-                                        <p className="text-xs text-gray-400">{formatCustomerContacts(journey)}</p>
-                                        <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Cart Value</p>
-                                        <p className="text-sm font-semibold text-gray-800">{inr((Number(journey.cart_total_subunits || 0) / 100))}</p>
+                    <div className="md:hidden space-y-4 p-4">
+                        {journeys.map((journey, index) => {
+                            const theme = getMobileJourneyCardTheme(index);
+                            return (
+                                <div key={journey.id} className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${theme.shell}`}>
+                                    <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${theme.strip}`} />
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <p className="text-[11px] uppercase tracking-[0.2em] text-gray-400 font-semibold">Journey</p>
+                                            <p className="mt-1 text-sm font-semibold text-gray-800">#{journey.id}</p>
+                                            <p className="mt-2 text-sm font-medium text-gray-700">{journey.customer_name || 'Guest'}</p>
+                                            <p className="text-xs text-gray-400">{formatCustomerContacts(journey)}</p>
+                                        </div>
+                                        <div className="flex shrink-0 flex-col items-end gap-1.5">
+                                            <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${statusClass(journey.status)}`}>{journey.status}</span>
+                                            {!!journey.recovered_order_ref && (
+                                                <p className="max-w-[110px] text-right text-[11px] text-emerald-700">Recovered by {journey.recovered_order_ref}</p>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div className="space-y-1">
-                                        <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Status</p>
-                                        <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${statusClass(journey.status)}`}>{journey.status}</span>
-                                        {!!journey.recovered_order_ref && (
-                                            <p className="text-[11px] text-emerald-700">Recovered by {journey.recovered_order_ref}</p>
-                                        )}
-                                        <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Attempts</p>
-                                        <p className="text-sm text-gray-700">{Number(journey.last_attempt_no || 0)}</p>
-                                        <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Last Activity</p>
-                                        <p className="text-xs text-gray-500">{formatAdminDateTime(journey.computed_last_activity_at || journey.last_activity_at || journey.updated_at)}</p>
-                                        <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold mt-1">Next Attempt</p>
-                                        <p className="text-xs text-gray-500">{journey.next_attempt_at ? `#${Number(journey.last_attempt_no || 0) + 1} · ${formatAdminDateTime(journey.next_attempt_at)}` : '—'}</p>
+                                    <div className={`mt-3 grid grid-cols-2 gap-3 rounded-2xl border px-3 py-3 ${theme.meta}`}>
+                                        <div>
+                                            <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Cart Value</p>
+                                            <p className="mt-1 text-sm font-semibold text-gray-800">{inr((Number(journey.cart_total_subunits || 0) / 100))}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Attempts</p>
+                                            <p className="mt-1 text-sm text-gray-700">{Number(journey.last_attempt_no || 0)}</p>
+                                        </div>
+                                        <div>
+                                            <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Last Activity</p>
+                                            <p className="mt-1 text-xs text-gray-500">{formatAdminDateTime(journey.computed_last_activity_at || journey.last_activity_at || journey.updated_at)}</p>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Next Attempt</p>
+                                            <p className="mt-1 text-xs text-gray-500">{journey.next_attempt_at ? `#${Number(journey.last_attempt_no || 0) + 1} · ${formatAdminDateTime(journey.next_attempt_at)}` : '—'}</p>
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="mt-3 flex items-center justify-between gap-3">
-                                    <div className="flex items-center gap-1.5">
-                                        {journey.user_id && (
-                                            <button type="button" onClick={() => openCart(journey)} className="relative p-1.5 rounded-md border border-gray-200 text-gray-500 transition-colors hover:text-primary hover:bg-gray-50" title="View Cart">
-                                                <ShoppingCart size={14} />
+                                    <div className={`mt-3 flex items-center justify-between gap-3 border-t pt-3 ${theme.divider}`}>
+                                        <div className="flex items-center gap-1.5">
+                                            {!!getCallHref(journey.customer_mobile) && (
+                                                <a href={getCallHref(journey.customer_mobile)} className="p-1.5 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100" title="Call Customer">
+                                                    <Phone size={14} />
+                                                </a>
+                                            )}
+                                            {!!getWhatsappHref(journey.customer_mobile) && (
+                                                <a href={getWhatsappHref(journey.customer_mobile)} target="_blank" rel="noreferrer" className="p-1.5 rounded-md border border-green-200 bg-green-50 text-green-700 shadow-sm transition-colors hover:bg-green-100" title="Contact customer on WhatsApp">
+                                                    <MessageCircle size={14} />
+                                                </a>
+                                            )}
+                                            {journey.user_id && (
+                                                <button type="button" onClick={() => openCart(journey)} className="relative p-1.5 rounded-md border border-amber-200 bg-amber-50 text-amber-700 shadow-sm transition-colors hover:bg-amber-100" title="View Cart">
+                                                    <ShoppingCart size={14} />
+                                                </button>
+                                            )}
+                                            <button type="button" onClick={() => openMessagePreview(journey, 'whatsapp')} className="p-1.5 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 shadow-sm transition-colors hover:bg-emerald-100" title="Preview WhatsApp message">
+                                                <Send size={14} />
                                             </button>
+                                            <button type="button" onClick={() => openMessagePreview(journey, 'email')} className="p-1.5 rounded-md border border-sky-200 bg-sky-50 text-sky-700 shadow-sm transition-colors hover:bg-sky-100" title="Preview Email">
+                                                <Mail size={14} />
+                                            </button>
+                                        </div>
+                                        {journey.source_type === 'candidate' ? (
+                                            <span className="text-right text-[11px] font-medium text-gray-400">Waiting for inactivity window</span>
+                                        ) : (
+                                            <button type="button" onClick={() => openTimeline(journey.id)} className="rounded-md border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 shadow-sm hover:bg-violet-100">Timeline</button>
                                         )}
-                                        <button type="button" onClick={() => openMessagePreview(journey, 'whatsapp')} className="p-1.5 rounded-md border border-gray-200 text-gray-500 transition-colors hover:text-green-700 hover:bg-green-50" title="Preview WhatsApp">
-                                            <MessageCircle size={14} />
-                                        </button>
-                                        <button type="button" onClick={() => openMessagePreview(journey, 'email')} className="p-1.5 rounded-md border border-gray-200 text-gray-500 transition-colors hover:text-sky-700 hover:bg-sky-50" title="Preview Email">
-                                            <Mail size={14} />
-                                        </button>
                                     </div>
-                                    {journey.source_type === 'candidate' ? (
-                                        <span className="text-right text-[11px] font-medium text-gray-400">Waiting for inactivity window</span>
-                                    ) : (
-                                        <button type="button" onClick={() => openTimeline(journey.id)} className="px-3 py-1.5 rounded-md border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50">Timeline</button>
-                                    )}
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                     <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
                         <p className="text-xs text-gray-500">
@@ -1240,6 +1473,9 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
 
             {selectedTimeline && createPortal(
                 <div className="fixed inset-0 z-[80] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
+                    {(() => {
+                        const timelineTheme = getTimelineTheme(selectedTimeline?.journey?.status);
+                        return (
                     <div className="bg-white w-full max-w-xl h-full overflow-y-auto p-6 shadow-2xl">
                         <div className="flex items-center justify-between">
                             <h3 className="text-lg font-semibold text-gray-800">Journey Timeline #{selectedTimeline?.journey?.id}</h3>
@@ -1250,8 +1486,8 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                             <div className="py-14 text-center text-gray-400">Loading timeline...</div>
                         ) : (
                             <div className="space-y-5 mt-4">
-                                <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                                    <p className="text-xs text-gray-500 uppercase">Journey Status</p>
+                                <div className={`rounded-2xl border p-4 ${timelineTheme.shell}`}>
+                                    <p className={`text-xs font-semibold uppercase tracking-widest ${timelineTheme.title}`}>Journey Status</p>
                                     <p className="text-sm font-semibold text-gray-800 mt-1">{selectedTimeline?.journey?.status}</p>
                                     {selectedTimeline?.journey?.recovery_reason && (
                                         <p className="text-xs text-gray-500 mt-1">Reason: {selectedTimeline?.journey?.recovery_reason}</p>
@@ -1280,10 +1516,10 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                 </div>
 
                                 <div>
-                                    <p className="text-xs text-gray-500 uppercase mb-2">Attempts</p>
+                                    <p className={`mb-2 text-xs font-semibold uppercase tracking-widest ${timelineTheme.title}`}>Attempts</p>
                                     <div className="space-y-3">
                                         {(selectedTimeline?.attempts || []).map((attempt) => (
-                                            <div key={attempt.id} className="border border-gray-200 rounded-xl p-3">
+                                            <div key={attempt.id} className={`rounded-2xl border p-3 ${timelineTheme.panel}`}>
                                                 <div className="flex items-center justify-between">
                                                     <p className="text-sm font-semibold text-gray-800">Attempt #{attempt.attempt_no}</p>
                                                     <span className={`text-[11px] px-2 py-0.5 rounded-full border ${attempt.status === 'sent' ? 'bg-emerald-950 text-emerald-100 border-emerald-700' : attempt.status === 'failed' ? 'bg-red-950 text-red-100 border-red-700' : 'bg-slate-900 text-slate-100 border-slate-700'}`}>{attempt.status}</span>
@@ -1323,10 +1559,10 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                 </div>
 
                                 <div>
-                                    <p className="text-xs text-gray-500 uppercase mb-2">Discounts</p>
+                                    <p className={`mb-2 text-xs font-semibold uppercase tracking-widest ${timelineTheme.title}`}>Discounts</p>
                                     <div className="space-y-2">
                                         {(selectedTimeline?.discounts || []).map((discount) => (
-                                            <div key={discount.id} className="border border-gray-200 rounded-lg p-3 text-sm text-gray-700">
+                                            <div key={discount.id} className={`rounded-xl border p-3 text-sm text-gray-700 ${timelineTheme.panel}`}>
                                                 <p className="font-semibold">{discount.code}</p>
                                                 <p className="text-xs text-gray-500">{discount.discount_percent || 0}% · {discount.status}</p>
                                             </div>
@@ -1345,6 +1581,8 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                             </div>
                         )}
                     </div>
+                        );
+                    })()}
                 </div>,
                 document.body
             )}

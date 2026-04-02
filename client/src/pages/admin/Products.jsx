@@ -149,6 +149,41 @@ const getStockBadgeMeta = (product = {}) => {
         icon: PackageX
     };
 };
+const MOBILE_PRODUCT_CARD_THEMES = [
+    {
+        shell: 'border-sky-200 bg-gradient-to-br from-white via-sky-50/65 to-cyan-50/80 shadow-sky-100/60',
+        strip: 'from-sky-400 via-cyan-400 to-sky-300',
+        media: 'border-sky-100 bg-sky-50/60',
+        chip: 'border-sky-100 bg-sky-50 text-sky-700',
+        divider: 'border-sky-100',
+        action: 'border-gray-200 bg-white/90'
+    },
+    {
+        shell: 'border-emerald-200 bg-gradient-to-br from-white via-emerald-50/65 to-lime-50/80 shadow-emerald-100/60',
+        strip: 'from-emerald-400 via-lime-400 to-emerald-300',
+        media: 'border-emerald-100 bg-emerald-50/60',
+        chip: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+        divider: 'border-emerald-100',
+        action: 'border-gray-200 bg-white/90'
+    },
+    {
+        shell: 'border-fuchsia-200 bg-gradient-to-br from-white via-fuchsia-50/60 to-rose-50/80 shadow-fuchsia-100/60',
+        strip: 'from-fuchsia-400 via-pink-400 to-rose-300',
+        media: 'border-fuchsia-100 bg-fuchsia-50/60',
+        chip: 'border-fuchsia-100 bg-fuchsia-50 text-fuchsia-700',
+        divider: 'border-fuchsia-100',
+        action: 'border-gray-200 bg-white/90'
+    },
+    {
+        shell: 'border-amber-200 bg-gradient-to-br from-white via-amber-50/60 to-orange-50/80 shadow-amber-100/60',
+        strip: 'from-amber-400 via-orange-400 to-amber-300',
+        media: 'border-amber-100 bg-amber-50/60',
+        chip: 'border-amber-100 bg-amber-50 text-amber-700',
+        divider: 'border-amber-100',
+        action: 'border-gray-200 bg-white/90'
+    }
+];
+const getMobileProductCardTheme = (index = 0) => MOBILE_PRODUCT_CARD_THEMES[index % MOBILE_PRODUCT_CARD_THEMES.length];
 
 export default function Products({ onNavigate, storefrontOpen = true, focusProductId = null, onFocusHandled = () => {} }) {
     const [allProducts, setAllProducts] = useState([]);
@@ -681,14 +716,6 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                 <div className="w-full">
                     <div className="flex items-center justify-between gap-3 md:block">
                         <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Products</h1>
-                        <div className={`inline-flex md:hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                            storefrontOpen
-                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                                : 'border-gray-300 bg-gray-100 text-gray-800'
-                        }`}>
-                            <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
-                            {storefrontOpen ? 'Store Open' : 'Store Closed'}
-                        </div>
                     </div>
                     <p className="text-gray-500 text-sm mt-1">Manage your catalogue</p>
                 </div>
@@ -766,7 +793,7 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                         setFilterStatus((prev) => (prev === 'inactive' ? 'active' : 'inactive'));
                         setPage(1);
                     }}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-100 bg-gradient-to-br from-white to-slate-50/80 text-slate-700 shadow-sm shadow-slate-100/50"
                     aria-label={filterStatus === 'inactive' ? 'Showing hidden products' : 'Showing active products'}
                     title={filterStatus === 'inactive' ? 'Showing hidden products' : 'Showing active products'}
                 >
@@ -779,7 +806,7 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                         setFilterStock((prev) => getNextStockFilter(prev));
                         setPage(1);
                     }}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-100 bg-gradient-to-br from-white to-emerald-50/80 text-emerald-700 shadow-sm shadow-emerald-100/50"
                     aria-label={getStockFilterLabel(filterStock)}
                     title={getStockFilterLabel(filterStock)}
                 >
@@ -791,7 +818,7 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                 <button
                     type="button"
                     onClick={() => onNavigate('categories')}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-amber-100 bg-gradient-to-br from-white to-amber-50/80 text-amber-700 shadow-sm shadow-amber-100/50"
                     aria-label="Manage categories"
                 >
                     <LayoutGrid size={17} />
@@ -799,7 +826,7 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                 <button
                     type="button"
                     onClick={() => setIsMobileSearchModalOpen(true)}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-fuchsia-100 bg-gradient-to-br from-white to-fuchsia-50/80 text-fuchsia-700 shadow-sm shadow-fuchsia-100/50"
                     aria-label="Search products"
                 >
                     <Search size={17} />
@@ -808,7 +835,7 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                     <button
                         type="button"
                         onClick={() => setIsMobileAudienceModalOpen(true)}
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-sky-100 bg-gradient-to-br from-white to-sky-50/80 text-sky-700 shadow-sm shadow-sky-100/50"
                         aria-label="Filter by audience"
                         title="Filter by audience"
                     >
@@ -818,7 +845,7 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                 <button
                     type="button"
                     onClick={() => setIsMobileFilterModalOpen(true)}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-rose-100 bg-gradient-to-br from-white to-rose-50/80 text-rose-700 shadow-sm shadow-rose-100/50"
                     aria-label="Filter products"
                 >
                     <Filter size={17} />
@@ -961,7 +988,7 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                 <>
                     {/* 1. MOBILE LIST (Card View) */}
                     <div className="grid grid-cols-1 gap-4 md:hidden">
-                        {paginatedProducts.map(product => {
+                        {paginatedProducts.map((product, index) => {
                             // --- 1. CALCULATE PRICE DISPLAY (Same as Desktop) ---
                             let priceDisplay;
                             if (product.variants && product.variants.length > 1) { // FIX: Only range if >1 variant
@@ -979,29 +1006,32 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                             const isInactive = product.status !== 'active';
                             const stockBadge = getStockBadgeMeta(product);
                             const StockBadgeIcon = stockBadge.icon;
+                            const theme = getMobileProductCardTheme(index);
                             const cardClasses = isInactive 
-                                ? "p-4 bg-gray-50 rounded-xl shadow-sm border border-gray-100 flex gap-4 grayscale opacity-80" 
-                                : "p-4 bg-white rounded-xl shadow-sm border border-gray-100 flex gap-4";
+                                ? `relative overflow-hidden rounded-2xl border px-3.5 pb-3.5 pt-4 shadow-sm grayscale opacity-80 ${theme.shell}` 
+                                : `relative overflow-hidden rounded-2xl border px-3.5 pb-3.5 pt-4 shadow-sm ${theme.shell}`;
 
                             // --- 3. ROBUST TRACKING CHECK ---
                             const isTracked = isTrackedStock(product);
 
                             return (
                                 <div key={product.id} className={cardClasses}>
-                                    {/* Image */}
-                                    <div className="w-20 h-24 rounded-lg bg-gray-100 overflow-hidden shrink-0 relative border border-gray-200">
-                                        {product.media && product.media.find(m => m.type === 'image') ? (
-                                            <img src={product.media.find(m => m.type === 'image').url} className="w-full h-full object-cover" alt="" />
-                                        ) : (
-                                            <div className="w-full h-full flex items-center justify-center text-gray-300"><Package size={20}/></div>
-                                        )}
-                                    </div>
+                                    <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${theme.strip}`} />
+                                    <div className="flex gap-3.5">
+                                        <div className={`h-24 w-20 shrink-0 overflow-hidden rounded-xl border ${theme.media}`}>
+                                            {product.media && product.media.find(m => m.type === 'image') ? (
+                                                <img src={product.media.find(m => m.type === 'image').url} className="w-full h-full object-cover" alt="" />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-gray-300"><Package size={20}/></div>
+                                            )}
+                                        </div>
 
-                                    {/* Content */}
-                                    <div className="flex-1 flex flex-col justify-between">
-                                        <div>
-                                            <div className="flex justify-between items-start">
-                                                <h3 className="font-bold text-gray-800 line-clamp-1 mr-2">{product.title}</h3>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="min-w-0">
+                                                    <h3 className="font-bold text-gray-800 line-clamp-2 mr-2">{product.title}</h3>
+                                                    <p className="mt-0.5 text-[11px] text-gray-500 line-clamp-1">{product.sku || 'No SKU'}</p>
+                                                </div>
                                                 <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
                                                     {productStatusToggleEnabled ? (
                                                         isInactive ? (
@@ -1016,29 +1046,34 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                                                     </span>
                                                 </div>
                                             </div>
-                                            
-                                            <div className="flex items-center gap-2 mt-1">
-                                                <span className="text-primary font-bold">{priceDisplay}</span>
+                                        </div>
+                                    </div>
+                                    <div className={`mt-3 rounded-xl border px-3 py-2.5 ${theme.chip}`}>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                                <p className="text-[10px] uppercase tracking-[0.18em] font-semibold text-gray-500">Price</p>
+                                                <p className="mt-1 text-base font-bold text-primary">{priceDisplay}</p>
                                             </div>
-                                            
-                                            {/* Stock Summary */}
                                             {inventoryTrackingEnabled && isTracked && (
-                                                <p className="text-xs text-gray-500 mt-1">
-                                                    {product.variants?.length > 0 
-                                                        ? `${product.variants.reduce((acc, v) => {
-                                                            const vTracked = String(v.track_quantity) === '1' || String(v.track_quantity) === 'true' || v.track_quantity === true;
-                                                            return acc + (vTracked ? Number(v.quantity || 0) : 0);
-                                                        }, 0)} units`
-                                                        : `${product.quantity || 0} units`
-                                                    }
-                                                </p>
+                                                <div className="text-right">
+                                                    <p className="text-[10px] uppercase tracking-[0.18em] font-semibold text-gray-500">Tracked</p>
+                                                    <p className="mt-1 text-xs font-medium text-gray-700">
+                                                        {product.variants?.length > 0
+                                                            ? `${product.variants.reduce((acc, v) => {
+                                                                const vTracked = String(v.track_quantity) === '1' || String(v.track_quantity) === 'true' || v.track_quantity === true;
+                                                                return acc + (vTracked ? Number(v.quantity || 0) : 0);
+                                                            }, 0)} units`
+                                                            : `${product.quantity || 0} units`
+                                                        }
+                                                    </p>
+                                                </div>
                                             )}
                                         </div>
+                                    </div>
 
-                                        <div className="flex justify-end gap-2 mt-2">
-                                            <button onClick={() => openEditModal(product)} className="p-2 bg-gray-50 rounded-lg text-gray-600 hover:text-accent-deep"><Edit3 size={16}/></button>
-                                            <button onClick={() => initiateDelete(product)} className="p-2 bg-red-50 rounded-lg text-red-500 hover:bg-red-100"><Trash2 size={16}/></button>
-                                        </div>
+                                    <div className={`mt-3 flex items-center justify-end gap-2 border-t pt-3 ${theme.divider}`}>
+                                        <button onClick={() => openEditModal(product)} className={`p-2 rounded-lg text-gray-600 hover:text-accent-deep ${theme.action}`}><Edit3 size={16}/></button>
+                                        <button onClick={() => initiateDelete(product)} className="p-2 bg-red-50 rounded-lg text-red-500 hover:bg-red-100 border border-red-100"><Trash2 size={16}/></button>
                                     </div>
                                 </div>
                             );
@@ -1046,7 +1081,7 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                     </div>
 
                     {/* 2. DESKTOP LIST (Table View) */}
-                    <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="hidden md:block overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
                         <table className="w-full text-left">
                             <thead className="bg-gray-50 border-b border-gray-200">
                                 <tr>
@@ -1201,9 +1236,19 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                                             </td>
                                             ) : null}
                                             <td className="px-6 py-4 text-right">
-                                                <div className="flex justify-end gap-2 opacity-100 ">
-                                                    <button onClick={() => openEditModal(product)} className="p-2 text-gray-400 hover:text-accent-deep hover:bg-amber-50 rounded-lg transition-colors"><Edit3 size={18} /></button>
-                                                    <button onClick={() => initiateDelete(product)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                                                <div className="flex justify-end gap-2 opacity-100">
+                                                    <button
+                                                        onClick={() => openEditModal(product)}
+                                                        className="rounded-xl border border-amber-100 bg-gradient-to-br from-white to-amber-50/80 p-2 text-amber-700 shadow-sm shadow-amber-100/40 transition-colors hover:from-amber-50 hover:to-amber-100"
+                                                    >
+                                                        <Edit3 size={18} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => initiateDelete(product)}
+                                                        className="rounded-xl border border-rose-100 bg-gradient-to-br from-white to-rose-50/80 p-2 text-rose-600 shadow-sm shadow-rose-100/40 transition-colors hover:from-rose-50 hover:to-rose-100"
+                                                    >
+                                                        <Trash2 size={18} />
+                                                    </button>
                                                 </div>
                                             </td>
                                         </tr>

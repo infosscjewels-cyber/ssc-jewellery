@@ -7,6 +7,8 @@ const ENABLE_PUSH = String(import.meta.env.VITE_ENABLE_PUSH_NOTIFICATIONS ?? 'tr
 const ENABLE_ADMIN_PUSH = String(import.meta.env.VITE_ENABLE_ADMIN_PUSH_NOTIFICATIONS ?? 'true').trim().toLowerCase() !== 'false';
 const VAPID_KEY = String(import.meta.env.VITE_FIREBASE_VAPID_KEY || '').trim();
 const PUSH_PROMPTED_KEY = 'admin_push_notifications_prompted_v1';
+const PUSH_SW_URL = '/firebase-messaging-sw.js';
+const PUSH_SW_SCOPE = '/firebase-push-scope/';
 
 const buildDeviceLabel = () => {
     if (typeof navigator === 'undefined') return 'Admin Browser';
@@ -37,7 +39,9 @@ export const useAdminPushNotifications = (user = null) => {
                 }
                 if (permission !== 'granted' || cancelled) return;
 
-                const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js').catch(() => null);
+                const registration = await navigator.serviceWorker.register(PUSH_SW_URL, {
+                    scope: PUSH_SW_SCOPE
+                }).catch(() => null);
                 if (!registration || cancelled) return;
 
                 const messaging = getMessaging(firebaseApp);

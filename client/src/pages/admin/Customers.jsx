@@ -131,6 +131,49 @@ const getCartLastActivityLabel = (user = {}) => {
     const formatted = formatAdminDateTime(raw);
     return formatted === '—' ? '' : formatted;
 };
+const MOBILE_CARD_THEMES = [
+    {
+        shell: 'border-sky-200 bg-gradient-to-br from-white via-sky-50/60 to-cyan-50/70 shadow-sky-100/70',
+        strip: 'from-sky-400 via-cyan-400 to-sky-300',
+        avatar: 'bg-sky-100 text-sky-900 ring-sky-200',
+        contactIcon: 'bg-sky-100 text-sky-700',
+        emailIcon: 'bg-fuchsia-100 text-fuchsia-700',
+        divider: 'border-sky-100',
+        section: 'bg-sky-50/80 text-sky-800 border-sky-100',
+        cartNote: 'border-sky-200 bg-sky-50 text-sky-800'
+    },
+    {
+        shell: 'border-emerald-200 bg-gradient-to-br from-white via-emerald-50/60 to-lime-50/70 shadow-emerald-100/70',
+        strip: 'from-emerald-400 via-lime-400 to-emerald-300',
+        avatar: 'bg-emerald-100 text-emerald-900 ring-emerald-200',
+        contactIcon: 'bg-emerald-100 text-emerald-700',
+        emailIcon: 'bg-lime-100 text-lime-700',
+        divider: 'border-emerald-100',
+        section: 'bg-emerald-50/80 text-emerald-800 border-emerald-100',
+        cartNote: 'border-emerald-200 bg-emerald-50 text-emerald-800'
+    },
+    {
+        shell: 'border-fuchsia-200 bg-gradient-to-br from-white via-fuchsia-50/55 to-rose-50/70 shadow-fuchsia-100/70',
+        strip: 'from-fuchsia-400 via-pink-400 to-rose-300',
+        avatar: 'bg-fuchsia-100 text-fuchsia-900 ring-fuchsia-200',
+        contactIcon: 'bg-fuchsia-100 text-fuchsia-700',
+        emailIcon: 'bg-rose-100 text-rose-700',
+        divider: 'border-fuchsia-100',
+        section: 'bg-fuchsia-50/80 text-fuchsia-800 border-fuchsia-100',
+        cartNote: 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-800'
+    },
+    {
+        shell: 'border-amber-200 bg-gradient-to-br from-white via-amber-50/60 to-orange-50/70 shadow-amber-100/70',
+        strip: 'from-amber-400 via-orange-400 to-amber-300',
+        avatar: 'bg-amber-100 text-amber-900 ring-amber-200',
+        contactIcon: 'bg-amber-100 text-amber-700',
+        emailIcon: 'bg-orange-100 text-orange-700',
+        divider: 'border-amber-100',
+        section: 'bg-amber-50/80 text-amber-800 border-amber-100',
+        cartNote: 'border-amber-200 bg-amber-50 text-amber-800'
+    }
+];
+const getMobileCustomerCardTheme = (index = 0) => MOBILE_CARD_THEMES[index % MOBILE_CARD_THEMES.length];
 
 export default function Customers({
     storefrontOpen = true,
@@ -772,62 +815,111 @@ export default function Customers({
             {isProfileOpen && selectedUser && createPortal(
                 <div className="fixed inset-0 z-[60] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
                     <div className="bg-white w-full max-w-xl h-full shadow-2xl p-6 overflow-y-auto">
+                        {(() => {
+                            const drawerTheme = getMobileCustomerCardTheme(1);
+                            const profileImage = getCustomerProfileImage(selectedUser);
+                            const callLink = getCallLink(selectedUser.mobile);
+                            const waLink = getWhatsappLink(selectedUser.mobile);
+                            const isBasicTier = String(selectedUser.loyaltyTier || 'regular').toLowerCase() === 'regular';
+                            return (
+                                <>
                         <div className="flex items-center justify-between mb-6">
                             <h3 className="text-xl font-bold text-gray-800">Customer Profile</h3>
                             <button onClick={() => setIsProfileOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><X size={18} /></button>
                         </div>
-                        <div className="mb-4 flex flex-wrap items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={() => openCart(selectedUser)}
-                                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-gray-200 hover:bg-gray-50 text-gray-700"
-                            >
-                                <ShoppingCart size={13} /> View Cart
-                            </button>
-                            {getWhatsappLink(selectedUser.mobile) && (
-                                <a
-                                    href={getWhatsappLink(selectedUser.mobile)}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-gray-200 hover:bg-gray-50 text-gray-700"
-                                >
-                                    <MessageCircle size={13} /> WhatsApp
-                                </a>
-                            )}
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setIsProfileOpen(false);
-                                    onCreateOrderForCustomer?.(selectedUser.id);
-                                }}
-                                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-gray-200 hover:bg-gray-50 text-gray-700"
-                            >
-                                <Plus size={13} /> Create Order
-                            </button>
-                            {canDeleteUser(selectedUser) && (
+                        <div className={`relative mb-6 overflow-hidden rounded-3xl border px-5 pb-5 pt-5 shadow-sm ${drawerTheme.shell}`}>
+                            <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${drawerTheme.strip}`} />
+                            <div className="flex items-start gap-4">
+                                <div className={`mt-0.5 flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-lg ring-1 ${drawerTheme.avatar}`}>
+                                    {profileImage ? (
+                                        <img src={profileImage} alt={selectedUser.name || 'Customer'} className="h-full w-full object-cover" />
+                                    ) : (
+                                        String(selectedUser.name || 'U').charAt(0)
+                                    )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <h4 className="text-lg font-bold text-gray-900">{selectedUser.name}</h4>
+                                            <p className="mt-1 text-sm text-gray-600">{isBasicTier ? 'Basic tier customer' : tierLabel(selectedUser.loyaltyTier || 'regular')}</p>
+                                        </div>
+                                        {selectedUser.isActive === false && (
+                                            <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700">
+                                                Inactive
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className={`mt-3 space-y-2 rounded-2xl border px-4 py-3 ${drawerTheme.section}`}>
+                                <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-x-3">
+                                    <span className={`inline-flex h-7 w-7 items-center justify-center rounded-full ${drawerTheme.contactIcon}`}>
+                                        <Phone size={13} />
+                                    </span>
+                                    <p className={`min-w-0 text-left justify-self-start text-sm ${selectedUser.mobile ? 'text-gray-700' : 'text-gray-400'}`}>{selectedUser.mobile || '—'}</p>
+                                </div>
+                                <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-x-3">
+                                    <span className={`inline-flex h-7 w-7 items-center justify-center rounded-full ${drawerTheme.emailIcon}`}>
+                                        <Mail size={13} />
+                                    </span>
+                                    <p className={`min-w-0 text-left justify-self-start break-all text-sm ${selectedUser.email ? 'text-gray-700' : 'text-gray-400'}`}>{selectedUser.email || '—'}</p>
+                                </div>
+                            </div>
+                            <div className={`mt-4 flex items-center gap-2 overflow-x-auto border-t pt-4 ${drawerTheme.divider}`}>
+                                {callLink && (
+                                    <a
+                                        href={callLink}
+                                        className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 to-cyan-50 px-3 py-2 text-sm font-semibold text-sky-700 shadow-sm shadow-sky-100/60 hover:from-sky-100 hover:to-cyan-100"
+                                    >
+                                        <Phone size={14} />
+                                        <span className="hidden sm:inline">Call</span>
+                                    </a>
+                                )}
+                                {waLink && (
+                                    <a
+                                        href={waLink}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-lime-50 px-3 py-2 text-sm font-semibold text-emerald-700 shadow-sm shadow-emerald-100/60 hover:from-emerald-100 hover:to-lime-100"
+                                    >
+                                        <MessageCircle size={14} />
+                                        <span className="hidden sm:inline">WhatsApp</span>
+                                    </a>
+                                )}
                                 <button
                                     type="button"
-                                    onClick={() => openDeleteModal(selectedUser)}
-                                    className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border ${
-                                        selectedUser.isActive === false
-                                            ? 'border-emerald-200 hover:bg-emerald-50 text-emerald-700'
-                                            : 'border-red-200 hover:bg-red-50 text-red-700'
-                                    }`}
+                                    onClick={() => openCart(selectedUser)}
+                                    className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 px-3 py-2 text-sm font-semibold text-amber-700 shadow-sm shadow-amber-100/60 hover:from-amber-100 hover:to-orange-100"
                                 >
-                                    <Trash2 size={13} /> {selectedUser.isActive === false ? 'Reactivate' : 'Deactivate'}
+                                    <ShoppingCart size={14} />
+                                    <span className="hidden sm:inline">View Cart</span>
                                 </button>
-                            )}
-                        </div>
-                        <div className="bg-gray-50 rounded-2xl p-4 mb-6 border border-gray-100">
-                            <h4 className="text-lg font-bold text-gray-800">{selectedUser.name}</h4>
-                            <p className="text-sm text-gray-500 mt-1">{selectedUser.email || '—'}</p>
-                            <p className="text-sm text-gray-500">{selectedUser.mobile || '—'}</p>
-                            <p className="text-xs text-gray-400 mt-2">Tier: {tierLabel(selectedUser.loyaltyTier || 'regular')}</p>
-                            {selectedUser.isActive === false && (
-                                <p className="mt-2 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
-                                    Inactive customer
-                                </p>
-                            )}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsProfileOpen(false);
+                                        onCreateOrderForCustomer?.(selectedUser.id);
+                                    }}
+                                    className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 px-3 py-2 text-sm font-semibold text-violet-700 shadow-sm shadow-violet-100/60 hover:from-violet-100 hover:to-fuchsia-100"
+                                >
+                                    <Plus size={14} />
+                                    <span className="hidden sm:inline">Create Order</span>
+                                </button>
+                                {canDeleteUser(selectedUser) && (
+                                    <button
+                                        type="button"
+                                        onClick={() => openDeleteModal(selectedUser)}
+                                        className={`inline-flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold shadow-sm ${
+                                            selectedUser.isActive === false
+                                                ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 text-emerald-700 shadow-emerald-100/60 hover:from-emerald-100 hover:to-teal-100'
+                                                : 'border-rose-200 bg-gradient-to-br from-rose-50 to-red-50 text-rose-700 shadow-rose-100/60 hover:from-rose-100 hover:to-red-100'
+                                        }`}
+                                    >
+                                        <Trash2 size={14} />
+                                        <span className="hidden sm:inline">{selectedUser.isActive === false ? 'Reactivate' : 'Deactivate'}</span>
+                                    </button>
+                                )}
+                            </div>
                         </div>
                         <div className="grid grid-cols-2 gap-4 mb-6">
                             <div className="p-4 rounded-xl border border-gray-200 bg-white"><p className="text-xs text-gray-400 font-bold uppercase">Overall Volume</p><p className="text-lg font-bold text-gray-800 mt-1">₹{Number(selectedUser.totalSpend || 0).toLocaleString('en-IN')}</p></div>
@@ -895,6 +987,9 @@ export default function Customers({
                                 </div>
                             </div>
                         </div>
+                                </>
+                            );
+                        })()}
                     </div>
                 </div>,
                 document.body
@@ -904,14 +999,6 @@ export default function Customers({
                 <div>
                     <div className="flex items-center justify-between gap-3 md:block">
                         <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Customers</h1>
-                        <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold md:hidden ${
-                            storefrontOpen
-                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                                : 'border-gray-300 bg-gray-100 text-gray-800'
-                        }`}>
-                            <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
-                            {storefrontOpen ? 'Store Open' : 'Store Closed'}
-                        </div>
                     </div>
                     <p className="text-gray-500 text-sm mt-1">Manage customers</p>
                 </div>
@@ -940,8 +1027,8 @@ export default function Customers({
                         onClick={() => setIsMobileBirthdayModalOpen(true)}
                         className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
                             birthdayOnly
-                                ? 'border-amber-200 bg-amber-50 text-amber-700'
-                                : 'border-gray-200 bg-white text-gray-600'
+                                ? 'border-amber-200 bg-amber-50 text-amber-700 shadow-amber-100/70'
+                                : 'border-amber-100 bg-gradient-to-br from-white to-amber-50/70 text-amber-700 shadow-amber-100/50'
                         }`}
                         title="Birthdays Today"
                         aria-label="Birthdays Today"
@@ -953,8 +1040,8 @@ export default function Customers({
                         onClick={() => setIsMobileTierModalOpen(true)}
                         className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
                             tierFilter !== 'all'
-                                ? 'border-sky-200 bg-sky-50 text-sky-700'
-                                : 'border-gray-200 bg-white text-gray-600'
+                                ? 'border-sky-200 bg-sky-50 text-sky-700 shadow-sky-100/70'
+                                : 'border-sky-100 bg-gradient-to-br from-white to-sky-50/70 text-sky-700 shadow-sky-100/50'
                         }`}
                         title="Filter by Tier"
                         aria-label="Filter by Tier"
@@ -966,8 +1053,8 @@ export default function Customers({
                         onClick={() => setIsMobileSearchModalOpen(true)}
                         className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
                             searchTerm
-                                ? 'border-primary/20 bg-primary/5 text-primary'
-                                : 'border-gray-200 bg-white text-gray-600'
+                                ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 shadow-fuchsia-100/70'
+                                : 'border-fuchsia-100 bg-gradient-to-br from-white to-fuchsia-50/70 text-fuchsia-700 shadow-fuchsia-100/50'
                         }`}
                         title="Search Customers"
                         aria-label="Search Customers"
@@ -977,7 +1064,7 @@ export default function Customers({
                     <button
                         type="button"
                         onClick={() => onOpenLoyalty?.()}
-                        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:border-accent hover:text-primary"
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-emerald-100 bg-gradient-to-br from-white to-emerald-50/70 text-emerald-700 shadow-sm shadow-emerald-100/50 transition hover:border-accent hover:text-primary"
                         title="Loyalty"
                         aria-label="Loyalty"
                     >
@@ -992,7 +1079,7 @@ export default function Customers({
                 <>
                     <div className="emboss-card relative bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
                         <Users size={72} className="bg-emboss-icon absolute right-2 bottom-2 text-gray-100" />
-                        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+                        <div className="hidden px-6 py-4 border-b border-gray-100 items-center justify-between gap-3 md:flex">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Customers</h3>
                             <button onClick={() => setAddModalRole('customer')} className="hidden md:inline-flex w-36 bg-primary hover:bg-primary-light text-accent font-bold px-3 py-2 rounded-lg text-xs shadow-lg shadow-primary/20 items-center justify-center gap-2 transition-all active:scale-95">
                                 <Plus size={14} strokeWidth={3} /> Add Customer
@@ -1103,17 +1190,23 @@ export default function Customers({
                             )}
                             {paginatedCustomersOnly.length > 0 && (
                                 <div className="grid grid-cols-1 gap-3">
-                                    {paginatedCustomersOnly.map((user) => {
+                                    {paginatedCustomersOnly.map((user, index) => {
                                         const waLink = getWhatsappLink(user.mobile);
                                         const callLink = getCallLink(user.mobile);
                                         const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
                                         const cartLastActivity = getCartLastActivityLabel(user);
                                         const isBasicTier = String(user.loyaltyTier || 'regular').toLowerCase() === 'regular';
                                         const profileImage = getCustomerProfileImage(user);
+                                        const theme = getMobileCustomerCardTheme(index);
                                         return (
-                                            <div key={`m-${user.id}`} onClick={() => openProfile(user)} className={`rounded-xl border p-4 bg-white ${isBirthdayToday(user.dob) ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'}`}>
+                                            <div
+                                                key={`m-${user.id}`}
+                                                onClick={() => openProfile(user)}
+                                                className={`relative overflow-hidden rounded-2xl border px-3.5 pb-3.5 pt-4 shadow-sm ${theme.shell} ${isBirthdayToday(user.dob) ? 'ring-1 ring-amber-200/80' : ''}`}
+                                            >
+                                                <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${theme.strip}`} />
                                                 <div className="flex items-start gap-3">
-                                                    <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-primary/10 text-primary overflow-hidden">
+                                                    <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-sm ring-1 ${theme.avatar}`}>
                                                         {profileImage ? (
                                                             <img src={profileImage} alt={user.name || 'Customer'} className="w-full h-full object-cover" />
                                                         ) : (
@@ -1122,51 +1215,64 @@ export default function Customers({
                                                     </div>
                                                     <div className="min-w-0 flex-1">
                                                         <div className="flex items-start justify-between gap-3">
-                                                            <p className="text-sm font-semibold text-gray-900 line-clamp-1">{user.name}</p>
-                                                            {user.isActive === false && <span className="inline-flex items-center whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-700 border border-red-200">Inactive</span>}
-                                                        </div>
-                                                        <div className="mt-2 flex items-center gap-2 text-[11px] text-gray-600">
-                                                            <Phone size={12} className="shrink-0 text-gray-400" />
-                                                            <p className="min-w-0 line-clamp-1">{user.mobile || '—'}</p>
-                                                        </div>
-                                                        <div className="mt-1 flex items-center gap-2 text-[11px] text-gray-500">
-                                                            <Mail size={12} className="shrink-0 text-gray-400" />
-                                                            <p className="min-w-0 line-clamp-1">{user.email || '—'}</p>
+                                                            <div className="min-w-0">
+                                                                <p className="text-sm font-semibold text-gray-900 line-clamp-1">{user.name}</p>
+                                                                <p className="mt-0.5 text-[10px] text-gray-500">Customer profile</p>
+                                                            </div>
+                                                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                                                                {isBasicTier ? (
+                                                                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-medium text-slate-600">Basic</span>
+                                                                ) : (
+                                                                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-medium text-slate-700">{tierLabel(user.loyaltyTier || '')}</span>
+                                                                )}
+                                                                {user.isActive === false && <span className="inline-flex items-center whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-800 border border-red-200">Inactive</span>}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div className="mt-3 flex items-center gap-2">
-                                                    {isBasicTier ? (
-                                                        <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[10px] font-medium text-gray-500">Basic</span>
-                                                    ) : (
-                                                        <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-medium text-slate-700">{tierLabel(user.loyaltyTier || '')}</span>
-                                                    )}
+                                                <div className={`mt-2.5 space-y-1.5 rounded-xl border px-3 py-2.5 ${theme.section}`}>
+                                                    <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-x-2">
+                                                        <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full ${theme.contactIcon}`}>
+                                                            <Phone size={12} />
+                                                        </span>
+                                                        <p className={`min-w-0 text-left text-[11px] leading-5 line-clamp-1 ${user.mobile ? 'text-gray-700' : 'text-gray-400'}`}>{user.mobile || '—'}</p>
+                                                    </div>
+                                                    <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-x-2">
+                                                        <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full ${theme.emailIcon}`}>
+                                                            <Mail size={12} />
+                                                        </span>
+                                                        <p className={`min-w-0 text-left text-[11px] leading-5 line-clamp-1 ${user.email ? 'text-gray-700' : 'text-gray-400'}`}>{user.email || '—'}</p>
+                                                    </div>
                                                 </div>
-                                                <div className="mt-4 flex items-center justify-end gap-1.5">
-                                                    {callLink && (
-                                                        <a href={callLink} onClick={(e) => e.stopPropagation()} className="text-gray-400 hover:text-sky-700 hover:bg-sky-50 p-1.5 rounded-md transition-all" title="Call Customer">
-                                                            <Phone size={16} />
-                                                        </a>
-                                                    )}
-                                                    <button onClick={(e) => { e.stopPropagation(); openIssueCouponModal(user); }} className="text-gray-400 hover:text-indigo-700 hover:bg-indigo-50 p-1.5 rounded-md transition-all" title="Issue Coupon">
-                                                        <TicketPercent size={16} />
-                                                    </button>
-                                                    {waLink && (
-                                                        <a href={waLink} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-gray-400 hover:text-green-700 hover:bg-green-50 p-1.5 rounded-md transition-all" title="Open WhatsApp">
-                                                            <MessageCircle size={16} />
-                                                        </a>
-                                                    )}
-                                                    <button onClick={(e) => { e.stopPropagation(); openCart(user); }} className={`relative p-1.5 rounded-md border transition-colors ${cartCount > 0 ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100' : 'text-gray-500 bg-gray-50 border-gray-200 hover:text-primary'}`} title="View Cart">
-                                                        <ShoppingCart size={14} />
-                                                        {cartCount > 0 && <span className="absolute -top-1 -right-1 text-[9px] font-bold bg-green-600 text-white rounded-full px-1 py-0.5">{cartCount}</span>}
-                                                    </button>
-                                                    {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className={`p-1.5 rounded-md transition-all ${user.isActive === false ? 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}`} title={user.isActive === false ? 'Reactivate Customer' : 'Deactivate Customer'}><Trash2 size={16} /></button>}
+                                                <div className={`mt-2.5 flex items-center justify-between gap-2 border-t pt-2.5 ${theme.divider}`}>
+                                                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                                        {cartLastActivity && (
+                                                            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-medium ${theme.cartNote}`}>
+                                                                Cart active: {cartLastActivity}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex shrink-0 items-center justify-end gap-1">
+                                                        {callLink && (
+                                                            <a href={callLink} onClick={(e) => e.stopPropagation()} className="inline-flex items-center justify-center rounded-lg border border-sky-200 bg-gradient-to-br from-sky-50 to-cyan-50 p-2 text-sky-700 shadow-sm shadow-sky-100/60 transition-all hover:from-sky-100 hover:to-cyan-100" title="Call Customer">
+                                                                <Phone size={16} />
+                                                            </a>
+                                                        )}
+                                                        {waLink && (
+                                                            <a href={waLink} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center justify-center rounded-lg border border-emerald-200 bg-gradient-to-br from-emerald-50 to-lime-50 p-2 text-emerald-700 shadow-sm shadow-emerald-100/60 transition-all hover:from-emerald-100 hover:to-lime-100" title="Open WhatsApp">
+                                                                <MessageCircle size={16} />
+                                                            </a>
+                                                        )}
+                                                        <button onClick={(e) => { e.stopPropagation(); openIssueCouponModal(user); }} className="inline-flex items-center justify-center rounded-lg border border-violet-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 p-2 text-violet-700 shadow-sm shadow-violet-100/60 transition-all hover:from-violet-100 hover:to-fuchsia-100" title="Issue Coupon">
+                                                            <TicketPercent size={16} />
+                                                        </button>
+                                                        <button onClick={(e) => { e.stopPropagation(); openCart(user); }} className={`relative rounded-lg border p-2 shadow-sm transition-colors ${cartCount > 0 ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-green-50 text-emerald-700 shadow-emerald-100/60 hover:from-emerald-100 hover:to-green-100' : 'border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 text-amber-700 shadow-amber-100/60 hover:from-amber-100 hover:to-orange-100'}`} title="View Cart">
+                                                            <ShoppingCart size={14} />
+                                                            {cartCount > 0 && <span className="absolute -top-1 -right-1 text-[9px] font-bold bg-green-600 text-white rounded-full px-1 py-0.5">{cartCount}</span>}
+                                                        </button>
+                                                        {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className={`inline-flex items-center justify-center rounded-lg border p-2 shadow-sm transition-all ${user.isActive === false ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 text-emerald-700 shadow-emerald-100/60 hover:from-emerald-100 hover:to-teal-100' : 'border-rose-200 bg-gradient-to-br from-rose-50 to-red-50 text-rose-600 shadow-rose-100/60 hover:from-rose-100 hover:to-red-100'}`} title={user.isActive === false ? 'Reactivate Customer' : 'Deactivate Customer'}><Trash2 size={16} /></button>}
+                                                    </div>
                                                 </div>
-                                                {cartLastActivity && (
-                                                    <p className="mt-2 text-[10px] text-amber-700">
-                                                        Cart activity: {cartLastActivity}
-                                                    </p>
-                                                )}
                                             </div>
                                         );
                                     })}

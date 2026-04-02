@@ -497,6 +497,14 @@ export default function AdminDashboard() {
                 {/* Mobile Header */}
                 <div className="md:hidden bg-white p-4 flex items-center justify-between shadow-sm sticky top-0 z-40">
                     <img src={BRAND_LOGO_URL} className="w-10 h-auto" alt="Logo" />
+                    <div className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                        storefrontOpen
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                            : 'border-gray-300 bg-gray-100 text-gray-800'
+                    }`}>
+                        <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                        {storefrontOpen ? 'Store Open' : 'Store Closed'}
+                    </div>
                     <button onClick={handleLogout} className="text-gray-400"><LogOut size={20}/></button>
                 </div>
 
@@ -515,7 +523,7 @@ export default function AdminDashboard() {
                 )}
 
                 <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
-                    <div className={`mb-6 flex items-center justify-end ${activeTab === 'orders' || activeTab === 'products' || activeTab === 'categories' || activeTab === 'customers' || activeTab === 'loyalty' || activeTab === 'abandoned' ? 'hidden md:flex' : ''}`}>
+                    <div className="mb-6 hidden items-center justify-end md:flex">
                         <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
                             storefrontOpen
                                 ? 'border-emerald-200 bg-emerald-50 text-emerald-800'

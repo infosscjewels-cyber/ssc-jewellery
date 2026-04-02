@@ -10,6 +10,39 @@ import CategoryDetail from './CategoryDetail'; // We will create this next
 import CategoryModal from '../../components/CategoryModal';
 import emptyIllustration from '../../assets/closed.svg';
 
+const MOBILE_CATEGORY_CARD_THEMES = [
+    {
+        shell: 'border-sky-200/80 bg-gradient-to-br from-sky-50 via-white to-cyan-50 shadow-sky-100/80',
+        accent: 'bg-sky-400',
+        iconWrap: 'border-sky-200 bg-white text-sky-700',
+        iconButton: 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100',
+        chevron: 'text-sky-400 group-hover:text-sky-700'
+    },
+    {
+        shell: 'border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-lime-50 shadow-emerald-100/80',
+        accent: 'bg-emerald-400',
+        iconWrap: 'border-emerald-200 bg-white text-emerald-700',
+        iconButton: 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
+        chevron: 'text-emerald-400 group-hover:text-emerald-700'
+    },
+    {
+        shell: 'border-fuchsia-200/80 bg-gradient-to-br from-fuchsia-50 via-white to-pink-50 shadow-fuchsia-100/80',
+        accent: 'bg-fuchsia-400',
+        iconWrap: 'border-fuchsia-200 bg-white text-fuchsia-700',
+        iconButton: 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 hover:bg-fuchsia-100',
+        chevron: 'text-fuchsia-400 group-hover:text-fuchsia-700'
+    },
+    {
+        shell: 'border-amber-200/80 bg-gradient-to-br from-amber-50 via-white to-orange-50 shadow-amber-100/80',
+        accent: 'bg-amber-500',
+        iconWrap: 'border-amber-200 bg-white text-amber-700',
+        iconButton: 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100',
+        chevron: 'text-amber-500 group-hover:text-amber-700'
+    }
+];
+
+const getMobileCategoryTheme = (index) => MOBILE_CATEGORY_CARD_THEMES[index % MOBILE_CATEGORY_CARD_THEMES.length];
+
 export default function Categories({ onNavigate = () => {}, storefrontOpen = true }) {
     const [view, setView] = useState('list'); // 'list' or 'detail'
     const [selectedCategoryId, setSelectedCategoryId] = useState(null);
@@ -181,14 +214,6 @@ export default function Categories({ onNavigate = () => {}, storefrontOpen = tru
                             </button>
                             <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Categories</h1>
                         </div>
-                        <div className={`inline-flex md:hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                            storefrontOpen
-                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                                : 'border-gray-300 bg-gray-100 text-gray-800'
-                        }`}>
-                            <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
-                            {storefrontOpen ? 'Store Open' : 'Store Closed'}
-                        </div>
                     </div>
                     <p className="text-gray-500 text-sm mt-1">Manage product organization</p>
                 </div>
@@ -235,7 +260,7 @@ export default function Categories({ onNavigate = () => {}, storefrontOpen = tru
                 <button
                     type="button"
                     onClick={() => setIsMobileSearchModalOpen(true)}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 text-sky-700 shadow-sm shadow-sky-100/70"
                     aria-label="Search categories"
                 >
                     <Search size={17} />
@@ -307,51 +332,95 @@ export default function Categories({ onNavigate = () => {}, storefrontOpen = tru
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filtered.map(cat => (
-                        <div 
-                            key={cat.id} 
-                            onClick={() => openCategory(cat.id)}
-                            className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-accent transition-all cursor-pointer group"
-                        >
-                            <div className="flex justify-between items-center">
-                                <div className="flex items-center gap-4">
-                                    {/* [NEW] Image Display */}
-                                    <div className="w-14 h-14 rounded-xl bg-gray-50 border border-gray-100 overflow-hidden shrink-0">
-                                        {cat.image_url ? (
-                                            <img src={cat.image_url} alt={cat.name} className="w-full h-full object-cover" />
-                                        ) : (
-                                            <div className="w-full h-full flex items-center justify-center text-primary/40">
-                                                <Folder size={24} />
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2">
-                                            <span>{cat.name}</span>
-                                            {Boolean(cat.is_immutable) && (
-                                                <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">
-                                                    system
-                                                </span>
+                    {filtered.map((cat, index) => {
+                        const theme = getMobileCategoryTheme(index);
+                        return (
+                        <>
+                            <div 
+                                key={`${cat.id}-mobile`}
+                                onClick={() => openCategory(cat.id)}
+                                className={`group relative overflow-hidden rounded-2xl border p-5 shadow-sm transition-all cursor-pointer md:hidden ${theme.shell}`}
+                            >
+                                <div className={`absolute inset-x-0 top-0 h-1.5 ${theme.accent}`} />
+                                <div className="flex justify-between items-center">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-14 h-14 rounded-xl overflow-hidden shrink-0 border ${theme.iconWrap}`}>
+                                            {cat.image_url ? (
+                                                <img src={cat.image_url} alt={cat.name} className="w-full h-full object-cover" />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-primary/40">
+                                                    <Folder size={24} />
+                                                </div>
                                             )}
-                                        </h3>
-                                        <p className="text-sm text-gray-500">{cat.product_count} products</p>
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2">
+                                                <span>{cat.name}</span>
+                                                {Boolean(cat.is_immutable) && (
+                                                    <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">
+                                                        system
+                                                    </span>
+                                                )}
+                                            </h3>
+                                            <p className="text-sm text-gray-500">{cat.product_count} products</p>
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    {/* [FIX] Hide Delete for Protected Categories */}
-                                    {!Boolean(cat.is_immutable) && (
-                                        <button 
-                                            onClick={(e) => openDeleteModal(e, cat)}
-                                            className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                        >
-                                            <Trash2 size={18} />
-                                        </button>
-                                    )}
-                                    <ChevronRight className="text-gray-300 group-hover:text-primary" />
+                                    <div className="flex items-center gap-2">
+                                        {!Boolean(cat.is_immutable) && (
+                                            <button 
+                                                onClick={(e) => openDeleteModal(e, cat)}
+                                                className={`rounded-xl border p-2 transition-colors ${theme.iconButton}`}
+                                            >
+                                                <Trash2 size={18} />
+                                            </button>
+                                        )}
+                                        <ChevronRight className={theme.chevron} />
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                            <div 
+                                key={`${cat.id}-desktop`}
+                                onClick={() => openCategory(cat.id)}
+                                className="group relative hidden cursor-pointer rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-all hover:border-accent hover:shadow-md md:block"
+                            >
+                                <div className="flex justify-between items-center">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-14 h-14 rounded-xl bg-gray-50 border border-gray-100 overflow-hidden shrink-0">
+                                            {cat.image_url ? (
+                                                <img src={cat.image_url} alt={cat.name} className="w-full h-full object-cover" />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-primary/40">
+                                                    <Folder size={24} />
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2">
+                                                <span>{cat.name}</span>
+                                                {Boolean(cat.is_immutable) && (
+                                                    <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200">
+                                                        system
+                                                    </span>
+                                                )}
+                                            </h3>
+                                            <p className="text-sm text-gray-500">{cat.product_count} products</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {!Boolean(cat.is_immutable) && (
+                                            <button 
+                                                onClick={(e) => openDeleteModal(e, cat)}
+                                                className="rounded-lg p-2 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-500"
+                                            >
+                                                <Trash2 size={18} />
+                                            </button>
+                                        )}
+                                        <ChevronRight className="text-gray-300 group-hover:text-primary" />
+                                    </div>
+                                </div>
+                            </div>
+                        </>
+                    )})}
                 </div>
             )}
 
@@ -359,7 +428,7 @@ export default function Categories({ onNavigate = () => {}, storefrontOpen = tru
                 <button
                     type="button"
                     onClick={() => setShowCreateModal(true)}
-                    className="fixed bottom-24 right-5 z-40 md:hidden inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-white shadow-2xl shadow-emerald-500/30 hover:bg-emerald-600 active:scale-95 transition"
+                    className="fixed bottom-24 right-5 z-40 md:hidden inline-flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-2xl shadow-emerald-500/30 hover:from-emerald-600 hover:to-teal-600 active:scale-95 transition"
                     aria-label="Add category"
                 >
                     <Plus size={24} strokeWidth={2.75} />

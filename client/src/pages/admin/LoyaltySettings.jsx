@@ -125,6 +125,24 @@ const TIER_STYLE = {
     platinum: { card: 'from-sky-100 via-blue-50 to-sky-100 text-sky-900', stat: 'bg-white/75 border-sky-200', icon: Gem }
 };
 
+const LOYALTY_SECTION_THEMES = {
+    tier: {
+        shell: 'border-amber-200/80 bg-gradient-to-br from-amber-50 via-white to-orange-50 shadow-amber-100/70',
+        icon: 'text-amber-400',
+        headerChip: 'bg-amber-100 text-amber-800 border-amber-200'
+    },
+    coupon: {
+        shell: 'border-fuchsia-200/80 bg-gradient-to-br from-fuchsia-50 via-white to-pink-50 shadow-fuchsia-100/70',
+        icon: 'text-fuchsia-300',
+        headerChip: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200'
+    },
+    popup: {
+        shell: 'border-sky-200/80 bg-gradient-to-br from-sky-50 via-white to-cyan-50 shadow-sky-100/70',
+        icon: 'text-sky-300',
+        headerChip: 'bg-sky-100 text-sky-800 border-sky-200'
+    }
+};
+
 const buildBenefitsPreview = (row) => {
     const tier = String(row?.tier || 'regular').toLowerCase();
     if (tier === 'regular') return ['Standard pricing', 'Standard shipping', 'Progress tracking to next tier'];
@@ -844,14 +862,6 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
                             <ArrowLeft size={16} />
                         </button>
                         <h2 className="min-w-0 flex-1 truncate text-xl font-serif font-bold text-primary">Loyalty Settings</h2>
-                        <div className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                            storefrontOpen
-                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                                : 'border-gray-300 bg-gray-100 text-gray-800'
-                        }`}>
-                            <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
-                            {storefrontOpen ? 'Store Open' : 'Store Closed'}
-                        </div>
                     </div>
                     <div className="hidden md:flex md:items-center md:justify-between md:gap-3">
                         <h2 className="text-2xl md:text-3xl font-serif text-primary font-bold">Loyalty Settings</h2>
@@ -864,22 +874,23 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
             </div>
 
             <div className="flex flex-col gap-4">
-            <div className="order-2 rounded-2xl border border-gray-200 bg-white overflow-hidden">
+            <div className={`order-2 overflow-hidden rounded-2xl border shadow-sm ${LOYALTY_SECTION_THEMES.tier.shell}`}>
                 <button
                     type="button"
                     onClick={() => setOpenSection((prev) => (prev === 'tier' ? '' : 'tier'))}
                     className="w-full flex items-center justify-between px-4 py-3 text-left"
                 >
                     <div>
-                        <h3 className="text-lg font-semibold text-gray-900">Tier Management</h3>
+                        <div className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${LOYALTY_SECTION_THEMES.tier.headerChip}`}>Tier</div>
+                        <h3 className="mt-2 text-lg font-semibold text-gray-900">Tier Management</h3>
                         <p className="text-sm text-gray-500">Edit thresholds, discounts and shipping priority by tier.</p>
                     </div>
                     <div className="flex items-center gap-3">
-                        <Crown size={34} className="text-amber-200" />
+                        <Crown size={34} className={LOYALTY_SECTION_THEMES.tier.icon} />
                         <span className="text-sm font-semibold text-gray-500">{openSection === 'tier' ? '−' : '+'}</span>
                     </div>
                 </button>
-                <div className={`${openSection === 'tier' ? 'block' : 'hidden'} border-t border-gray-100 p-3`}>
+                <div className={`${openSection === 'tier' ? 'block' : 'hidden'} border-t border-amber-100/80 p-3`}>
                     <div className="flex flex-wrap gap-2">
                         {ORDER.map((tier) => (
                             <button
@@ -933,22 +944,23 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
                 </div>
             </div>
 
-            <div className="order-1 rounded-2xl border border-gray-200 bg-white overflow-hidden">
+            <div className={`order-1 overflow-hidden rounded-2xl border shadow-sm ${LOYALTY_SECTION_THEMES.coupon.shell}`}>
                 <button
                     type="button"
                     onClick={() => setOpenSection((prev) => (prev === 'coupon' ? '' : 'coupon'))}
                     className="w-full flex items-center justify-between px-4 py-3 text-left"
                 >
                     <div>
-                        <h3 className="text-lg font-semibold text-gray-900">Coupon Management</h3>
+                        <div className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${LOYALTY_SECTION_THEMES.coupon.headerChip}`}>Coupons</div>
+                        <h3 className="mt-2 text-lg font-semibold text-gray-900">Coupon Management</h3>
                         <p className="text-sm text-gray-500">Issue and deactivate loyalty coupons.</p>
                     </div>
                     <div className="flex items-center gap-3">
-                        <TicketPercent size={34} className="text-slate-200" />
+                        <TicketPercent size={34} className={LOYALTY_SECTION_THEMES.coupon.icon} />
                         <span className="text-sm font-semibold text-gray-500">{openSection === 'coupon' ? '−' : '+'}</span>
                     </div>
                 </button>
-                <div className={`${openSection === 'coupon' ? 'block' : 'hidden'} border-t border-gray-100 p-4 space-y-4`}>
+                <div className={`${openSection === 'coupon' ? 'block' : 'hidden'} border-t border-fuchsia-100/80 p-4 space-y-4`}>
                     <div className="flex items-center justify-between gap-3">
                         <div className="flex flex-wrap items-center gap-2 w-full justify-end">
                             {selectedCouponsCount > 0 && (
@@ -964,7 +976,7 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
                             )}
                             <div className="relative w-full max-w-xs">
                                 <Search size={14} className="absolute left-3 top-3 text-gray-400" />
-                                <input value={couponSearch} onChange={(e) => { setCouponSearch(e.target.value); setCouponPage(1); }} placeholder="Search coupons" className="input-field pl-8 py-2.5" />
+                                <input value={couponSearch} onChange={(e) => { setCouponSearch(e.target.value); setCouponPage(1); }} placeholder="Search coupons" className="input-field border-fuchsia-200/80 bg-white/90 pl-8 py-2.5" />
                             </div>
                             <button
                                 type="button"
@@ -973,7 +985,7 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
                                     setCouponCodeOptions(buildCouponCodeOptions());
                                     setIsCouponModalOpen(true);
                                 }}
-                                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light"
+                                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-accent hover:bg-primary-light"
                             >
                                 <Plus size={14} /> Issue New Coupon
                             </button>
@@ -1058,9 +1070,9 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
                             </tbody>
                         </table>
                     </div>
-                    <div className="rounded-xl border border-gray-200 overflow-hidden md:hidden">
+                    <div className="overflow-hidden rounded-xl border border-fuchsia-200/80 bg-white/85 shadow-sm md:hidden">
                         <table className="w-full text-left text-sm">
-                            <thead className="bg-gray-50">
+                            <thead className="bg-fuchsia-50/70">
                                 <tr>
                                     <th className="px-3 py-2 w-10">
                                         <input
@@ -1097,7 +1109,7 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
                                     </tr>
                                 )}
                                 {!couponLoading && couponList.map((cp) => (
-                                    <tr key={cp.id || cp.code} onClick={() => openCouponDetails(cp)} className="cursor-pointer hover:bg-gray-50">
+                                    <tr key={cp.id || cp.code} onClick={() => openCouponDetails(cp)} className="cursor-pointer hover:bg-fuchsia-50/50">
                                         <td className="px-3 py-2 align-top">
                                             <input
                                                 type="checkbox"
@@ -1135,29 +1147,30 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
                         </table>
                     </div>
                     <div className="flex items-center justify-end gap-2">
-                        <button type="button" onClick={() => setCouponPage((p) => Math.max(1, p - 1))} disabled={couponPage <= 1} className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm disabled:opacity-50">Prev</button>
+                        <button type="button" onClick={() => setCouponPage((p) => Math.max(1, p - 1))} disabled={couponPage <= 1} className="rounded-lg border border-fuchsia-200 bg-white/85 px-3 py-1.5 text-sm disabled:opacity-50">Prev</button>
                         <span className="text-sm text-gray-500">Page {couponPage} / {Math.max(1, couponTotalPages)}</span>
-                        <button type="button" onClick={() => setCouponPage((p) => Math.min(couponTotalPages, p + 1))} disabled={couponPage >= couponTotalPages} className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm disabled:opacity-50">Next</button>
+                        <button type="button" onClick={() => setCouponPage((p) => Math.min(couponTotalPages, p + 1))} disabled={couponPage >= couponTotalPages} className="rounded-lg border border-fuchsia-200 bg-white/85 px-3 py-1.5 text-sm disabled:opacity-50">Next</button>
                     </div>
                 </div>
             </div>
-            <div className="order-3 rounded-2xl border border-gray-200 bg-white overflow-hidden">
+            <div className={`order-3 overflow-hidden rounded-2xl border shadow-sm ${LOYALTY_SECTION_THEMES.popup.shell}`}>
                 <button
                     type="button"
                     onClick={() => setOpenSection((prev) => (prev === 'popup' ? '' : 'popup'))}
                     className="w-full flex items-center justify-between px-4 py-3 text-left"
                 >
                     <div>
-                        <h3 className="text-lg font-semibold text-gray-900">Popup Management</h3>
+                        <div className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${LOYALTY_SECTION_THEMES.popup.headerChip}`}>Popup</div>
+                        <h3 className="mt-2 text-lg font-semibold text-gray-900">Popup Management</h3>
                         <p className="text-sm text-gray-500">Configure customer popup card and media.</p>
                     </div>
                     <div className="flex items-center gap-3">
-                        <Megaphone size={34} className="text-slate-200" />
+                        <Megaphone size={34} className={LOYALTY_SECTION_THEMES.popup.icon} />
                         <span className="text-sm font-semibold text-gray-500">{openSection === 'popup' ? '−' : '+'}</span>
                     </div>
                 </button>
-                <div className={`${openSection === 'popup' ? 'block' : 'hidden'} border-t border-gray-100 p-4 space-y-4`}>
-                    <div className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-3 md:flex-row md:items-center md:justify-between">
+                <div className={`${openSection === 'popup' ? 'block' : 'hidden'} border-t border-sky-100/80 p-4 space-y-4`}>
+                    <div className="flex flex-col gap-3 rounded-xl border border-sky-200/80 bg-white/90 p-3 md:flex-row md:items-center md:justify-between">
                         <label className="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
                             <input type="checkbox" checked={Boolean(popupForm.isActive)} onChange={(e) => setPopupForm((prev) => ({ ...prev, isActive: e.target.checked }))} />
                             Popup enabled
@@ -1171,7 +1184,7 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
                             <Save size={16} /> {(popupSaving || popupTemplateSaving) ? 'Saving...' : 'Save Popup'}
                         </button>
                     </div>
-                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 space-y-3">
+                    <div className="rounded-xl border border-sky-200/80 bg-white/85 p-3 space-y-3 shadow-sm">
                         <p className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Template Library</p>
                         <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-center">
                             <select

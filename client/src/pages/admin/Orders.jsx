@@ -36,39 +36,39 @@ const MAX_RANGE_DAYS = 90;
 const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
 const KPI_CARD_THEMES = {
     sky: {
-        shell: 'bg-gradient-to-br from-sky-500 via-sky-600 to-cyan-800 border-sky-200/70',
-        label: 'text-sky-50',
-        value: 'text-white',
-        iconChip: 'text-sky-100 bg-sky-200/15 border-sky-200/30',
-        iconGhost: 'text-sky-100/25'
+        shell: 'bg-gradient-to-br from-sky-200 via-sky-300 to-cyan-500 border-sky-700/80',
+        label: 'text-sky-950',
+        value: 'text-sky-950',
+        iconChip: 'text-sky-950 bg-white/20 border-sky-400/50',
+        iconGhost: 'text-sky-950/20'
     },
     green: {
-        shell: 'bg-gradient-to-br from-lime-400 via-emerald-500 to-green-700 border-lime-200/70',
-        label: 'text-lime-50',
-        value: 'text-white',
-        iconChip: 'text-lime-100 bg-lime-200/15 border-lime-200/30',
-        iconGhost: 'text-lime-100/25'
+        shell: 'bg-gradient-to-br from-lime-200 via-emerald-300 to-green-500 border-emerald-700/80',
+        label: 'text-emerald-950',
+        value: 'text-emerald-950',
+        iconChip: 'text-emerald-950 bg-white/20 border-lime-400/50',
+        iconGhost: 'text-emerald-950/20'
     },
     pink: {
-        shell: 'bg-gradient-to-br from-fuchsia-500 via-pink-600 to-rose-800 border-fuchsia-200/70',
-        label: 'text-fuchsia-50',
-        value: 'text-white',
-        iconChip: 'text-fuchsia-100 bg-fuchsia-200/15 border-fuchsia-200/30',
-        iconGhost: 'text-fuchsia-100/25'
+        shell: 'bg-gradient-to-br from-fuchsia-200 via-pink-300 to-rose-500 border-fuchsia-700/80',
+        label: 'text-rose-950',
+        value: 'text-rose-950',
+        iconChip: 'text-rose-950 bg-white/20 border-fuchsia-400/50',
+        iconGhost: 'text-rose-950/20'
     },
     brown: {
-        shell: 'bg-gradient-to-br from-amber-700 via-stone-700 to-stone-900 border-amber-200/70',
-        label: 'text-amber-50',
-        value: 'text-white',
-        iconChip: 'text-amber-100 bg-amber-200/15 border-amber-200/30',
-        iconGhost: 'text-amber-100/25'
+        shell: 'bg-gradient-to-br from-amber-200 via-orange-300 to-stone-500 border-amber-800/80',
+        label: 'text-stone-950',
+        value: 'text-stone-950',
+        iconChip: 'text-stone-950 bg-white/20 border-amber-400/50',
+        iconGhost: 'text-stone-950/20'
     },
     red: {
-        shell: 'bg-gradient-to-br from-red-600 via-rose-700 to-red-900 border-red-200/70',
-        label: 'text-red-50',
-        value: 'text-white',
-        iconChip: 'text-red-100 bg-red-200/15 border-red-200/30',
-        iconGhost: 'text-red-100/25'
+        shell: 'bg-gradient-to-br from-rose-200 via-red-300 to-red-500 border-red-700/80',
+        label: 'text-red-950',
+        value: 'text-red-950',
+        iconChip: 'text-red-950 bg-white/20 border-red-400/50',
+        iconGhost: 'text-red-950/20'
     }
 };
 const applyKpiThemeRotation = (cards = [], startIndex = 0) => cards.map((card, index) => ({
@@ -102,12 +102,12 @@ const formatStatusLabel = (status) => {
 };
 const getOrderStatusBadgeClasses = (status) => {
     const normalized = normalizeOrderStatus(status);
-    if (normalized === 'confirmed') return 'bg-sky-100 text-sky-800 border border-sky-200';
-    if (normalized === 'pending') return 'bg-amber-100 text-amber-900 border border-amber-200';
-    if (normalized === 'completed') return 'bg-lime-100 text-lime-800 border border-lime-200';
-    if (normalized === 'failed') return 'bg-rose-100 text-rose-800 border border-rose-200';
-    if (normalized === 'cancelled') return 'bg-red-100 text-red-800 border border-red-200';
-    return 'bg-fuchsia-100 text-fuchsia-800 border border-fuchsia-200';
+    if (normalized === 'confirmed') return 'bg-sky-200 text-sky-950 border border-sky-300';
+    if (normalized === 'pending') return 'bg-amber-200 text-amber-950 border border-amber-300';
+    if (normalized === 'completed') return 'bg-lime-200 text-emerald-950 border border-lime-300';
+    if (normalized === 'failed') return 'bg-rose-200 text-rose-950 border border-rose-300';
+    if (normalized === 'cancelled') return 'bg-red-200 text-red-950 border border-red-300';
+    return 'bg-fuchsia-200 text-rose-950 border border-fuchsia-300';
 };
 const getOrderHeaderTheme = (status) => {
     const normalized = normalizeOrderStatus(status);
@@ -139,9 +139,37 @@ const getOrderHeaderTheme = (status) => {
 };
 const getOrderHeaderBadgeClasses = (status) => {
     const normalized = normalizeOrderStatus(status);
-    if (normalized === 'cancelled') return 'bg-red-100 text-red-800 border border-red-200';
-    if (normalized === 'pending') return 'bg-amber-100 text-amber-900 border border-amber-200';
-    return 'bg-emerald-100 text-emerald-900 border border-emerald-200';
+    if (normalized === 'cancelled') return 'bg-red-200 text-red-950 border border-red-300';
+    if (normalized === 'pending') return 'bg-amber-200 text-amber-950 border border-amber-300';
+    return 'bg-lime-200 text-emerald-950 border border-lime-300';
+};
+const getOrderDrawerSectionTheme = (status) => {
+    const normalized = normalizeOrderStatus(status);
+    if (normalized === 'cancelled') {
+        return {
+            shell: 'border-rose-200 bg-gradient-to-br from-white via-rose-50/60 to-red-50/75',
+            header: 'bg-rose-50 text-rose-800 border-rose-100',
+            divider: 'divide-rose-100 border-rose-100',
+            timelineDot: 'bg-rose-500',
+            title: 'text-rose-800'
+        };
+    }
+    if (normalized === 'pending') {
+        return {
+            shell: 'border-amber-200 bg-gradient-to-br from-white via-amber-50/60 to-orange-50/75',
+            header: 'bg-amber-50 text-amber-800 border-amber-100',
+            divider: 'divide-amber-100 border-amber-100',
+            timelineDot: 'bg-amber-500',
+            title: 'text-amber-800'
+        };
+    }
+    return {
+        shell: 'border-emerald-200 bg-gradient-to-br from-white via-emerald-50/60 to-teal-50/75',
+        header: 'bg-emerald-50 text-emerald-800 border-emerald-100',
+        divider: 'divide-emerald-100 border-emerald-100',
+        timelineDot: 'bg-emerald-500',
+        title: 'text-emerald-800'
+    };
 };
 const getAvailableStatusOptions = (status) => {
     const current = normalizeOrderStatus(status);
@@ -188,11 +216,11 @@ const orderMatchesStatusFilter = (order, filterValue = 'all') => {
 };
 const getPaymentStatusBadgeClasses = (status) => {
     const normalized = String(status || '').trim().toLowerCase();
-    if (normalized === 'paid') return 'bg-lime-100 text-lime-800 border border-lime-200';
-    if (['failed', 'expired'].includes(normalized)) return 'bg-red-100 text-red-800 border border-red-200';
-    if (['pending', 'created', 'attempted'].includes(normalized)) return 'bg-amber-100 text-amber-900 border border-amber-200';
-    if (normalized === 'refunded') return 'bg-sky-100 text-sky-800 border border-sky-200';
-    return 'bg-fuchsia-100 text-fuchsia-800 border border-fuchsia-200';
+    if (normalized === 'paid') return 'bg-lime-200 text-emerald-950 border border-lime-300';
+    if (['failed', 'expired'].includes(normalized)) return 'bg-red-200 text-red-950 border border-red-300';
+    if (['pending', 'created', 'attempted'].includes(normalized)) return 'bg-amber-200 text-amber-950 border border-amber-300';
+    if (normalized === 'refunded') return 'bg-sky-200 text-sky-950 border border-sky-300';
+    return 'bg-fuchsia-200 text-rose-950 border border-fuchsia-300';
 };
 const getPaymentHeaderBadgeClasses = (status) => {
     const normalized = String(status || '').trim().toLowerCase();
@@ -258,6 +286,57 @@ const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
     if (end - start + 1 < windowSize) start = Math.max(1, end - windowSize + 1);
     return Array.from({ length: end - start + 1 }, (_, idx) => start + idx);
 };
+const MOBILE_ORDER_CARD_THEMES = [
+    {
+        shell: 'border-sky-200 bg-gradient-to-br from-white via-sky-50/60 to-cyan-50/75 shadow-sky-100/70',
+        strip: 'from-sky-400 via-cyan-400 to-sky-300',
+        meta: 'border-sky-100 bg-sky-50/80',
+        divider: 'border-sky-100',
+        amount: 'text-sky-950',
+        actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
+        actionSuccess: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        actionInfo: 'border-blue-200 bg-blue-50 text-blue-700',
+        actionAccent: 'border-violet-200 bg-violet-50 text-violet-700',
+        actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
+    },
+    {
+        shell: 'border-emerald-200 bg-gradient-to-br from-white via-emerald-50/60 to-lime-50/75 shadow-emerald-100/70',
+        strip: 'from-emerald-400 via-lime-400 to-emerald-300',
+        meta: 'border-emerald-100 bg-emerald-50/80',
+        divider: 'border-emerald-100',
+        amount: 'text-emerald-950',
+        actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
+        actionSuccess: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        actionInfo: 'border-blue-200 bg-blue-50 text-blue-700',
+        actionAccent: 'border-violet-200 bg-violet-50 text-violet-700',
+        actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
+    },
+    {
+        shell: 'border-fuchsia-200 bg-gradient-to-br from-white via-fuchsia-50/60 to-rose-50/75 shadow-fuchsia-100/70',
+        strip: 'from-fuchsia-400 via-pink-400 to-rose-300',
+        meta: 'border-fuchsia-100 bg-fuchsia-50/80',
+        divider: 'border-fuchsia-100',
+        amount: 'text-fuchsia-950',
+        actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
+        actionSuccess: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        actionInfo: 'border-blue-200 bg-blue-50 text-blue-700',
+        actionAccent: 'border-violet-200 bg-violet-50 text-violet-700',
+        actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
+    },
+    {
+        shell: 'border-amber-200 bg-gradient-to-br from-white via-amber-50/60 to-orange-50/75 shadow-amber-100/70',
+        strip: 'from-amber-400 via-orange-400 to-amber-300',
+        meta: 'border-amber-100 bg-amber-50/80',
+        divider: 'border-amber-100',
+        amount: 'text-stone-950',
+        actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
+        actionSuccess: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        actionInfo: 'border-blue-200 bg-blue-50 text-blue-700',
+        actionAccent: 'border-violet-200 bg-violet-50 text-violet-700',
+        actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
+    }
+];
+const getMobileOrderCardTheme = (index = 0) => MOBILE_ORDER_CARD_THEMES[index % MOBILE_ORDER_CARD_THEMES.length];
 
 const getCouponDiscountSplit = (order = {}) => {
     const type = String(order?.coupon_type || '').toLowerCase();
@@ -495,11 +574,11 @@ export function Orders({
     };
     const getTierBadgeClasses = (order) => {
         const tier = String(order?.loyalty_tier || order?.loyaltyTier || 'regular').toLowerCase();
-        if (tier === 'platinum') return 'bg-sky-100 text-sky-800 border border-sky-200';
-        if (tier === 'gold') return 'bg-lime-100 text-lime-800 border border-lime-200';
-        if (tier === 'silver') return 'bg-fuchsia-100 text-fuchsia-800 border border-fuchsia-200';
-        if (tier === 'bronze') return 'bg-amber-100 text-amber-900 border border-amber-200';
-        return 'bg-rose-100 text-rose-800 border border-rose-200';
+        if (tier === 'platinum') return 'bg-sky-200 text-sky-950 border border-sky-300';
+        if (tier === 'gold') return 'bg-lime-200 text-emerald-950 border border-lime-300';
+        if (tier === 'silver') return 'bg-fuchsia-200 text-rose-950 border border-fuchsia-300';
+        if (tier === 'bronze') return 'bg-amber-200 text-amber-950 border border-amber-300';
+        return 'bg-rose-200 text-rose-950 border border-rose-300';
     };
     const isAttemptEntry = (order) => String(order?.entity_type || '').toLowerCase() === 'attempt';
     const isAbandonedRecoveryOrder = (order) => Boolean(order?.is_abandoned_recovery || order?.source_channel === 'abandoned_recovery');
@@ -2055,14 +2134,6 @@ export function Orders({
                     <div className="w-full">
                         <div className="flex items-center justify-between gap-3 md:block">
                             <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Orders</h1>
-                            <div className={`inline-flex md:hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                                storefrontOpen
-                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                                    : 'border-gray-300 bg-gray-100 text-gray-800'
-                            }`}>
-                                <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
-                                {storefrontOpen ? 'Store Open' : 'Store Closed'}
-                            </div>
                         </div>
                         <p className="text-gray-500 text-sm mt-1">Track sales, payments, and order status.</p>
                     </div>
@@ -2337,7 +2408,7 @@ export function Orders({
                                     setIsMobileSortOpen(true);
                                     setIsMobileSearchOpen(false);
                                 }}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-amber-100 bg-gradient-to-br from-white to-amber-50/80 text-amber-700 shadow-sm shadow-amber-100/50"
                                 aria-label="Sort orders"
                             >
                                 <ArrowUpDown size={17} />
@@ -2346,7 +2417,7 @@ export function Orders({
                                 type="button"
                                 onClick={() => setIsMobileSearchOpen((prev) => !prev)}
                                 className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border shadow-sm ${
-                                    isMobileSearchOpen ? 'border-primary bg-primary/5 text-primary' : 'border-gray-200 bg-white text-gray-600'
+                                    isMobileSearchOpen ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 shadow-fuchsia-100/70' : 'border-fuchsia-100 bg-gradient-to-br from-white to-fuchsia-50/80 text-fuchsia-700 shadow-fuchsia-100/50'
                                 }`}
                                 aria-label="Search orders"
                             >
@@ -2356,7 +2427,7 @@ export function Orders({
                         <button
                             type="button"
                             onClick={() => setIsFilterModalOpen(true)}
-                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-sky-100 bg-gradient-to-br from-white to-sky-50/80 text-sky-700 shadow-sm shadow-sky-100/50"
                             aria-label="Open order filters"
                         >
                             <Filter size={17} />
@@ -2520,6 +2591,16 @@ export function Orders({
                                             </td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="inline-flex items-center gap-2">
+                                                    {getCallLink(order.customer_mobile) && (
+                                                        <a
+                                                            href={getCallLink(order.customer_mobile)}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-sky-200 text-sky-700 hover:bg-sky-50"
+                                                            title="Call customer"
+                                                        >
+                                                            <Phone size={14} />
+                                                        </a>
+                                                    )}
                                                     {getWhatsappLink(order.customer_mobile) && (
                                                         <a
                                                             href={getWhatsappLink(order.customer_mobile)}
@@ -2585,17 +2666,19 @@ export function Orders({
                         </div>
 
                         <div className="md:hidden divide-y divide-gray-100">
-                            {orders.map((order) => {
+                            {orders.map((order, index) => {
                                 const pendingDurationLabel = order.status === 'pending'
                                     ? getPendingDurationLabel(order.created_at)
                                     : '';
+                                const theme = getMobileOrderCardTheme(index);
                                 return (
                                 <div
                                     key={order.id}
                                     onClick={() => openDetails(order)}
                                     className={`w-full text-left p-4 transition-colors ${isFailedRow(order) ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50'}`}
                                 >
-                                    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+                                    <div className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${theme.shell}`}>
+                                        <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${theme.strip}`} />
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0">
                                                 <p className="text-base font-semibold text-gray-900 break-all">#{order.order_ref}</p>
@@ -2611,18 +2694,18 @@ export function Orders({
                                             </div>
                                         </div>
 
-                                        <div className="mt-4 grid grid-cols-2 gap-3">
+                                        <div className={`mt-4 grid grid-cols-2 gap-3 rounded-2xl border px-3 py-3 ${theme.meta}`}>
                                             <div>
                                                 <p className="text-[11px] uppercase tracking-widest text-gray-400 font-semibold">Placed</p>
                                                 <p className="mt-1 text-sm text-gray-700">{formatAdminDate(order.created_at)}</p>
                                             </div>
                                             <div className="text-right">
                                                 <p className="text-[11px] uppercase tracking-widest text-gray-400 font-semibold">Amount</p>
-                                                <p className="mt-1 text-lg font-semibold text-gray-900">₹{Number(order.total || 0).toLocaleString()}</p>
+                                                <p className={`mt-1 text-lg font-semibold ${theme.amount}`}>₹{Number(order.total || 0).toLocaleString()}</p>
                                             </div>
                                         </div>
 
-                                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                                        <div className={`mt-3 flex flex-wrap items-center gap-2 border-t pt-3 ${theme.divider}`}>
                                             <span className={`inline-flex min-w-[88px] items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getPaymentStatusBadgeClasses(order.payment_status)}`}>
                                                 {getPaymentStatusLabel(order)}
                                             </span>
@@ -2636,14 +2719,24 @@ export function Orders({
                                             )}
                                         </div>
 
-                                        <div className="mt-4 flex items-center justify-end gap-2 flex-wrap">
+                                        <div className={`mt-4 flex items-center justify-end gap-2 flex-wrap border-t pt-3 ${theme.divider}`}>
+                                        {getCallLink(order.customer_mobile) && (
+                                            <a
+                                                href={getCallLink(order.customer_mobile)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm ${theme.actionInfo}`}
+                                                title="Call customer"
+                                            >
+                                                <Phone size={14} />
+                                            </a>
+                                        )}
                                         {getWhatsappLink(order.customer_mobile) && (
                                             <a
                                                 href={getWhatsappLink(order.customer_mobile)}
                                                 target="_blank"
                                                 rel="noreferrer"
                                                 onClick={(e) => e.stopPropagation()}
-                                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm ${theme.actionSuccess}`}
                                                 title="Contact customer on WhatsApp"
                                             >
                                                 <MessageCircle size={14} />
@@ -2653,17 +2746,17 @@ export function Orders({
                                             <button
                                                 type="button"
                                                 onClick={(e) => handleQuickComplete(order, e)}
-                                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm ${theme.actionSuccess}`}
                                                 title="Mark order as completed"
                                             >
                                                 <CheckCircle2 size={14} />
                                             </button>
                                         )}
-                                        <button
-                                            type="button"
-                                            onClick={(e) => handleOpenPrintLabelModal(order, e)}
-                                            disabled={printingLabelId === (order.order_id || order.id) || (!canOpenShippingLabelModal(order) && printerSupport.supported)}
-                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-60"
+                                            <button
+                                                type="button"
+                                                onClick={(e) => handleOpenPrintLabelModal(order, e)}
+                                                disabled={printingLabelId === (order.order_id || order.id) || (!canOpenShippingLabelModal(order) && printerSupport.supported)}
+                                            className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm disabled:opacity-60 ${theme.actionAccent}`}
                                             title={canOpenShippingLabelModal(order)
                                                 ? 'Open label print options'
                                                 : 'Label printing requires at least sender or receiver address details'}
@@ -2675,7 +2768,7 @@ export function Orders({
                                                 type="button"
                                                 onClick={(e) => handleDownloadInvoice(order, e)}
                                                 disabled={downloadingInvoiceId === (order.order_id || order.id)}
-                                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm disabled:opacity-60 ${theme.actionSuccess}`}
                                                 title="Download invoice"
                                             >
                                                 <Download size={14} />
@@ -2686,7 +2779,7 @@ export function Orders({
                                                 type="button"
                                                 onClick={(e) => handleSendInvoiceCommunication(order, e)}
                                                 disabled={sendingInvoiceId === (order.order_id || order.id)}
-                                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm disabled:opacity-60 ${theme.actionInfo}`}
                                                 title="Send invoice to email + WhatsApp"
                                             >
                                                 <Send size={14} />
@@ -2697,7 +2790,7 @@ export function Orders({
                                                 type="button"
                                                 onClick={(e) => handleDeleteOrder(e, order)}
                                                 disabled={deletingOrderId === (isAttemptEntry(order) ? (order.attempt_id || order.id) : (order.order_id || order.id))}
-                                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm disabled:opacity-60 ${theme.actionDanger}`}
                                                 title="Delete order"
                                             >
                                                 <Trash2 size={14} />
@@ -2783,11 +2876,15 @@ export function Orders({
                                     ];
                                     return (
                                         <>
+                                            {(() => {
+                                                const drawerTheme = getOrderDrawerSectionTheme(selectedOrder.status);
+                                                return (
+                                                    <>
                                             <div className={`rounded-3xl p-5 shadow-lg ${headerTheme.shell}`}>
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div>
                                                         <p className={`text-[11px] uppercase tracking-[0.24em] font-semibold ${headerTheme.rowLabel}`}>Order</p>
-                                                        <h3 className="mt-2 text-2xl font-bold text-white">#{selectedOrder.order_ref}</h3>
+                                                        <h3 className="mt-2 font-sans text-2xl font-black tracking-tight text-white">#{selectedOrder.order_ref}</h3>
                                                         <p className={`mt-2 text-sm font-medium ${headerTheme.subtle}`}>{formatAdminDateTime(selectedOrder.created_at)}</p>
                                                         {detailsLastSyncedAt && (
                                                             <p className={`mt-1 text-[11px] ${headerTheme.micro}`}>
@@ -3018,9 +3115,9 @@ export function Orders({
                                                 )}
                                             </div>
 
-                                            <div className="mt-5 border border-gray-200 rounded-xl overflow-hidden">
-                                                <div className="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase">Items</div>
-                                                <div className="divide-y divide-gray-100">
+                                            <div className={`mt-5 overflow-hidden rounded-2xl border ${drawerTheme.shell}`}>
+                                                <div className={`border-b px-4 py-2 text-xs font-semibold uppercase ${drawerTheme.header}`}>Items</div>
+                                                <div className={`divide-y ${drawerTheme.divider}`}>
                                                     {(selectedOrder.items || []).map((item) => {
                                                         const snapshot = item?.item_snapshot && typeof item.item_snapshot === 'object' ? item.item_snapshot : null;
                                                         const quantity = Number(item.quantity ?? snapshot?.quantity ?? 0);
@@ -3064,7 +3161,7 @@ export function Orders({
                                                 </div>
                                             </div>
 
-                                            <div className="mt-5 grid grid-cols-1 gap-2 text-sm border border-gray-200 rounded-xl p-4 bg-gray-50">
+                                            <div className={`mt-5 grid grid-cols-1 gap-2 rounded-2xl border p-4 text-sm ${drawerTheme.shell}`}>
                                                 <div className="flex items-center justify-between">
                                                     <span className="text-gray-500">Subtotal</span>
                                                     <span className="font-semibold text-gray-800">₹{Number(selectedOrder.subtotal || 0).toLocaleString()}</span>
@@ -3120,9 +3217,9 @@ export function Orders({
                                                 </div>
                                             </div>
 
-                                            <div className="mt-5 border border-gray-200 rounded-xl overflow-hidden">
-                                                <div className="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase">Customer Details</div>
-                                                <div className="divide-y divide-gray-100">
+                                            <div className={`mt-5 overflow-hidden rounded-2xl border ${drawerTheme.shell}`}>
+                                                <div className={`border-b px-4 py-2 text-xs font-semibold uppercase ${drawerTheme.header}`}>Customer Details</div>
+                                                <div className={`divide-y ${drawerTheme.divider}`}>
                                                     {customerDetailsRows.map((row) => (
                                                         <div key={row.label} className="grid grid-cols-[120px_minmax(0,1fr)] gap-4 px-4 py-3 text-sm">
                                                             <div className="text-gray-500">{row.label}</div>
@@ -3132,12 +3229,15 @@ export function Orders({
                                                 </div>
                                             </div>
 
-                                            <div className="mt-5 border border-gray-200 rounded-xl p-4 bg-gray-50">
-                                                <p className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Status Timeline</p>
+                                            <div className={`mt-5 rounded-2xl border p-4 ${drawerTheme.shell}`}>
+                                                <p className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}>Status Timeline</p>
                                                 <div className="mt-3 space-y-3">
                                                     {(selectedOrder.events || []).map((evt) => (
                                                         <div key={evt.id} className="flex items-center justify-between text-sm">
-                                                            <span className="font-semibold text-gray-700 capitalize">{evt.status}</span>
+                                                            <span className="flex items-center gap-2 font-semibold text-gray-700 capitalize">
+                                                                <span className={`h-2.5 w-2.5 rounded-full ${drawerTheme.timelineDot}`} />
+                                                                {evt.status}
+                                                            </span>
                                                             <span className="text-xs text-gray-400">{formatAdminDateTime(evt.created_at)}</span>
                                                         </div>
                                                     ))}
@@ -3146,6 +3246,9 @@ export function Orders({
                                                     )}
                                                 </div>
                                             </div>
+                                                    </>
+                                                );
+                                            })()}
 
                                             <div className="mt-5 grid grid-cols-1 gap-4">
                                                 <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">

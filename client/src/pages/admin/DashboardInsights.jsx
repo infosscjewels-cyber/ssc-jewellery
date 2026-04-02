@@ -23,44 +23,44 @@ const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const KPI_CARD_THEMES = {
     sky: {
-        shell: 'bg-gradient-to-br from-sky-500 via-sky-600 to-cyan-800 border-sky-200/70',
-        label: 'text-sky-50',
-        value: 'text-white',
-        icon: 'text-sky-100',
-        accent: 'text-sky-50',
-        subtext: 'text-sky-50/85'
+        shell: 'bg-gradient-to-br from-sky-200 via-sky-300 to-cyan-500 border-sky-700/80',
+        label: 'text-sky-950',
+        value: 'text-sky-950',
+        icon: 'text-sky-950/75',
+        accent: 'text-sky-950',
+        subtext: 'text-sky-950/75'
     },
     green: {
-        shell: 'bg-gradient-to-br from-lime-400 via-emerald-500 to-green-700 border-lime-200/70',
-        label: 'text-lime-50',
-        value: 'text-white',
-        icon: 'text-lime-100',
-        accent: 'text-lime-50',
-        subtext: 'text-lime-50/85'
+        shell: 'bg-gradient-to-br from-lime-200 via-emerald-300 to-green-500 border-emerald-700/80',
+        label: 'text-emerald-950',
+        value: 'text-emerald-950',
+        icon: 'text-emerald-950/75',
+        accent: 'text-emerald-950',
+        subtext: 'text-emerald-950/75'
     },
     pink: {
-        shell: 'bg-gradient-to-br from-fuchsia-500 via-pink-600 to-rose-800 border-fuchsia-200/70',
-        label: 'text-fuchsia-50',
-        value: 'text-white',
-        icon: 'text-fuchsia-100',
-        accent: 'text-fuchsia-50',
-        subtext: 'text-fuchsia-50/85'
+        shell: 'bg-gradient-to-br from-fuchsia-200 via-pink-300 to-rose-500 border-fuchsia-700/80',
+        label: 'text-rose-950',
+        value: 'text-rose-950',
+        icon: 'text-rose-950/75',
+        accent: 'text-rose-950',
+        subtext: 'text-rose-950/75'
     },
     brown: {
-        shell: 'bg-gradient-to-br from-amber-700 via-stone-700 to-stone-900 border-amber-200/70',
-        label: 'text-amber-50',
-        value: 'text-white',
-        icon: 'text-amber-100',
-        accent: 'text-amber-50',
-        subtext: 'text-amber-50/85'
+        shell: 'bg-gradient-to-br from-amber-200 via-orange-300 to-stone-500 border-amber-800/80',
+        label: 'text-stone-950',
+        value: 'text-stone-950',
+        icon: 'text-stone-950/75',
+        accent: 'text-stone-950',
+        subtext: 'text-stone-950/75'
     },
     red: {
-        shell: 'bg-gradient-to-br from-red-600 via-rose-700 to-red-900 border-red-200/70',
-        label: 'text-red-50',
-        value: 'text-white',
-        icon: 'text-red-100',
-        accent: 'text-red-50',
-        subtext: 'text-red-50/85'
+        shell: 'bg-gradient-to-br from-rose-200 via-red-300 to-red-500 border-red-700/80',
+        label: 'text-red-950',
+        value: 'text-red-950',
+        icon: 'text-red-950/75',
+        accent: 'text-red-950',
+        subtext: 'text-red-950/75'
     }
 };
 const applyKpiThemeRotation = (cards = []) => cards.map((card, index) => ({
@@ -82,9 +82,9 @@ const toRangeDays = ({ quickRange = 'last_30_days', startDate = '', endDate = ''
 };
 
 const priorityStyles = {
-    high: 'bg-red-100 text-red-800 border-red-200',
-    medium: 'bg-amber-100 text-amber-900 border-amber-200',
-    low: 'bg-sky-100 text-sky-800 border-sky-200'
+    high: 'bg-red-200 text-red-950 border-red-300',
+    medium: 'bg-amber-200 text-amber-950 border-amber-300',
+    low: 'bg-sky-200 text-sky-950 border-sky-300'
 };
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 700;
@@ -436,11 +436,11 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     };
     const getTierBadgeClasses = (tier = 'regular') => {
         const value = String(tier || 'regular').toLowerCase();
-        if (value === 'platinum') return 'bg-sky-100 text-sky-800 border border-sky-200';
-        if (value === 'gold') return 'bg-lime-100 text-lime-800 border border-lime-200';
-        if (value === 'silver') return 'bg-fuchsia-100 text-fuchsia-800 border border-fuchsia-200';
-        if (value === 'bronze') return 'bg-amber-100 text-amber-900 border border-amber-200';
-        return 'bg-rose-100 text-rose-800 border border-rose-200';
+        if (value === 'platinum') return 'bg-sky-200 text-sky-950 border border-sky-300';
+        if (value === 'gold') return 'bg-lime-200 text-emerald-950 border border-lime-300';
+        if (value === 'silver') return 'bg-fuchsia-200 text-rose-950 border border-fuchsia-300';
+        if (value === 'bronze') return 'bg-amber-200 text-amber-950 border border-amber-300';
+        return 'bg-rose-200 text-rose-950 border border-rose-300';
     };
     const tierLabel = (tier = 'regular') => {
         const value = String(tier || 'regular').toLowerCase();
