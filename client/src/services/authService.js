@@ -94,6 +94,22 @@ export const authService = {
     });
     return handleResponse(res);
   },
+  registerPushSubscription: async (payload) => {
+    const res = await fetch(`${API_URL}/push-subscriptions`, {
+      method: 'POST',
+      headers: authService.getAuthHeader(),
+      body: JSON.stringify(payload)
+    });
+    return handleResponse(res);
+  },
+  deletePushSubscription: async (payload) => {
+    const res = await fetch(`${API_URL}/push-subscriptions`, {
+      method: 'DELETE',
+      headers: authService.getAuthHeader(),
+      body: JSON.stringify(payload)
+    });
+    return handleResponse(res);
+  },
   uploadProfileImage: async (file) => {
     const formData = new FormData();
     formData.append('image', file);

@@ -895,6 +895,43 @@ const initDB = async () => {
         `);
 
         await connection.query(`
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                user_id VARCHAR(50) NOT NULL,
+                platform VARCHAR(20) NOT NULL DEFAULT 'web',
+                fcm_token VARCHAR(512) NOT NULL,
+                device_label VARCHAR(120) NULL,
+                user_agent TEXT NULL,
+                notifications_enabled TINYINT(1) NOT NULL DEFAULT 1,
+                scope_json JSON NULL,
+                last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_push_subscription_token (fcm_token),
+                INDEX idx_push_subscription_user_enabled (user_id, notifications_enabled),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+        try {
+            await connection.query('ALTER TABLE push_subscriptions ADD COLUMN device_label VARCHAR(120) NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE push_subscriptions ADD COLUMN user_agent TEXT NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE push_subscriptions ADD COLUMN notifications_enabled TINYINT(1) NOT NULL DEFAULT 1');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE push_subscriptions ADD COLUMN scope_json JSON NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE push_subscriptions ADD COLUMN last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE push_subscriptions ADD INDEX idx_push_subscription_user_enabled (user_id, notifications_enabled)');
+        } catch {}
+
+        await connection.query(`
             CREATE TABLE IF NOT EXISTS shipping_options (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 zone_id INT NOT NULL,

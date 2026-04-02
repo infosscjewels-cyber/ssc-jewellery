@@ -13,4 +13,6 @@ router.post('/social-login', authController.socialLogin);
 router.get('/profile', protect, authController.getProfile);
 router.get('/loyalty-status', protect, authController.getLoyaltyStatus);
 router.put('/profile', protect, authController.updateProfile);
+router.post('/push-subscriptions', protect, authController.registerPushSubscription);
+router.delete('/push-subscriptions', protect, authController.deletePushSubscription);
 module.exports = router;

@@ -9,6 +9,7 @@ const { sendEmailCommunication, sendWhatsapp } = require('../services/communicat
 const { emitToUserAudiences } = require('../utils/socketAudience');
 const { normalizeAndValidateAddress } = require('../utils/addressValidation');
 const { billingAddressEnabled, resolveBillingAddress } = require('../utils/billingAddressConfig');
+const PushSubscription = require('../models/PushSubscription');
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '').trim();
 if (!JWT_SECRET) {
@@ -799,6 +800,45 @@ exports.updateProfile = async (req, res) => {
         res.json({ message: 'Profile updated successfully', user: User.toSafePayload(updatedUser) });
     } catch (error) {
         res.status(500).json({ message: error.message });
+    }
+};
+
+exports.registerPushSubscription = async (req, res) => {
+    try {
+        const userId = String(req.user?.id || '').trim();
+        const fcmToken = String(req.body?.fcmToken || '').trim();
+        if (!userId || !fcmToken) {
+            return res.status(400).json({ message: 'FCM token is required' });
+        }
+
+        await PushSubscription.upsert({
+            userId,
+            fcmToken,
+            platform: req.body?.platform || 'web',
+            deviceLabel: req.body?.deviceLabel || '',
+            userAgent: req.body?.userAgent || req.headers['user-agent'] || '',
+            notificationsEnabled: req.body?.notificationsEnabled !== false,
+            scope: Array.isArray(req.body?.scope) ? req.body.scope : []
+        });
+
+        res.json({ message: 'Push subscription saved' });
+    } catch (error) {
+        res.status(500).json({ message: error.message || 'Failed to save push subscription' });
+    }
+};
+
+exports.deletePushSubscription = async (req, res) => {
+    try {
+        const userId = String(req.user?.id || '').trim();
+        const fcmToken = String(req.body?.fcmToken || '').trim();
+        if (!userId || !fcmToken) {
+            return res.status(400).json({ message: 'FCM token is required' });
+        }
+
+        await PushSubscription.removeByToken({ userId, fcmToken });
+        res.json({ message: 'Push subscription removed' });
+    } catch (error) {
+        res.status(500).json({ message: error.message || 'Failed to remove push subscription' });
     }
 };
 

@@ -20,6 +20,7 @@ const { emitToOrderAudiences } = require('../utils/socketAudience');
 const { emitProductEvent } = require('./productController');
 const { normalizeAndValidateAddress } = require('../utils/addressValidation');
 const { billingAddressEnabled, resolveBillingAddress } = require('../utils/billingAddressConfig');
+const { sendToAdmins } = require('../services/pushNotificationService');
 
 const toSubunit = (amount) => Math.round(Number(amount || 0) * 100);
 const ATTEMPT_TTL_MINUTES = 30;
@@ -121,6 +122,25 @@ const emitCouponChangedForOrder = (req, order = null) => {
     };
     io.to('admin').emit('coupon:changed', payload);
     io.to(`user:${order.user_id}`).emit('coupon:changed', payload);
+};
+
+const notifyAdminsOfNewOrder = (order = null, { source = 'order' } = {}) => {
+    if (!order) return;
+    const orderRef = String(order?.order_ref || order?.orderRef || `#${order?.id || ''}`).trim();
+    const customerName = String(order?.customer_name || order?.customerName || 'Customer').trim() || 'Customer';
+    const totalLabel = `₹${Number(order?.total || 0).toLocaleString('en-IN')}`;
+    void sendToAdmins({
+        title: 'New order received',
+        body: `${orderRef} · ${customerName} · ${totalLabel}`,
+        link: `/admin?tab=orders&focusOrderId=${encodeURIComponent(String(order?.id || ''))}`,
+        tag: `admin-order-${String(order?.id || '')}`,
+        data: {
+            type: 'order_create',
+            orderId: order?.id || '',
+            orderRef,
+            source
+        }
+    });
 };
 
 const parseAddressObject = (value) => {
@@ -781,10 +801,10 @@ const verifyRazorpayPayment = async (req, res) => {
         lockedPaymentId = null;
         lockedSignature = null;
 
+        const hydratedOrder = await Order.getById(order.id);
+        const finalOrder = hydratedOrder || order;
         const io = req.app.get('io');
         if (io) {
-            const hydratedOrder = await Order.getById(order.id);
-            const finalOrder = hydratedOrder || order;
             emitToOrderAudiences(io, finalOrder, 'order:create', { order: finalOrder });
             emitToOrderAudiences(io, finalOrder, 'order:update', {
                 orderId: finalOrder.id || order.id,
@@ -805,6 +825,7 @@ const verifyRazorpayPayment = async (req, res) => {
             emitToOrderAudiences(io, finalOrder, 'payment:update', paymentPayload);
             emitCouponChangedForOrder(req, finalOrder);
         }
+        notifyAdminsOfNewOrder(finalOrder, { source: 'checkout' });
 
         void triggerOrderLifecycleEmail({
             order,
@@ -1271,6 +1292,7 @@ const handleRazorpayWebhook = async (req, res) => {
                             order: finalLinkedOrder
                         });
                     }
+                    notifyAdminsOfNewOrder(finalLinkedOrder, { source: 'abandoned_recovery' });
                     void triggerOrderLifecycleEmail({
                         order: linkedOrder,
                         stage: 'confirmed',
@@ -2269,6 +2291,7 @@ const createAdminManualOrder = async (req, res) => {
                 payment: paymentPayload
             });
         }
+        notifyAdminsOfNewOrder(finalOrder, { source: 'manual' });
         await emitProductUpdatesForIds(req, collectOrderProductIds(finalOrder));
         emitCouponChangedForOrder(req, finalOrder);
         void triggerOrderLifecycleEmail({

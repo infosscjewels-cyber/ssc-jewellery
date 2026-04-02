@@ -27,6 +27,7 @@ import { useToast } from '../../context/ToastContext';
 import { getGstDisplayDetails } from '../../utils/gst';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { BRAND_LOGO_URL } from '../../utils/branding.js';
+import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
 
 const ADMIN_LAST_SEEN_ORDER_TS_KEY = 'admin_last_seen_order_ts_v1';
 const ADMIN_MURUGAR_POPUP_DATE_KEY = 'admin_murugar_popup_date_v1';
@@ -87,6 +88,7 @@ export default function AdminDashboard() {
     const toast = useToast();
     const { logout, user } = useAuth();
     const { isDownloading, progress } = useProducts();
+    useAdminPushNotifications(user);
 
     const loadStorefrontState = useCallback(async () => {
         try {
