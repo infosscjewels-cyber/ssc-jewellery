@@ -14,12 +14,14 @@ export default function PaymentSuccess() {
     const { clearCart } = useCart();
     const [searchParams] = useSearchParams();
     const orderId = searchParams.get('orderId');
+    const attemptId = searchParams.get('attemptId') || '';
     const paymentRef = searchParams.get('razorpay_payment_id') || '';
     const paymentStatus = String(searchParams.get('razorpay_payment_link_status') || '').toLowerCase();
     const isFailed = paymentStatus && paymentStatus !== 'paid';
     const [isLoading, setIsLoading] = useState(true);
     const [order, setOrder] = useState(null);
     const [pollState, setPollState] = useState({ attempts: 0, exhausted: false });
+    const [pendingMessage, setPendingMessage] = useState('');
     const clearedRecoveryCartRef = useRef(false);
     const celebratedRef = useRef(false);
 
@@ -49,6 +51,31 @@ export default function PaymentSuccess() {
                     setOrder(resolved || null);
                     return;
                 }
+                if (attemptId) {
+                    let resolved = null;
+                    let finalMessage = '';
+                    const maxAttempts = 12;
+                    for (let i = 0; i < maxAttempts; i += 1) {
+                        if (!ignore) setPollState({ attempts: i + 1, exhausted: false });
+                        const payload = await orderService.getPaymentAttemptStatus(attemptId);
+                        finalMessage = String(payload?.message || '').trim();
+                        if (payload?.order) {
+                            resolved = payload.order;
+                            break;
+                        }
+                        if (payload?.failed) {
+                            if (!ignore) setPendingMessage(finalMessage || 'Payment confirmation failed. You can retry from your orders page.');
+                            break;
+                        }
+                        await wait(1500 + (i * 500));
+                    }
+                    if (!ignore) {
+                        setPollState((prev) => ({ attempts: Math.max(prev.attempts, resolved ? prev.attempts : maxAttempts), exhausted: !resolved }));
+                        if (!resolved && finalMessage) setPendingMessage(finalMessage);
+                    }
+                    setOrder(resolved || null);
+                    return;
+                }
                 const data = await orderService.getMyOrders({ page: 1, limit: 20, duration: 'all', force: true });
                 const rows = data?.orders || [];
                 const found = orderId
@@ -63,7 +90,7 @@ export default function PaymentSuccess() {
         };
         load();
         return () => { ignore = true; };
-    }, [orderId, paymentRef, toast]);
+    }, [attemptId, orderId, paymentRef, toast]);
 
     const items = useMemo(() => Array.isArray(order?.items) ? order.items : [], [order?.items]);
     const isRecoveryOrder = Boolean(order?.is_abandoned_recovery || order?.isAbandonedRecovery);
@@ -125,12 +152,15 @@ export default function PaymentSuccess() {
                         ) : !order ? (
                             <div className="space-y-2">
                                 <p className="text-sm text-gray-500">
-                                    {paymentRef ? 'Payment confirmed. Finalizing your order summary...' : 'Order summary will appear shortly.'}
+                                    {paymentRef || attemptId ? 'Payment confirmed. Finalizing your order summary...' : 'Order summary will appear shortly.'}
                                 </p>
-                                {paymentRef && pollState.attempts > 0 && (
+                                {(paymentRef || attemptId) && pollState.attempts > 0 && (
                                     <p className="text-xs text-gray-400">Status checks attempted: {pollState.attempts}</p>
                                 )}
-                                {paymentRef && pollState.exhausted && (
+                                {pendingMessage && (
+                                    <p className="text-xs text-amber-700">{pendingMessage}</p>
+                                )}
+                                {(paymentRef || attemptId) && pollState.exhausted && !pendingMessage && (
                                     <p className="text-xs text-amber-700">
                                         The payment is captured, but the order summary is taking longer than usual. Check `Orders` shortly.
                                     </p>

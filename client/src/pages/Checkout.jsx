@@ -175,6 +175,20 @@ export default function Checkout() {
     const subCategoriesEnabled = companyInfo?.subCategoriesEnabled === true;
     const availableStates = useMemo(() => getAllowedShippingStates(zones), [zones]);
 
+    const pollPaymentAttemptUntilResolved = useCallback(async (attemptId, { maxAttempts = 8 } = {}) => {
+        const safeAttemptId = Number(attemptId);
+        if (!Number.isFinite(safeAttemptId) || safeAttemptId <= 0) {
+            return { processing: false, failed: true, message: 'Payment attempt is unavailable' };
+        }
+        for (let index = 0; index < maxAttempts; index += 1) {
+            const payload = await orderService.getPaymentAttemptStatus(safeAttemptId);
+            if (payload?.order) return payload;
+            if (payload?.failed) return payload;
+            await new Promise((resolve) => setTimeout(resolve, 1500 + (index * 500)));
+        }
+        return { processing: true, attempt: { id: safeAttemptId } };
+    }, []);
+
     const refreshAvailableCoupons = useCallback(async () => {
         const cartSubtotal = Number(subtotal || 0);
         if (!user || itemCount <= 0 || cartSubtotal <= 0) {
@@ -760,6 +774,7 @@ export default function Checkout() {
         if (!hasCompleteAddress(form.address)) return toast.error('Please complete shipping address before payment');
         if (billingAddressEnabled && !hasCompleteAddress(form.billingAddress)) return toast.error('Please complete billing address before payment');
         setIsPlacingOrder(true);
+        let currentAttemptId = null;
         try {
             const profileNeedsAddressSync = (
                 !hasCompleteAddress(user?.address)
@@ -809,6 +824,7 @@ export default function Checkout() {
             }
             setPendingPaymentAmount(Number(init?.order?.amount || 0) / 100);
             setActiveAttemptId(init?.attempt?.id || null);
+            currentAttemptId = Number(init?.attempt?.id || 0) || null;
 
             const prefillContact = form.mobile
                 ? (String(form.mobile).startsWith('+') ? String(form.mobile) : `+91${String(form.mobile).replace(/\D/g, '')}`)
@@ -850,16 +866,39 @@ export default function Checkout() {
                         try {
                             setIsPaymentAwaitingConfirmation(true);
                             const verification = await orderService.verifyRazorpayPayment(response);
-                            if (!verification?.order) {
-                                throw new Error('Payment verified but order was not created');
+                            if (verification?.order) {
+                                setIsPaymentAwaitingConfirmation(false);
+                                setOrderResult(verification.order);
+                                setActiveAttemptId(null);
+                                await clearCart();
+                                toast.success('Payment successful, order placed');
+                                markSettled();
+                                resolve(verification.order);
+                                return;
                             }
-                            setIsPaymentAwaitingConfirmation(false);
-                            setOrderResult(verification.order);
-                            setActiveAttemptId(null);
-                            await clearCart();
-                            toast.success('Payment successful, order placed');
-                            markSettled();
-                            resolve(verification.order);
+                            if (verification?.processing && currentAttemptId) {
+                                const polled = await pollPaymentAttemptUntilResolved(currentAttemptId);
+                                if (polled?.order) {
+                                    setIsPaymentAwaitingConfirmation(false);
+                                    setOrderResult(polled.order);
+                                    setActiveAttemptId(null);
+                                    await clearCart();
+                                    toast.success('Payment successful, order placed');
+                                    markSettled();
+                                    resolve(polled.order);
+                                    return;
+                                }
+                                if (polled?.failed) {
+                                    throw new Error(polled?.message || 'Payment verification failed');
+                                }
+                                setIsPaymentAwaitingConfirmation(false);
+                                setActiveAttemptId(currentAttemptId);
+                                markSettled();
+                                navigate(`/payment/success?attemptId=${encodeURIComponent(String(currentAttemptId))}`);
+                                resolve({ pending: true, attemptId: currentAttemptId });
+                                return;
+                            }
+                            throw new Error('Payment verification is taking longer than usual');
                         } catch (error) {
                             setIsPaymentAwaitingConfirmation(false);
                             markSettled();
@@ -884,7 +923,7 @@ export default function Checkout() {
             toast.error(message);
             const params = new URLSearchParams();
             params.set('reason', message);
-            if (activeAttemptId) params.set('attemptId', String(activeAttemptId));
+            if (currentAttemptId) params.set('attemptId', String(currentAttemptId));
             navigate(`/payment/failed?${params.toString()}`);
         } finally {
             setIsPaymentAwaitingConfirmation(false);

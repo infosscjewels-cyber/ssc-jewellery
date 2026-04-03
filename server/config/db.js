@@ -440,7 +440,7 @@ const initDB = async () => {
                 razorpay_order_id VARCHAR(64) NOT NULL UNIQUE,
                 amount_subunits INT NOT NULL,
                 currency VARCHAR(10) NOT NULL DEFAULT 'INR',
-                status VARCHAR(20) NOT NULL DEFAULT 'created',
+                status VARCHAR(32) NOT NULL DEFAULT 'created',
                 expires_at TIMESTAMP NULL DEFAULT NULL,
                 verify_started_at TIMESTAMP NULL DEFAULT NULL,
                 billing_address JSON,
@@ -486,6 +486,21 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE payment_attempts ADD COLUMN verify_started_at TIMESTAMP NULL DEFAULT NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN verification_retry_count INT NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN reconciliation_due_at TIMESTAMP NULL DEFAULT NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN finalized_at TIMESTAMP NULL DEFAULT NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN last_gateway_error VARCHAR(500)');
+        } catch {}
+        try {
+            await connection.query("ALTER TABLE payment_attempts MODIFY COLUMN status VARCHAR(32) NOT NULL DEFAULT 'created'");
         } catch {}
         try {
             await connection.query('ALTER TABLE payment_attempts ADD UNIQUE KEY uniq_payment_attempt_local_order (local_order_id)');
@@ -1376,6 +1391,21 @@ const initDB = async () => {
                 INDEX idx_comm_delivery_status_next (status, next_retry_at),
                 INDEX idx_comm_delivery_channel_status (channel, status),
                 INDEX idx_comm_delivery_created (created_at)
+            )
+        `);
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS communication_dedupe_keys (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                dedupe_key VARCHAR(255) NOT NULL,
+                channel VARCHAR(20) NOT NULL,
+                workflow VARCHAR(80) NOT NULL DEFAULT 'generic',
+                stage VARCHAR(80) NULL,
+                order_id INT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uniq_comm_dedupe_key (dedupe_key),
+                INDEX idx_comm_dedupe_order (order_id, workflow, stage)
             )
         `);
         try {

@@ -2,8 +2,12 @@ const db = require('../config/db');
 
 const PAYMENT_STATUS = Object.freeze({
     CREATED: 'created',
+    CHECKOUT_OPENED: 'checkout_opened',
+    VERIFICATION_PENDING: 'verification_pending',
     ATTEMPTED: 'attempted',
+    PAID_UNVERIFIED: 'paid_unverified',
     PAID: 'paid',
+    RECONCILIATION_PENDING: 'reconciliation_pending',
     FAILED: 'failed',
     REFUNDED: 'refunded',
     EXPIRED: 'expired'
@@ -19,6 +23,15 @@ const parseJsonField = (value) => {
     }
 };
 const isForcedOutOfStock = (value) => value === 1 || value === true || value === '1' || value === 'true';
+const hydrateAttemptRow = (row = null) => {
+    if (!row) return null;
+    return {
+        ...row,
+        billing_address: parseJsonField(row.billing_address),
+        shipping_address: parseJsonField(row.shipping_address),
+        notes: parseJsonField(row.notes)
+    };
+};
 
 class PaymentAttempt {
     static async getLatestRetryableByUser(userId) {
@@ -32,13 +45,7 @@ class PaymentAttempt {
             [userId, PAYMENT_STATUS.FAILED, PAYMENT_STATUS.EXPIRED]
         );
         if (!rows.length) return null;
-        const row = rows[0];
-        return {
-            ...row,
-            billing_address: parseJsonField(row.billing_address),
-            shipping_address: parseJsonField(row.shipping_address),
-            notes: parseJsonField(row.notes)
-        };
+        return hydrateAttemptRow(rows[0]);
     }
 
     static async getLatestRetryableForOrder({ userId, razorpayOrderId }) {
@@ -56,13 +63,7 @@ class PaymentAttempt {
             [safeUserId, safeRazorpayOrderId, PAYMENT_STATUS.FAILED, PAYMENT_STATUS.EXPIRED]
         );
         if (!rows.length) return null;
-        const row = rows[0];
-        return {
-            ...row,
-            billing_address: parseJsonField(row.billing_address),
-            shipping_address: parseJsonField(row.shipping_address),
-            notes: parseJsonField(row.notes)
-        };
+        return hydrateAttemptRow(rows[0]);
     }
 
     static async create({
@@ -91,7 +92,7 @@ class PaymentAttempt {
                 JSON.stringify(notes || null)
             ]
         );
-        return { id: result.insertId };
+        return { id: result.insertId, status: PAYMENT_STATUS.CREATED };
     }
 
     static async getByRazorpayOrderId({ userId, razorpayOrderId }) {
@@ -100,13 +101,7 @@ class PaymentAttempt {
             [userId, razorpayOrderId]
         );
         if (!rows.length) return null;
-        const row = rows[0];
-        return {
-            ...row,
-            billing_address: parseJsonField(row.billing_address),
-            shipping_address: parseJsonField(row.shipping_address),
-            notes: parseJsonField(row.notes)
-        };
+        return hydrateAttemptRow(rows[0]);
     }
 
     static async getByRazorpayOrderIdAny(razorpayOrderId) {
@@ -115,13 +110,7 @@ class PaymentAttempt {
             [razorpayOrderId]
         );
         if (!rows.length) return null;
-        const row = rows[0];
-        return {
-            ...row,
-            billing_address: parseJsonField(row.billing_address),
-            shipping_address: parseJsonField(row.shipping_address),
-            notes: parseJsonField(row.notes)
-        };
+        return hydrateAttemptRow(rows[0]);
     }
 
     static async getById(id) {
@@ -130,43 +119,90 @@ class PaymentAttempt {
             [id]
         );
         if (!rows.length) return null;
-        const row = rows[0];
-        return {
-            ...row,
-            billing_address: parseJsonField(row.billing_address),
-            shipping_address: parseJsonField(row.shipping_address),
-            notes: parseJsonField(row.notes)
-        };
+        return hydrateAttemptRow(rows[0]);
+    }
+
+    static async markCheckoutOpened({ id, razorpayOrderId = null }) {
+        await db.execute(
+            `UPDATE payment_attempts
+             SET status = ?,
+                 razorpay_order_id = COALESCE(?, razorpay_order_id),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [PAYMENT_STATUS.CHECKOUT_OPENED, razorpayOrderId || null, id]
+        );
     }
 
     static async beginVerificationLock({ id, paymentId = null, signature = null }) {
         const [result] = await db.execute(
             `UPDATE payment_attempts
              SET status = CASE
-                    WHEN status = ? THEN ?
+                    WHEN status IN (?, ?, ?) THEN ?
                     ELSE status
                  END,
                  verify_started_at = CURRENT_TIMESTAMP,
+                 verification_retry_count = COALESCE(verification_retry_count, 0) + 1,
                  razorpay_payment_id = COALESCE(?, razorpay_payment_id),
                  razorpay_signature = COALESCE(?, razorpay_signature),
+                 reconciliation_due_at = NULL,
+                 last_gateway_error = NULL,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ?
                AND local_order_id IS NULL
-               AND status IN (?, ?, ?, ?)
+               AND status IN (?, ?, ?, ?, ?, ?)
                AND (verify_started_at IS NULL OR verify_started_at < DATE_SUB(NOW(), INTERVAL 60 SECOND))`,
             [
                 PAYMENT_STATUS.CREATED,
-                PAYMENT_STATUS.ATTEMPTED,
+                PAYMENT_STATUS.CHECKOUT_OPENED,
+                PAYMENT_STATUS.RECONCILIATION_PENDING,
+                PAYMENT_STATUS.VERIFICATION_PENDING,
                 paymentId,
                 signature,
                 id,
                 PAYMENT_STATUS.CREATED,
+                PAYMENT_STATUS.CHECKOUT_OPENED,
                 PAYMENT_STATUS.ATTEMPTED,
                 PAYMENT_STATUS.FAILED,
-                PAYMENT_STATUS.PAID
+                PAYMENT_STATUS.PAID_UNVERIFIED,
+                PAYMENT_STATUS.RECONCILIATION_PENDING
             ]
         );
         return Number(result?.affectedRows || 0) > 0;
+    }
+
+    static async markPaidUnverified({ id, paymentId = null, signature = null }) {
+        await db.execute(
+            `UPDATE payment_attempts
+             SET status = ?,
+                 razorpay_payment_id = COALESCE(?, razorpay_payment_id),
+                 razorpay_signature = COALESCE(?, razorpay_signature),
+                 last_gateway_error = NULL,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [PAYMENT_STATUS.PAID_UNVERIFIED, paymentId, signature, id]
+        );
+    }
+
+    static async markReconciliationPending({ id, paymentId = null, signature = null, errorMessage = null, delayMinutes = 5 }) {
+        await db.execute(
+            `UPDATE payment_attempts
+             SET status = ?,
+                 razorpay_payment_id = COALESCE(?, razorpay_payment_id),
+                 razorpay_signature = COALESCE(?, razorpay_signature),
+                 verify_started_at = NULL,
+                 reconciliation_due_at = DATE_ADD(NOW(), INTERVAL ? MINUTE),
+                 last_gateway_error = ?,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [
+                PAYMENT_STATUS.RECONCILIATION_PENDING,
+                paymentId,
+                signature,
+                Math.max(1, Number(delayMinutes || 5)),
+                errorMessage ? String(errorMessage).slice(0, 500) : null,
+                id
+            ]
+        );
     }
 
     static async markFailed({ id, paymentId = null, signature = null, errorMessage = null }) {
@@ -174,12 +210,21 @@ class PaymentAttempt {
             `UPDATE payment_attempts
              SET status = ?,
                  verify_started_at = NULL,
+                 finalized_at = CURRENT_TIMESTAMP,
                  razorpay_payment_id = ?,
                  razorpay_signature = ?,
                  failure_reason = ?,
+                 last_gateway_error = ?,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ?`,
-            [PAYMENT_STATUS.FAILED, paymentId, signature, errorMessage ? String(errorMessage).slice(0, 500) : null, id]
+            [
+                PAYMENT_STATUS.FAILED,
+                paymentId,
+                signature,
+                errorMessage ? String(errorMessage).slice(0, 500) : null,
+                errorMessage ? String(errorMessage).slice(0, 500) : null,
+                id
+            ]
         );
     }
 
@@ -188,6 +233,7 @@ class PaymentAttempt {
             `UPDATE payment_attempts
              SET status = ?,
                  verify_started_at = NULL,
+                 finalized_at = CURRENT_TIMESTAMP,
                  razorpay_payment_id = ?,
                  razorpay_signature = ?,
                  local_order_id = ?,
@@ -210,9 +256,10 @@ class PaymentAttempt {
              SET status = ?,
                  razorpay_payment_id = COALESCE(?, razorpay_payment_id),
                  razorpay_signature = COALESCE(?, razorpay_signature),
+                 last_gateway_error = NULL,
                  updated_at = CURRENT_TIMESTAMP
              WHERE razorpay_order_id = ?`,
-            [PAYMENT_STATUS.PAID, paymentId, signature, razorpayOrderId]
+            [PAYMENT_STATUS.PAID_UNVERIFIED, paymentId, signature, razorpayOrderId]
         );
     }
 
@@ -237,14 +284,72 @@ class PaymentAttempt {
     }) {
         await db.execute(
             `UPDATE payment_attempts
-             SET status = ?,
+                 SET status = ?,
                  verify_started_at = NULL,
+                 finalized_at = CURRENT_TIMESTAMP,
                  razorpay_payment_id = COALESCE(?, razorpay_payment_id),
                  failure_reason = COALESCE(?, failure_reason),
+                 last_gateway_error = COALESCE(?, last_gateway_error),
                  updated_at = CURRENT_TIMESTAMP
              WHERE razorpay_order_id = ?`,
-            [PAYMENT_STATUS.FAILED, paymentId, errorMessage ? String(errorMessage).slice(0, 500) : null, razorpayOrderId]
+            [
+                PAYMENT_STATUS.FAILED,
+                paymentId,
+                errorMessage ? String(errorMessage).slice(0, 500) : null,
+                errorMessage ? String(errorMessage).slice(0, 500) : null,
+                razorpayOrderId
+            ]
         );
+    }
+
+    static async markExpired({ id, reason = 'Payment attempt expired' }) {
+        await db.execute(
+            `UPDATE payment_attempts
+             SET status = ?,
+                 verify_started_at = NULL,
+                 finalized_at = CURRENT_TIMESTAMP,
+                 failure_reason = COALESCE(?, failure_reason),
+                 last_gateway_error = COALESCE(?, last_gateway_error),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+               AND local_order_id IS NULL`,
+            [
+                PAYMENT_STATUS.EXPIRED,
+                reason ? String(reason).slice(0, 500) : null,
+                reason ? String(reason).slice(0, 500) : null,
+                id
+            ]
+        );
+    }
+
+    static async listReconciliationCandidates({ limit = 25, minAgeSeconds = 90 } = {}) {
+        const safeLimit = Math.max(1, Math.min(100, Number(limit || 25)));
+        const safeMinAgeSeconds = Math.max(0, Number(minAgeSeconds || 90));
+        const [rows] = await db.execute(
+            `SELECT *
+             FROM payment_attempts
+             WHERE local_order_id IS NULL
+               AND status IN (?, ?, ?, ?, ?, ?)
+               AND (
+                    reconciliation_due_at IS NOT NULL
+                    OR (verify_started_at IS NULL AND created_at < DATE_SUB(NOW(), INTERVAL ? SECOND))
+               )
+             ORDER BY
+                CASE WHEN reconciliation_due_at IS NULL THEN 1 ELSE 0 END ASC,
+                reconciliation_due_at ASC,
+                updated_at ASC
+             LIMIT ${safeLimit}`,
+            [
+                PAYMENT_STATUS.CHECKOUT_OPENED,
+                PAYMENT_STATUS.VERIFICATION_PENDING,
+                PAYMENT_STATUS.ATTEMPTED,
+                PAYMENT_STATUS.PAID_UNVERIFIED,
+                PAYMENT_STATUS.RECONCILIATION_PENDING,
+                PAYMENT_STATUS.CREATED,
+                safeMinAgeSeconds
+            ]
+        );
+        return rows.map((row) => hydrateAttemptRow(row));
     }
 
     static async reserveInventoryForAttempt({ attemptId, userId, expiresAt }) {
@@ -441,22 +546,22 @@ class PaymentAttempt {
         const [rows] = await db.execute(
             `SELECT id FROM payment_attempts
              WHERE local_order_id IS NULL
-               AND status IN (?, ?)
+               AND COALESCE(razorpay_payment_id, '') = ''
+               AND status IN (?, ?, ?)
                AND created_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
-            [PAYMENT_STATUS.CREATED, PAYMENT_STATUS.ATTEMPTED, Number(ttlMinutes || 30)]
+            [
+                PAYMENT_STATUS.CREATED,
+                PAYMENT_STATUS.CHECKOUT_OPENED,
+                PAYMENT_STATUS.ATTEMPTED,
+                Number(ttlMinutes || 30)
+            ]
         );
         let expired = 0;
         for (const row of rows) {
-            await PaymentAttempt.releaseInventoryForAttempt({
-                attemptId: row.id,
-                reason: 'expired'
+            await PaymentAttempt.markExpired({
+                id: row.id,
+                reason: 'Payment session expired'
             });
-            await db.execute(
-                `UPDATE payment_attempts
-                 SET status = ?, verify_started_at = NULL, updated_at = CURRENT_TIMESTAMP
-                 WHERE id = ? AND local_order_id IS NULL`,
-                [PAYMENT_STATUS.EXPIRED, row.id]
-            );
             expired += 1;
         }
         return { expired };

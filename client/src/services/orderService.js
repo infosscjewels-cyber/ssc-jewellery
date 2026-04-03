@@ -485,6 +485,17 @@ export const orderService = {
         }
         return data;
     },
+    getPaymentAttemptStatus: async (attemptId) => {
+        const res = await fetch(`${API_URL}/razorpay/attempt/${encodeURIComponent(attemptId)}`, {
+            method: 'GET',
+            headers: getAuthHeader()
+        });
+        const data = await handleResponse(res);
+        if (data?.order) {
+            orderService.patchMyOrdersCache(data.order);
+        }
+        return data;
+    },
     checkout: async ({ billingAddress, shippingAddress }) => {
         const res = await fetch(`${API_URL}/checkout`, {
             method: 'POST',
@@ -591,6 +602,23 @@ export const orderService = {
         });
         const data = await handleResponse(res);
         removeAdminEntityFromCache({ id, entityType: 'attempt' });
+        return data;
+    },
+    reconcileAdminPaymentAttempt: async (attemptId) => {
+        const res = await fetch(`${API_URL}/admin/attempt/${encodeURIComponent(attemptId)}/reconcile`, {
+            method: 'POST',
+            headers: getAuthHeader()
+        });
+        const data = await handleResponse(res);
+        if (data?.order) {
+            patchAdminOrderCaches(data.order);
+            if (data.order.id) {
+                adminOrderDetailCache[String(data.order.id)] = { ts: Date.now(), data: { order: data.order } };
+            }
+            removeAdminEntityFromCache({ id: attemptId, entityType: 'attempt' });
+        } else if (data?.attempt) {
+            patchAdminAttemptCaches(data.attempt);
+        }
         return data;
     },
     convertAdminPaymentAttemptToOrder: async (attemptId, payload = {}) => {

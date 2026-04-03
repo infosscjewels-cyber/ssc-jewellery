@@ -90,6 +90,9 @@ const {
     pruneCommunicationDeliveryLogs
 } = require('./services/communications/communicationRetryService');
 const {
+    runPaymentAttemptReconciliationPass
+} = require('./services/paymentReconciliationService');
+const {
     buildRobotsTxt,
     buildSitemapXml,
     initSeoAutomation,
@@ -392,6 +395,25 @@ const schedulePaymentAttemptExpiryJob = () => {
     }, intervalMs);
 };
 
+const schedulePaymentAttemptReconciliationJob = () => {
+    const intervalMs = 2 * 60 * 1000;
+    const run = async () => {
+        try {
+            const result = await runPaymentAttemptReconciliationPass({
+                limit: 20,
+                minAgeSeconds: 90
+            });
+            if (Number(result?.reconciled || 0) > 0 || Number(result?.failed || 0) > 0 || Number(result?.expired || 0) > 0) {
+                console.log('Payment reconciliation job summary:', result);
+            }
+        } catch (error) {
+            console.error('Payment reconciliation job failed:', error?.message || error);
+        }
+    };
+    void run();
+    setInterval(run, intervalMs);
+};
+
 const scheduleMonthlyLoyaltyReassessment = () => {
     let lastRunKey = '';
     const runIfWindow = async () => {
@@ -548,6 +570,7 @@ const initBackgroundJobs = () => {
 
     scheduleMidnightJob();
     schedulePaymentAttemptExpiryJob();
+    schedulePaymentAttemptReconciliationJob();
     ensureLoyaltyConfigLoaded({ force: true }).catch(() => {});
     scheduleMonthlyLoyaltyReassessment();
     scheduleDailyBirthdayCoupons();

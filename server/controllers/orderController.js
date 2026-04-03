@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { PaymentAttempt, PAYMENT_STATUS } = require('../models/PaymentAttempt');
 const WebhookEvent = require('../models/WebhookEvent');
 const { createRazorpayClient, getRazorpayConfig } = require('../services/razorpayService');
+const { ensureCapturedPaymentMatchesAttempt, reconcilePaymentAttemptById } = require('../services/paymentReconciliationService');
 const { markRecoveredByOrder } = require('../services/abandonedCartRecoveryService');
 const AbandonedCart = require('../models/AbandonedCart');
 const Coupon = require('../models/Coupon');
@@ -123,6 +124,41 @@ const emitCouponChangedForOrder = (req, order = null) => {
     };
     io.to('admin').emit('coupon:changed', payload);
     io.to(`user:${order.user_id}`).emit('coupon:changed', payload);
+};
+
+const PAYMENT_ATTEMPT_PROCESSING_STATUSES = new Set([
+    PAYMENT_STATUS.CREATED,
+    PAYMENT_STATUS.CHECKOUT_OPENED,
+    PAYMENT_STATUS.VERIFICATION_PENDING,
+    PAYMENT_STATUS.ATTEMPTED,
+    PAYMENT_STATUS.PAID_UNVERIFIED,
+    PAYMENT_STATUS.RECONCILIATION_PENDING
+]);
+
+const serializePaymentAttemptStatus = ({ attempt = null, order = null, message = null } = {}) => {
+    const normalizedStatus = String(attempt?.status || '').trim().toLowerCase();
+    const failed = normalizedStatus === PAYMENT_STATUS.FAILED || normalizedStatus === PAYMENT_STATUS.EXPIRED;
+    const verified = Boolean(order?.id || attempt?.local_order_id || normalizedStatus === PAYMENT_STATUS.PAID);
+    const processing = !verified && !failed && PAYMENT_ATTEMPT_PROCESSING_STATUSES.has(normalizedStatus);
+    return {
+        processing,
+        verified,
+        failed,
+        canRetry: failed,
+        message: message || attempt?.failure_reason || attempt?.last_gateway_error || null,
+        attempt: attempt ? {
+            id: attempt.id,
+            status: attempt.status,
+            razorpayOrderId: attempt.razorpay_order_id || null,
+            razorpayPaymentId: attempt.razorpay_payment_id || null,
+            localOrderId: attempt.local_order_id || null,
+            verificationRetryCount: Number(attempt.verification_retry_count || 0),
+            reconciliationDueAt: attempt.reconciliation_due_at || null,
+            verifiedAt: attempt.verified_at || null,
+            finalizedAt: attempt.finalized_at || null
+        } : null,
+        order: order || null
+    };
 };
 
 const notifyAdminsOfNewOrder = (order = null, { source = 'order' } = {}) => {
@@ -595,19 +631,10 @@ const createRazorpayOrder = async (req, res) => {
             expiresAt
         });
 
-        try {
-            await reserveAttemptInventoryAndEmit(req, {
-                attemptId: attempt.id,
-                userId,
-                expiresAt
-            });
-        } catch (error) {
-            await PaymentAttempt.markFailed({
-                id: attempt.id,
-                errorMessage: error?.message || 'Reservation failed'
-            });
-            return res.status(400).json({ message: error?.message || 'Failed to reserve stock for payment' });
-        }
+        await PaymentAttempt.markCheckoutOpened({
+            id: attempt.id,
+            razorpayOrderId: razorpayOrder.id
+        });
 
         return res.status(201).json({
             order: razorpayOrder,
@@ -615,7 +642,7 @@ const createRazorpayOrder = async (req, res) => {
             summary,
             attempt: {
                 id: attempt.id,
-                status: PAYMENT_STATUS.CREATED,
+                status: PAYMENT_STATUS.CHECKOUT_OPENED,
                 expiresAt
             }
         });
@@ -726,66 +753,16 @@ const verifyRazorpayPayment = async (req, res) => {
         lockedPaymentId = razorpayPaymentId;
         lockedSignature = razorpaySignature;
 
-        const razorpay = await createRazorpayClient();
-        const paymentDetails = await razorpay.payments.fetch(razorpayPaymentId);
-
-        if (!paymentDetails || String(paymentDetails.order_id) !== String(attempt.razorpay_order_id)) {
-            await releaseAttemptInventoryAndEmit(req, { attemptId: attempt.id, reason: 'verify_mismatch' });
-            await PaymentAttempt.markFailed({
-                id: attempt.id,
-                paymentId: razorpayPaymentId,
-                signature: razorpaySignature,
-                errorMessage: 'Payment order mismatch'
-            });
-            return res.status(400).json({ message: 'Payment verification failed: order mismatch' });
-        }
-
-        if (Number(paymentDetails.amount || 0) !== Number(attempt.amount_subunits || 0)) {
-            await releaseAttemptInventoryAndEmit(req, { attemptId: attempt.id, reason: 'verify_amount_mismatch' });
-            await PaymentAttempt.markFailed({
-                id: attempt.id,
-                paymentId: razorpayPaymentId,
-                signature: razorpaySignature,
-                errorMessage: 'Payment amount mismatch'
-            });
-            return res.status(400).json({ message: 'Payment verification failed: amount mismatch' });
-        }
-
-        if (String(paymentDetails.currency || '').toUpperCase() !== String(attempt.currency || 'INR').toUpperCase()) {
-            await releaseAttemptInventoryAndEmit(req, { attemptId: attempt.id, reason: 'verify_currency_mismatch' });
-            await PaymentAttempt.markFailed({
-                id: attempt.id,
-                paymentId: razorpayPaymentId,
-                signature: razorpaySignature,
-                errorMessage: 'Payment currency mismatch'
-            });
-            return res.status(400).json({ message: 'Payment verification failed: currency mismatch' });
-        }
-
-        if (String(paymentDetails.status || '').toLowerCase() !== 'captured') {
-            return res.status(400).json({ message: 'Payment is not captured yet' });
-        }
-
-        const appliedCouponCode = String(attempt?.notes?.couponCode || '').trim().toUpperCase() || null;
-        const cartSummary = await Order.getCheckoutSummary(userId, {
-            shippingAddress: attempt.shipping_address || null,
-            couponCode: appliedCouponCode
+        const { attempt: reconciledAttempt, paymentDetails } = await ensureCapturedPaymentMatchesAttempt({
+            attempt,
+            razorpayPaymentId,
+            razorpaySignature,
+            source: 'checkout_verify'
         });
-        const currentAmountSubunits = toSubunit(cartSummary.total);
-        if (Number(currentAmountSubunits) !== Number(attempt.amount_subunits || 0)) {
-            await releaseAttemptInventoryAndEmit(req, { attemptId: attempt.id, reason: 'cart_changed' });
-            await PaymentAttempt.markFailed({
-                id: attempt.id,
-                paymentId: razorpayPaymentId,
-                signature: razorpaySignature,
-                errorMessage: 'Cart changed after payment initiation'
-            });
-            return res.status(409).json({ message: 'Cart changed after payment initiation. Please retry checkout.' });
-        }
 
         const order = await createOrderFromCheckoutPaymentAttempt(req, {
-            attempt,
-            razorpayOrderId: attempt.razorpay_order_id,
+            attempt: reconciledAttempt,
+            razorpayOrderId: reconciledAttempt.razorpay_order_id,
             razorpayPaymentId,
             razorpaySignature,
             settlementId: paymentDetails?.settlement_id || null,
@@ -834,7 +811,7 @@ const verifyRazorpayPayment = async (req, res) => {
                     paymentStatus: PAYMENT_STATUS.PAID,
                     paymentMethod: 'razorpay',
                     paymentReference: razorpayPaymentId,
-                    razorpayOrderId: attempt.razorpay_order_id
+                    razorpayOrderId: reconciledAttempt.razorpay_order_id
                 }
             };
             emitToOrderAudiences(io, finalOrder, 'payment:update', paymentPayload);
@@ -854,7 +831,7 @@ const verifyRazorpayPayment = async (req, res) => {
                 paymentStatus: PAYMENT_STATUS.PAID,
                 paymentMethod: 'razorpay',
                 paymentReference: razorpayPaymentId,
-                razorpayOrderId: attempt.razorpay_order_id
+                razorpayOrderId: reconciledAttempt.razorpay_order_id
             }
         });
 
@@ -874,12 +851,15 @@ const verifyRazorpayPayment = async (req, res) => {
             const persistedOrder = await Order.getById(createdOrder.id).catch(() => null);
             return res.json({ order: persistedOrder || createdOrder, verified: true });
         }
+        if (error?.reconciliationPending) {
+            const latestAttempt = lockedAttemptId ? await PaymentAttempt.getById(lockedAttemptId) : null;
+            return res.json(serializePaymentAttemptStatus({
+                attempt: latestAttempt || null,
+                message: error.message || 'Payment confirmation is taking longer than usual'
+            }));
+        }
         if (lockedAttemptId) {
             try {
-                await releaseAttemptInventoryAndEmit(req, {
-                    attemptId: lockedAttemptId,
-                    reason: 'verify_failed'
-                });
                 await PaymentAttempt.markFailed({
                     id: lockedAttemptId,
                     paymentId: lockedPaymentId,
@@ -888,7 +868,8 @@ const verifyRazorpayPayment = async (req, res) => {
                 });
             } catch {}
         }
-        return res.status(400).json({ message: error.message || 'Failed to verify payment' });
+        const statusCode = Number(error?.statusCode || 0) || 400;
+        return res.status(statusCode).json({ message: error.message || 'Failed to verify payment' });
     }
 };
 
@@ -1159,12 +1140,6 @@ const handleRazorpayWebhook = async (req, res) => {
             });
         } else if (paymentStatus === PAYMENT_STATUS.FAILED && razorpayOrderId) {
             const attempt = await PaymentAttempt.getByRazorpayOrderIdAny(razorpayOrderId);
-            if (attempt) {
-                await releaseAttemptInventoryAndEmit(req, {
-                    attemptId: attempt.id,
-                    reason: 'payment_failed'
-                });
-            }
             await PaymentAttempt.markFailedByRazorpayOrder({
                 razorpayOrderId,
                 paymentId: razorpayPaymentId,
@@ -1278,15 +1253,21 @@ const handleRazorpayWebhook = async (req, res) => {
                 const attempt = razorpayOrderId
                     ? await PaymentAttempt.getByRazorpayOrderIdAny(razorpayOrderId)
                     : null;
-                linkedOrder = attempt
-                    ? await createOrderFromCheckoutPaymentAttempt(req, {
+                if (attempt) {
+                    const reconciled = await ensureCapturedPaymentMatchesAttempt({
                         attempt,
-                        razorpayOrderId,
                         razorpayPaymentId,
+                        paymentDetails: paymentEntity,
+                        source: 'webhook_paid'
+                    });
+                    linkedOrder = await createOrderFromCheckoutPaymentAttempt(req, {
+                        attempt: reconciled.attempt,
+                        razorpayOrderId,
+                        razorpayPaymentId: reconciled.paymentId,
                         settlementId: settlementIdFromWebhook,
                         settlementSnapshot: null
-                    })
-                    : null;
+                    });
+                }
             }
             if (!linkedOrder) {
                 linkedOrder = await createOrderFromRecoveryPayment(req, {
@@ -1765,6 +1746,114 @@ const getMyOrderByPaymentRef = async (req, res) => {
     }
 };
 
+const getMyPaymentAttemptStatus = async (req, res) => {
+    try {
+        const attemptId = Number(req.params.id);
+        if (!Number.isFinite(attemptId) || attemptId <= 0) {
+            return res.status(400).json({ message: 'Valid attempt id is required' });
+        }
+
+        let attempt = await PaymentAttempt.getById(attemptId);
+        if (!attempt || String(attempt.user_id) !== String(req.user.id)) {
+            return res.status(404).json({ message: 'Payment attempt not found' });
+        }
+
+        if (attempt.local_order_id) {
+            const existingOrder = await Order.getById(attempt.local_order_id);
+            return res.json(serializePaymentAttemptStatus({
+                attempt,
+                order: existingOrder || null
+            }));
+        }
+
+        const paymentId = String(attempt.razorpay_payment_id || '').trim();
+        if (!paymentId || !PAYMENT_ATTEMPT_PROCESSING_STATUSES.has(String(attempt.status || '').trim().toLowerCase())) {
+            return res.json(serializePaymentAttemptStatus({ attempt }));
+        }
+
+        const lockAcquired = await PaymentAttempt.beginVerificationLock({
+            id: attempt.id,
+            paymentId,
+            signature: attempt.razorpay_signature || null
+        });
+
+        if (!lockAcquired) {
+            const latestAttempt = await PaymentAttempt.getById(attempt.id);
+            const existingOrder = latestAttempt?.local_order_id ? await Order.getById(latestAttempt.local_order_id) : null;
+            return res.json(serializePaymentAttemptStatus({
+                attempt: latestAttempt || attempt,
+                order: existingOrder || null
+            }));
+        }
+
+        try {
+            const reconciled = await ensureCapturedPaymentMatchesAttempt({
+                attempt,
+                razorpayPaymentId: paymentId,
+                razorpaySignature: attempt.razorpay_signature || null,
+                source: 'checkout_status_poll'
+            });
+            const order = await createOrderFromCheckoutPaymentAttempt(req, {
+                attempt: reconciled.attempt,
+                razorpayOrderId: reconciled.attempt.razorpay_order_id,
+                razorpayPaymentId: reconciled.paymentId,
+                razorpaySignature: attempt.razorpay_signature || null,
+                settlementId: reconciled.paymentDetails?.settlement_id || null,
+                settlementSnapshot: null
+            });
+
+            const latestAttempt = await PaymentAttempt.getById(attempt.id);
+            const finalOrder = order?.id ? (await Order.getById(order.id)) || order : null;
+
+            if (finalOrder?.id) {
+                try {
+                    await markRecoveredByOrder({ order: finalOrder, reason: 'order_paid_status_poll' });
+                } catch {}
+                emitOrderAndPaymentUpdate(req, {
+                    order: finalOrder,
+                    payment: {
+                        paymentStatus: PAYMENT_STATUS.PAID,
+                        paymentMethod: 'razorpay',
+                        paymentReference: reconciled.paymentId,
+                        razorpayOrderId: reconciled.attempt.razorpay_order_id
+                    }
+                });
+                notifyAdminsOfNewOrder(finalOrder, { source: 'checkout_status_poll' });
+                void triggerOrderLifecycleEmail({
+                    order: finalOrder,
+                    stage: 'confirmed',
+                    includeInvoice: true
+                });
+                void triggerPaymentLifecycleCommunication({
+                    order: finalOrder,
+                    stage: PAYMENT_STATUS.PAID,
+                    payment: {
+                        paymentStatus: PAYMENT_STATUS.PAID,
+                        paymentMethod: 'razorpay',
+                        paymentReference: reconciled.paymentId,
+                        razorpayOrderId: reconciled.attempt.razorpay_order_id
+                    }
+                });
+            }
+
+            return res.json(serializePaymentAttemptStatus({
+                attempt: latestAttempt || reconciled.attempt,
+                order: finalOrder
+            }));
+        } catch (error) {
+            const latestAttempt = await PaymentAttempt.getById(attempt.id);
+            const existingOrder = latestAttempt?.local_order_id ? await Order.getById(latestAttempt.local_order_id) : null;
+            return res.json(serializePaymentAttemptStatus({
+                attempt: latestAttempt || attempt,
+                order: existingOrder || null,
+                message: error?.reconciliationPending ? error.message : (error?.message || null)
+            }));
+        }
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to fetch payment attempt status' });
+    }
+};
+
 const updateOrderStatus = async (req, res) => {
     try {
         const {
@@ -2214,6 +2303,60 @@ const convertAdminPaymentAttemptToOrder = async (req, res) => {
         return res.json({ order, attempt: updatedAttempt || null });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to convert attempt to order' });
+    }
+};
+
+const reconcileAdminPaymentAttempt = async (req, res) => {
+    try {
+        if (!['admin', 'staff'].includes(String(req.user?.role || '').toLowerCase())) {
+            return res.status(403).json({ message: 'Only admins or staff can reconcile payment attempts' });
+        }
+        const attemptId = Number(req.params.id);
+        if (!Number.isFinite(attemptId) || attemptId <= 0) {
+            return res.status(400).json({ message: 'Invalid attempt id' });
+        }
+
+        const existingAttempt = await PaymentAttempt.getById(attemptId);
+        if (!existingAttempt) {
+            return res.status(404).json({ message: 'Payment attempt not found' });
+        }
+
+        const result = await reconcilePaymentAttemptById({
+            attemptId,
+            source: 'admin_reconcile'
+        });
+
+        const latestAttempt = await PaymentAttempt.getById(attemptId);
+        const orderId = result?.order?.id || latestAttempt?.local_order_id || null;
+        const order = orderId ? await Order.getById(orderId) : null;
+
+        if (order) {
+            emitOrderAndPaymentUpdate(req, {
+                order,
+                payment: {
+                    paymentStatus: order.payment_status || PAYMENT_STATUS.PAID,
+                    paymentMethod: order.payment_gateway || 'razorpay',
+                    paymentReference: order.razorpay_payment_id || latestAttempt?.razorpay_payment_id || null,
+                    razorpayOrderId: order.razorpay_order_id || latestAttempt?.razorpay_order_id || null
+                }
+            });
+            return res.json({
+                ok: true,
+                reconciled: true,
+                order,
+                attempt: latestAttempt,
+                result
+            });
+        }
+
+        return res.json({
+            ok: true,
+            reconciled: false,
+            attempt: latestAttempt || existingAttempt,
+            result
+        });
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to reconcile payment attempt' });
     }
 };
 
@@ -2875,7 +3018,8 @@ const sendAdminInvoiceCommunication = async (req, res) => {
                     invoiceAttachment,
                     allowEmail,
                     allowWhatsapp,
-                    invoiceShareUrl
+                    invoiceShareUrl,
+                    disableDedupe: true
                 });
                 console.info(
                     `Invoice communication result for order ${order?.id || 'unknown'}`,
@@ -2934,6 +3078,7 @@ module.exports = {
     getPublicPopupData,
     retryRazorpayPayment,
     verifyRazorpayPayment,
+    getMyPaymentAttemptStatus,
     handleRazorpayWebhook,
     getAdminOrders,
     getAdminPaymentHealth,
@@ -2948,6 +3093,7 @@ module.exports = {
     fetchMyPaymentStatus,
     deleteAdminOrder,
     deleteAdminPaymentAttempt,
+    reconcileAdminPaymentAttempt,
     convertAdminPaymentAttemptToOrder,
     createAdminManualOrder,
     getOverdueShippedSummary,

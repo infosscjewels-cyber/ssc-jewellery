@@ -1,4 +1,5 @@
 const { sendEmail, verifyEmailTransport } = require('./channels/emailChannel');
+const db = require('../../config/db');
 const {
     sendWhatsapp: sendWhatsappDirect
 } = require('./channels/whatsappChannel');
@@ -26,6 +27,121 @@ const buildSkippedEmailResult = (reason = 'missing_email') => ({
     skipped: true,
     reason
 });
+
+const buildSkippedDuplicateResult = (channel = 'generic') => ({
+    ok: false,
+    skipped: true,
+    reason: 'duplicate_communication',
+    channel
+});
+
+const reserveCommunicationDedupeKey = async ({
+    dedupeKey,
+    channel,
+    workflow,
+    stage = null,
+    orderId = null
+} = {}) => {
+    if (!dedupeKey) return true;
+    try {
+        await db.execute(
+            `INSERT INTO communication_dedupe_keys
+                (dedupe_key, channel, workflow, stage, order_id, status)
+             VALUES (?, ?, ?, ?, ?, 'pending')`,
+            [
+                String(dedupeKey).slice(0, 255),
+                String(channel || '').slice(0, 20),
+                String(workflow || 'generic').slice(0, 80),
+                stage ? String(stage).slice(0, 80) : null,
+                Number.isFinite(Number(orderId)) ? Number(orderId) : null
+            ]
+        );
+        return true;
+    } catch (error) {
+        if (error?.code === 'ER_DUP_ENTRY') return false;
+        throw error;
+    }
+};
+
+const markCommunicationDedupeSent = async (dedupeKey = '') => {
+    if (!dedupeKey) return;
+    await db.execute(
+        `UPDATE communication_dedupe_keys
+         SET status = 'sent',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE dedupe_key = ?`,
+        [String(dedupeKey).slice(0, 255)]
+    );
+};
+
+const releaseCommunicationDedupeKey = async (dedupeKey = '') => {
+    if (!dedupeKey) return;
+    await db.execute(
+        'DELETE FROM communication_dedupe_keys WHERE dedupe_key = ?',
+        [String(dedupeKey).slice(0, 255)]
+    );
+};
+
+const buildCommunicationDedupeKey = ({
+    workflow = 'generic',
+    stage = '',
+    channel = '',
+    order = {},
+    payment = {}
+} = {}) => {
+    const orderId = Number(order?.id || order?.order_id || 0);
+    const orderRef = String(
+        order?.order_ref
+        || order?.orderRef
+        || order?.razorpay_order_id
+        || payment?.razorpayOrderId
+        || payment?.paymentReference
+        || ''
+    ).trim();
+    const target = Number.isFinite(orderId) && orderId > 0 ? `order:${orderId}` : (orderRef ? `ref:${orderRef}` : '');
+    if (!target) return '';
+    return [
+        String(workflow || 'generic').trim().toLowerCase(),
+        String(stage || '').trim().toLowerCase(),
+        String(channel || '').trim().toLowerCase(),
+        target
+    ].join('|').slice(0, 255);
+};
+
+const runChannelWithDedupe = async ({
+    channel,
+    workflow,
+    stage = '',
+    order = {},
+    payment = {},
+    disableDedupe = false,
+    sendFn
+} = {}) => {
+    if (typeof sendFn !== 'function') {
+        throw new Error('sendFn is required');
+    }
+    const dedupeKey = disableDedupe
+        ? ''
+        : buildCommunicationDedupeKey({ workflow, stage, channel, order, payment });
+    const reserved = await reserveCommunicationDedupeKey({
+        dedupeKey,
+        channel,
+        workflow,
+        stage,
+        orderId: order?.id || order?.order_id || null
+    });
+    if (!reserved) {
+        return buildSkippedDuplicateResult(channel);
+    }
+    try {
+        const result = await sendFn();
+        await markCommunicationDedupeSent(dedupeKey);
+        return result;
+    } catch (error) {
+        await releaseCommunicationDedupeKey(dedupeKey).catch(() => {});
+        throw error;
+    }
+};
 
 const sendEmailCommunication = async ({
     to,
@@ -541,7 +657,8 @@ const sendOrderLifecycleCommunication = async ({
     invoiceAttachment = null,
     allowEmail = true,
     allowWhatsapp = true,
-    invoiceShareUrl = null
+    invoiceShareUrl = null,
+    disableDedupe = false
 }) => {
     const recipient = normalizeCustomer(customer);
     const safeStage = String(stage || 'updated').trim().toLowerCase();
@@ -554,30 +671,44 @@ const sendOrderLifecycleCommunication = async ({
 
     const [emailResult, whatsappResult] = await Promise.allSettled([
         (allowEmail && recipient.email)
-            ? deliverWorkflowEmail({
+            ? runChannelWithDedupe({
+                channel: 'email',
                 workflow: `order_${safeStage}`,
-                to: recipient.email,
-                subject: template.subject,
-                text: template.text,
-                html: template.html,
-                attachments: invoiceAttachment ? [invoiceAttachment] : [],
-                context: {
-                    orderId: order?.id || null,
-                    orderRef: order?.order_ref || order?.orderRef || null,
-                    stage: safeStage
-                }
+                stage: safeStage,
+                order,
+                disableDedupe,
+                sendFn: () => deliverWorkflowEmail({
+                    workflow: `order_${safeStage}`,
+                    to: recipient.email,
+                    subject: template.subject,
+                    text: template.text,
+                    html: template.html,
+                    attachments: invoiceAttachment ? [invoiceAttachment] : [],
+                    context: {
+                        orderId: order?.id || null,
+                        orderRef: order?.order_ref || order?.orderRef || null,
+                        stage: safeStage
+                    }
+                })
             })
             : Promise.resolve(buildSkippedEmailResult('missing_email')),
         allowWhatsapp
-            ? sendWhatsapp({
+            ? runChannelWithDedupe({
+                channel: 'whatsapp',
+                workflow: `order_${safeStage}`,
                 stage: safeStage,
-                customer: recipient,
                 order,
-                type: 'order',
-                template: 'order',
-                mobile: recipient.mobile,
-                fileUrl: invoiceFileUrl || '',
-                pdfName: includeInvoice ? invoiceFileName : ''
+                disableDedupe,
+                sendFn: () => sendWhatsapp({
+                    stage: safeStage,
+                    customer: recipient,
+                    order,
+                    type: 'order',
+                    template: 'order',
+                    mobile: recipient.mobile,
+                    fileUrl: invoiceFileUrl || '',
+                    pdfName: includeInvoice ? invoiceFileName : ''
+                })
             })
             : Promise.resolve({ ok: false, skipped: true, reason: 'missing_whatsapp' })
     ]);
@@ -591,7 +722,7 @@ const sendOrderLifecycleCommunication = async ({
     };
 };
 
-const sendPaymentLifecycleCommunication = async ({ stage, customer = {}, order = {}, payment = {} }) => {
+const sendPaymentLifecycleCommunication = async ({ stage, customer = {}, order = {}, payment = {}, disableDedupe = false }) => {
     const recipient = normalizeCustomer(customer);
     const orderRef = order?.order_ref || order?.orderRef || payment?.razorpayOrderId || 'N/A';
     const safeStage = String(stage || payment?.paymentStatus || 'updated').trim();
@@ -632,27 +763,43 @@ const sendPaymentLifecycleCommunication = async ({ stage, customer = {}, order =
 
     const [emailResult, whatsappResult] = await Promise.allSettled([
         recipient.email
-            ? deliverWorkflowEmail({
+            ? runChannelWithDedupe({
+                channel: 'email',
                 workflow: 'payment_status',
-                to: recipient.email,
-                subject: template.subject,
-                text: template.text,
-                html: template.html,
-                context: {
-                    orderId: order?.id || null,
-                    orderRef: order?.order_ref || order?.orderRef || null,
-                    stage: safeStage
-                }
+                stage: safeStage,
+                order,
+                payment,
+                disableDedupe,
+                sendFn: () => deliverWorkflowEmail({
+                    workflow: 'payment_status',
+                    to: recipient.email,
+                    subject: template.subject,
+                    text: template.text,
+                    html: template.html,
+                    context: {
+                        orderId: order?.id || null,
+                        orderRef: order?.order_ref || order?.orderRef || null,
+                        stage: safeStage
+                    }
+                })
             })
             : Promise.resolve(buildSkippedEmailResult('missing_email')),
-        sendWhatsapp({
+        runChannelWithDedupe({
+            channel: 'whatsapp',
+            workflow: 'payment_status',
             stage: safeStage,
-            customer: recipient,
             order,
             payment,
-            type: 'payment',
-            template: 'payment',
-            mobile: recipient.mobile
+            disableDedupe,
+            sendFn: () => sendWhatsapp({
+                stage: safeStage,
+                customer: recipient,
+                order,
+                payment,
+                type: 'payment',
+                template: 'payment',
+                mobile: recipient.mobile
+            })
         })
     ]);
     return {

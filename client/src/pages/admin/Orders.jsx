@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus, Send, Printer, Phone } from 'lucide-react';
+import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus, Send, Printer, Phone, RotateCw } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
@@ -477,6 +477,7 @@ export function Orders({
     const [attemptConversionReference, setAttemptConversionReference] = useState('');
     const [attemptConversionReason, setAttemptConversionReason] = useState('');
     const [isConvertingAttempt, setIsConvertingAttempt] = useState(false);
+    const [reconcilingAttemptId, setReconcilingAttemptId] = useState(null);
     const [settlementContext, setSettlementContext] = useState({ mode: null, isTestMode: false });
     const [deletingOrderId, setDeletingOrderId] = useState(null);
     const [isExporting, setIsExporting] = useState(false);
@@ -593,6 +594,11 @@ export function Orders({
     };
     const isPaidPayment = (order) => String(order?.payment_status || '').toLowerCase() === 'paid';
     const canDeleteRow = (order) => !isPaidPayment(order);
+    const canReconcileAttempt = (order) => {
+        if (!isAttemptEntry(order)) return false;
+        const status = String(order?.payment_status || order?.paymentStatus || '').trim().toLowerCase();
+        return ['created', 'checkout_opened', 'verification_pending', 'attempted', 'paid_unverified', 'reconciliation_pending', 'failed'].includes(status);
+    };
     const canDownloadInvoice = (order) => {
         if (isAttemptEntry(order)) return false;
         const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
@@ -1931,6 +1937,42 @@ export function Orders({
         }
     };
 
+    const handleReconcileAttempt = useCallback(async (order, event = null) => {
+        event?.stopPropagation?.();
+        if (!order || !isAttemptEntry(order) || !canReconcileAttempt(order)) return;
+        const targetId = order.attempt_id || order.id;
+        setReconcilingAttemptId(targetId);
+        try {
+            const data = await orderService.reconcileAdminPaymentAttempt(targetId);
+            if (data?.order) {
+                toast.success('Payment attempt reconciled into an order');
+                setPage(1);
+                fetchOrders(1);
+                openDetails(data.order);
+                return;
+            }
+            if (data?.attempt) {
+                patchAttemptRow(data.attempt);
+                if (selectedOrder && String(selectedOrder.attempt_id || selectedOrder.id) === String(targetId)) {
+                    setSelectedOrder((prev) => ({
+                        ...(prev || {}),
+                        payment_status: data.attempt.status || prev?.payment_status || '',
+                        razorpay_payment_id: data.attempt.razorpay_payment_id || prev?.razorpay_payment_id || '',
+                        failure_reason: data.attempt.failure_reason || data.attempt.last_gateway_error || prev?.failure_reason || ''
+                    }));
+                    setDetailsLastSyncedAt(new Date().toISOString());
+                }
+                toast.success(data?.result?.pending ? 'Attempt checked. Still awaiting gateway confirmation.' : 'Attempt reconciled status refreshed');
+                return;
+            }
+            toast.success('Attempt reconciliation completed');
+        } catch (error) {
+            toast.error(error?.message || 'Failed to reconcile attempt');
+        } finally {
+            setReconcilingAttemptId(null);
+        }
+    }, [fetchOrders, openDetails, patchAttemptRow, selectedOrder, toast]);
+
     useEffect(() => {
         if (!focusOrderId) return;
         if (isLoading) return;
@@ -2646,6 +2688,17 @@ export function Orders({
                                                             <Send size={14} />
                                                         </button>
                                                     )}
+                                                    {canReconcileAttempt(order) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => handleReconcileAttempt(order, e)}
+                                                            disabled={reconcilingAttemptId === (order.attempt_id || order.id)}
+                                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-60"
+                                                            title="Reconcile payment attempt"
+                                                        >
+                                                            <RotateCw size={14} className={reconcilingAttemptId === (order.attempt_id || order.id) ? 'animate-spin' : ''} />
+                                                        </button>
+                                                    )}
                                                     {canDeleteRow(order) && (
                                                         <button
                                                             type="button"
@@ -2783,6 +2836,17 @@ export function Orders({
                                                 title="Send invoice to email + WhatsApp"
                                             >
                                                 <Send size={14} />
+                                            </button>
+                                        )}
+                                        {canReconcileAttempt(order) && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => handleReconcileAttempt(order, e)}
+                                                disabled={reconcilingAttemptId === (order.attempt_id || order.id)}
+                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm disabled:opacity-60 ${theme.actionAccent}`}
+                                                title="Reconcile payment attempt"
+                                            >
+                                                <RotateCw size={14} className={reconcilingAttemptId === (order.attempt_id || order.id) ? 'animate-spin' : ''} />
                                             </button>
                                         )}
                                         {canDeleteRow(order) && (
@@ -2975,53 +3039,66 @@ export function Orders({
                                                         </div>
                                                     </div>
                                                 )}
-                                                {isAttemptEntry(selectedOrder) && String(user?.role || '').toLowerCase() === 'admin' && (
-                                                    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 space-y-3">
-                                                        <p className="text-xs text-emerald-800 font-semibold">
-                                                            Convert this failed attempt into a successful manual order.
-                                                        </p>
-                                                        <div>
-                                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Payment Mode</label>
-                                                            <select
-                                                                value={attemptConversionMode}
-                                                                onChange={(e) => setAttemptConversionMode(e.target.value)}
-                                                                disabled={isConvertingAttempt}
-                                                                className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
-                                                            >
-                                                                {MANUAL_PAYMENT_OPTIONS.map((mode) => (
-                                                                    <option key={mode.value} value={mode.value}>{mode.label}</option>
-                                                                ))}
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Reference (Optional)</label>
-                                                            <input
-                                                                type="text"
-                                                                value={attemptConversionReference}
-                                                                onChange={(e) => setAttemptConversionReference(e.target.value)}
-                                                                disabled={isConvertingAttempt}
-                                                                placeholder="Transaction / receipt reference"
-                                                                className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
-                                                            />
-                                                        </div>
-                                                        <div>
-                                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Reason</label>
-                                                            <textarea
-                                                                value={attemptConversionReason}
-                                                                onChange={(e) => setAttemptConversionReason(e.target.value)}
-                                                                disabled={isConvertingAttempt}
-                                                                placeholder="Document why this attempt is being converted manually"
-                                                                className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700 min-h-[88px]"
-                                                            />
-                                                        </div>
+                                                {isAttemptEntry(selectedOrder) && (
+                                                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
                                                         <button
                                                             type="button"
-                                                            onClick={handleConvertAttemptToPaidOrder}
-                                                            disabled={isConvertingAttempt || String(attemptConversionReason || '').trim().length < 8}
-                                                            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60"
+                                                            onClick={() => handleReconcileAttempt(selectedOrder)}
+                                                            disabled={!canReconcileAttempt(selectedOrder) || reconcilingAttemptId === (selectedOrder.attempt_id || selectedOrder.id)}
+                                                            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-300 bg-amber-100 text-amber-900 text-sm font-semibold hover:bg-amber-200 disabled:opacity-60"
                                                         >
-                                                            {isConvertingAttempt ? 'Converting...' : 'Mark as Successful Order'}
+                                                            <RotateCw size={16} className={reconcilingAttemptId === (selectedOrder.attempt_id || selectedOrder.id) ? 'animate-spin' : ''} />
+                                                            {reconcilingAttemptId === (selectedOrder.attempt_id || selectedOrder.id) ? 'Reconciling...' : 'Reconcile with Razorpay'}
                                                         </button>
+                                                        {String(user?.role || '').toLowerCase() === 'admin' && (
+                                                            <>
+                                                                <p className="text-xs text-emerald-800 font-semibold">
+                                                                    Convert this failed attempt into a successful manual order.
+                                                                </p>
+                                                                <div>
+                                                                    <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Payment Mode</label>
+                                                                    <select
+                                                                        value={attemptConversionMode}
+                                                                        onChange={(e) => setAttemptConversionMode(e.target.value)}
+                                                                        disabled={isConvertingAttempt}
+                                                                        className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
+                                                                    >
+                                                                        {MANUAL_PAYMENT_OPTIONS.map((mode) => (
+                                                                            <option key={mode.value} value={mode.value}>{mode.label}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Reference (Optional)</label>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={attemptConversionReference}
+                                                                        onChange={(e) => setAttemptConversionReference(e.target.value)}
+                                                                        disabled={isConvertingAttempt}
+                                                                        placeholder="Transaction / receipt reference"
+                                                                        className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Reason</label>
+                                                                    <textarea
+                                                                        value={attemptConversionReason}
+                                                                        onChange={(e) => setAttemptConversionReason(e.target.value)}
+                                                                        disabled={isConvertingAttempt}
+                                                                        placeholder="Document why this attempt is being converted manually"
+                                                                        className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700 min-h-[88px]"
+                                                                    />
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={handleConvertAttemptToPaidOrder}
+                                                                    disabled={isConvertingAttempt || String(attemptConversionReason || '').trim().length < 8}
+                                                                    className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60"
+                                                                >
+                                                                    {isConvertingAttempt ? 'Converting...' : 'Mark as Successful Order'}
+                                                                </button>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 )}
                                                 {!isAttemptEntry(selectedOrder) && !isRefundLockedOrder(selectedOrder) && !isTerminalOrderStatus(selectedOrder.status) && (
