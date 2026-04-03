@@ -18,21 +18,21 @@ import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 // import { io } from 'socket.io-client';
 // --- 1. STATIC HERO COMPONENT (Default) ---
 const StaticHero = () => (
-    <section className="relative h-[80vh] flex items-center justify-center bg-primary overflow-hidden">
+    <section className="relative min-h-[calc(100svh-5rem)] md:min-h-[calc(100vh-5rem)] flex items-center justify-center bg-primary overflow-hidden px-4 py-8 md:px-6 md:py-16">
         {/* Background Pattern */}
         <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-gray-100 to-transparent"></div>
         
-        <div className="relative z-10 text-center px-4 max-w-4xl mx-auto space-y-6">
-            <span className="text-accent text-sm md:text-base font-bold tracking-widest uppercase animate-slide-in">
+        <div className="relative z-10 text-center w-full max-w-4xl mx-auto space-y-5 md:space-y-8">
+            <span className="text-accent text-xs md:text-base font-bold tracking-[0.25em] md:tracking-widest uppercase animate-slide-in">
                 Artisanal Excellence
             </span>
-            <h1 className="text-5xl md:text-7xl font-serif text-white leading-tight">
+            <h1 className="text-4xl sm:text-5xl md:text-7xl font-serif text-white leading-[1.05] md:leading-tight">
                 Handmade with <span className="text-gold">Love</span> & Heritage
             </h1>
-            <p className="text-gray-300 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
+            <p className="text-gray-300 text-base sm:text-lg md:text-xl max-w-2xl mx-auto leading-relaxed">
                 Discover our exclusive collection of handcrafted treasures, made using traditional techniques passed down through generations.
             </p>
-            <div className="flex flex-col md:flex-row gap-4 justify-center pt-8">
+            <div className="flex flex-col md:flex-row gap-3 md:gap-4 justify-center pt-4 md:pt-8">
                 <Link to="/shop" className="btn-primary">
                     Shop Collections
                 </Link>

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+    ArrowRight,
     Camera,
     CheckCircle,
     CreditCard,
@@ -109,6 +110,7 @@ export default function Profile() {
     const [isSaving, setIsSaving] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [sameAsBilling, setSameAsBilling] = useState(false);
+    const [highlightProfileFields, setHighlightProfileFields] = useState(false);
     const [profileImage, setProfileImage] = useState('');
     const [loyaltyStatus, setLoyaltyStatus] = useState(null);
     const [form, setForm] = useState({
@@ -125,6 +127,9 @@ export default function Profile() {
         duration: 'all'
     });
     const availableStates = useMemo(() => getAllowedShippingStates(zones), [zones]);
+    const personalInfoRef = useRef(null);
+    const emailInputRef = useRef(null);
+    const mobileInputRef = useRef(null);
     const shippingZip = form.address.zip;
     const billingZip = billingAddressEnabled ? form.billingAddress.zip : form.address.zip;
 
@@ -282,6 +287,7 @@ export default function Profile() {
             if (res?.user) {
                 updateUser(res.user);
                 toast.success('Profile updated successfully');
+                setHighlightProfileFields(false);
                 setIsEditing(false);
             } else {
                 toast.error(res?.message || 'Failed to update profile');
@@ -296,6 +302,7 @@ export default function Profile() {
     const handleCancel = () => {
         if (!user) return;
         setIsEditing(false);
+        setHighlightProfileFields(false);
         setProfileImage(user.profileImage || '');
         setForm({
             name: user.name || '',
@@ -362,6 +369,28 @@ export default function Profile() {
         ? membershipEligibility.missingFields
         : [];
     const membershipUnlockState = formatMissingProfileFields(missingProfileFields);
+    const isVerifiedShopper = (
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(form.email || '').trim())
+        && /^\d{10,14}$/.test(String(form.mobile || '').replace(/\D/g, ''))
+    );
+    const missingVerifiedFields = [
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(form.email || '').trim()) ? 'email' : null,
+        !/^\d{10,14}$/.test(String(form.mobile || '').replace(/\D/g, '')) ? 'mobile' : null
+    ].filter(Boolean);
+
+    const handleVerifyProfileClick = () => {
+        setActiveTab('profile');
+        setIsEditing(true);
+        setHighlightProfileFields(true);
+        window.setTimeout(() => {
+            personalInfoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (missingVerifiedFields[0] === 'email') {
+                emailInputRef.current?.focus();
+            } else if (missingVerifiedFields[0] === 'mobile') {
+                mobileInputRef.current?.focus();
+            }
+        }, 120);
+    };
 
     return (
         <div className="bg-secondary min-h-screen">
@@ -392,9 +421,22 @@ export default function Profile() {
                                     <p className="text-xs uppercase tracking-[0.3em] text-gray-400 font-semibold">Customer</p>
                                     <h1 className="text-2xl font-serif font-bold text-primary mt-1">{form.name || 'Your Profile'}</h1>
                                     <p className="text-sm text-gray-500 mt-1">{form.email || 'Add your email for updates'}</p>
-                                    <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold">
-                                        <CheckCircle size={14} /> Verified shopper
-                                    </div>
+                                    {isVerifiedShopper ? (
+                                        <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold">
+                                            <CheckCircle size={14} /> Verified shopper
+                                        </div>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={handleVerifyProfileClick}
+                                            className="mt-4 flex w-full items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-amber-800 transition-colors hover:bg-amber-100"
+                                        >
+                                            <span className="flex items-center gap-2 text-sm font-semibold">
+                                                <ShieldCheck size={16} /> Verify your profile to become a verified shopper
+                                            </span>
+                                            <ArrowRight size={18} className="shrink-0" />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                             <div className="mt-6 space-y-3 text-sm text-gray-600">
@@ -535,10 +577,10 @@ export default function Profile() {
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex items-center justify-between">
+                                    <div ref={personalInfoRef} className="flex items-center justify-between scroll-mt-28">
                                         <h3 className="text-lg font-semibold text-gray-800">Personal Information</h3>
                                         {!isEditing ? (
-                                            <button onClick={() => setIsEditing(true)} className="px-4 py-2 text-sm font-semibold rounded-lg border border-gray-200 hover:border-primary/40 hover:bg-primary/5 transition-all">
+                                            <button onClick={() => { setIsEditing(true); setHighlightProfileFields(false); }} className="px-4 py-2 text-sm font-semibold rounded-lg border border-gray-200 hover:border-primary/40 hover:bg-primary/5 transition-all">
                                                 Edit Profile
                                             </button>
                                         ) : (
@@ -571,12 +613,13 @@ export default function Profile() {
                                             <label className="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">Email Address</label>
                                             <div className="relative">
                                                 <input
+                                                    ref={emailInputRef}
                                                     name="email"
                                                     type="email"
                                                     value={form.email}
                                                     onChange={handleFieldChange}
                                                     disabled={!isEditing}
-                                                    className="input-field pl-10 disabled:bg-gray-50"
+                                                    className={`input-field pl-10 disabled:bg-gray-50 ${highlightProfileFields && missingVerifiedFields.includes('email') ? 'border-red-400 bg-red-50/40' : ''}`}
                                                 />
                                                 <Mail size={16} className="absolute left-3 top-3.5 text-gray-400" />
                                             </div>
@@ -585,11 +628,12 @@ export default function Profile() {
                                             <label className="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">Mobile Number</label>
                                             <div className="relative">
                                                 <input
+                                                    ref={mobileInputRef}
                                                     name="mobile"
                                                     value={form.mobile}
                                                     onChange={handleFieldChange}
                                                     disabled={!isEditing}
-                                                    className="input-field pl-10 disabled:bg-gray-50"
+                                                    className={`input-field pl-10 disabled:bg-gray-50 ${highlightProfileFields && missingVerifiedFields.includes('mobile') ? 'border-red-400 bg-red-50/40' : ''}`}
                                                 />
                                                 <Phone size={16} className="absolute left-3 top-3.5 text-gray-400" />
                                             </div>

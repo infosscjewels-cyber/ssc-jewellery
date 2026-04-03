@@ -44,6 +44,7 @@ const WORKFLOW_TEMPLATES = {
     dashboard_alert: String(process.env.WHATSAPP_TEMPLATE_DASHBOARD_ALERT || '').trim(),
     coupon_issue: String(process.env.WHATSAPP_TEMPLATE_COUPON_ISSUE || '').trim()
 };
+const EXPOSE_FULL_DEBUG = String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'production';
 
 const toText = (value = '') => String(value == null ? '' : value).trim();
 const stripUnsafe = (value = '') => toText(value).replace(/[\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -185,6 +186,25 @@ const maskSensitiveUrl = (urlObject) => {
     return cloned.toString();
 };
 
+const buildDebugRequest = (urlObject) => ({
+    endpoint: `${urlObject.origin}${urlObject.pathname}`,
+    method: 'GET',
+    query: {
+        LicenseNumber: urlObject.searchParams.get('LicenseNumber') || '',
+        APIKey: urlObject.searchParams.get('APIKey') || '',
+        Contact: urlObject.searchParams.get('Contact') || '',
+        Template: urlObject.searchParams.get('Template') || '',
+        Param: urlObject.searchParams.get('Param') || '',
+        Fileurl: urlObject.searchParams.get('Fileurl') || '',
+        URLParam: urlObject.searchParams.get('URLParam') || '',
+        HeadURL: urlObject.searchParams.get('HeadURL') || '',
+        HeadParam: urlObject.searchParams.get('HeadParam') || '',
+        Name: urlObject.searchParams.get('Name') || '',
+        PDFName: urlObject.searchParams.get('PDFName') || ''
+    },
+    url: urlObject.toString()
+});
+
 const hasMissingTemplateNameError = (body = '') => {
     const normalized = String(body || '').toLowerCase();
     return normalized.includes("template['name'] is required");
@@ -289,6 +309,10 @@ const sendWhatsapp = async (payload = {}) => {
         contact: primary.contact,
         response: response.body,
         requestUrl: maskSensitiveUrl(finalUrl),
+        ...(EXPOSE_FULL_DEBUG ? {
+            request: buildDebugRequest(finalUrl),
+            requestUrlRaw: finalUrl.toString()
+        } : {}),
         retried
     };
 };

@@ -1099,6 +1099,30 @@ export default function Navbar() {
                                     </span>
                                 </div>
                             )}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    openCart();
+                                    setIsOpen(false);
+                                }}
+                                className="flex w-full items-center justify-between border-b border-gray-100 py-3 text-left text-lg font-medium text-gray-600"
+                            >
+                                <span className="flex items-center gap-2">
+                                    <ShoppingCart size={20} /> Cart
+                                </span>
+                                {itemCount > 0 ? (
+                                    <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-accent">
+                                        {itemCount}
+                                    </span>
+                                ) : null}
+                            </button>
+                            <Link
+                                to="/profile"
+                                className="flex w-full items-center gap-2 border-b border-gray-100 py-3 text-left text-lg font-medium text-gray-600"
+                                onClick={() => setIsOpen(false)}
+                            >
+                                <User size={20} /> Profile
+                            </Link>
                             <Link
                                 to="/track-order"
                                 className="block w-full border-b border-gray-100 py-3 text-left text-lg font-medium text-gray-600"
