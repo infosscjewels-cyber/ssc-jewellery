@@ -11,6 +11,22 @@ const normalizeCustomer = (customer = {}) => ({
     mobile: String(customer?.mobile || '').trim()
 });
 
+const normalizeEmailRecipients = (value) => {
+    if (Array.isArray(value)) {
+        return value.map((entry) => String(entry || '').trim()).filter(Boolean);
+    }
+    return String(value || '')
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+};
+
+const buildSkippedEmailResult = (reason = 'missing_email') => ({
+    ok: false,
+    skipped: true,
+    reason
+});
+
 const sendEmailCommunication = async ({
     to,
     subject,
@@ -35,6 +51,71 @@ const sendEmailCommunication = async ({
                 error
             }).catch(() => {});
         }
+        throw error;
+    }
+};
+
+const deliverWorkflowEmail = async ({
+    workflow = 'generic',
+    to,
+    subject,
+    text = '',
+    html = '',
+    replyTo = null,
+    cc = null,
+    bcc = null,
+    attachments = [],
+    disableRetry = false,
+    context = {}
+} = {}) => {
+    const recipients = normalizeEmailRecipients(to);
+    const workflowName = String(workflow || 'generic').trim().toLowerCase() || 'generic';
+    if (!recipients.length) {
+        console.warn('[email] skipped workflow email: missing recipient', {
+            workflow: workflowName,
+            context
+        });
+        return buildSkippedEmailResult('missing_email');
+    }
+
+    console.info('[email] attempting workflow email', {
+        workflow: workflowName,
+        to: recipients,
+        subject: String(subject || ''),
+        context
+    });
+
+    try {
+        const result = await sendEmailCommunication({
+            to: recipients,
+            subject,
+            text,
+            html,
+            replyTo,
+            cc,
+            bcc,
+            attachments,
+            workflow: workflowName,
+            disableRetry
+        });
+        console.info('[email] workflow email result', {
+            workflow: workflowName,
+            to: recipients,
+            ok: result?.ok === true,
+            messageId: result?.messageId || null,
+            accepted: Array.isArray(result?.accepted) ? result.accepted : [],
+            rejected: Array.isArray(result?.rejected) ? result.rejected : [],
+            response: result?.response || null,
+            context
+        });
+        return result;
+    } catch (error) {
+        console.error('[email] workflow email failed', {
+            workflow: workflowName,
+            to: recipients,
+            message: error?.message || 'email_send_failed',
+            context
+        });
         throw error;
     }
 };
@@ -473,14 +554,20 @@ const sendOrderLifecycleCommunication = async ({
 
     const [emailResult, whatsappResult] = await Promise.allSettled([
         (allowEmail && recipient.email)
-            ? sendEmailCommunication({
+            ? deliverWorkflowEmail({
+                workflow: `order_${safeStage}`,
                 to: recipient.email,
                 subject: template.subject,
                 text: template.text,
                 html: template.html,
-                attachments: invoiceAttachment ? [invoiceAttachment] : []
+                attachments: invoiceAttachment ? [invoiceAttachment] : [],
+                context: {
+                    orderId: order?.id || null,
+                    orderRef: order?.order_ref || order?.orderRef || null,
+                    stage: safeStage
+                }
             })
-            : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
+            : Promise.resolve(buildSkippedEmailResult('missing_email')),
         allowWhatsapp
             ? sendWhatsapp({
                 stage: safeStage,
@@ -545,8 +632,19 @@ const sendPaymentLifecycleCommunication = async ({ stage, customer = {}, order =
 
     const [emailResult, whatsappResult] = await Promise.allSettled([
         recipient.email
-            ? sendEmailCommunication({ to: recipient.email, subject: template.subject, text: template.text, html: template.html })
-            : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
+            ? deliverWorkflowEmail({
+                workflow: 'payment_status',
+                to: recipient.email,
+                subject: template.subject,
+                text: template.text,
+                html: template.html,
+                context: {
+                    orderId: order?.id || null,
+                    orderRef: order?.order_ref || order?.orderRef || null,
+                    stage: safeStage
+                }
+            })
+            : Promise.resolve(buildSkippedEmailResult('missing_email')),
         sendWhatsapp({
             stage: safeStage,
             customer: recipient,
@@ -607,8 +705,17 @@ const sendAbandonedCartRecoveryCommunication = async ({ customer = {}, cart = {}
 
     const [emailResult, whatsappResult] = await Promise.allSettled([
         recipient.email
-            ? sendEmailCommunication({ to: recipient.email, subject: template.subject, text: template.text, html: template.html })
-            : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
+            ? deliverWorkflowEmail({
+                workflow: 'abandoned_cart_recovery',
+                to: recipient.email,
+                subject: template.subject,
+                text: template.text,
+                html: template.html,
+                context: {
+                    itemCount
+                }
+            })
+            : Promise.resolve(buildSkippedEmailResult('missing_email')),
         sendWhatsapp({
             customer: recipient,
             cart,
@@ -630,6 +737,7 @@ const sendAbandonedCartRecoveryCommunication = async ({ customer = {}, cart = {}
 module.exports = {
     verifyEmailTransport,
     sendEmailCommunication,
+    deliverWorkflowEmail,
     sendOrderLifecycleCommunication,
     sendPaymentLifecycleCommunication,
     sendAbandonedCartRecoveryCommunication,

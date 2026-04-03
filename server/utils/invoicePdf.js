@@ -191,7 +191,8 @@ const getCompany = (order = {}) => {
         displayName: String(snapshot.displayName || 'SSC Jewellery'),
         contactNumber: String(snapshot.contactNumber || ''),
         supportEmail: String(snapshot.supportEmail || ''),
-        address: String(snapshot.address || '')
+        address: String(snapshot.address || ''),
+        logoUrl: String(snapshot.logoUrl || snapshot.logo_url || '')
     };
 };
 

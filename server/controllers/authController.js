@@ -5,7 +5,7 @@ const OtpService = require('../services/otpService');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { getUserLoyaltyStatus, issueBirthdayCouponForUser } = require('../services/loyaltyService');
-const { sendEmailCommunication, sendWhatsapp } = require('../services/communications/communicationService');
+const { sendEmailCommunication, deliverWorkflowEmail, sendWhatsapp } = require('../services/communications/communicationService');
 const { emitToUserAudiences } = require('../utils/socketAudience');
 const { normalizeAndValidateAddress } = require('../utils/addressValidation');
 const { billingAddressEnabled, resolveBillingAddress } = require('../utils/billingAddressConfig');
@@ -261,11 +261,16 @@ const dispatchWelcomeCommunication = (user = {}) => {
             : null;
         const [emailResult, whatsappResult] = await Promise.allSettled([
             template
-                ? sendEmailCommunication({
+                ? deliverWorkflowEmail({
+                    workflow: 'welcome',
                     to: email,
                     subject: template.subject,
                     text: template.text,
-                    html: template.html
+                    html: template.html,
+                    context: {
+                        userId: user?.id || null,
+                        email
+                    }
                 })
                 : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
             mobile

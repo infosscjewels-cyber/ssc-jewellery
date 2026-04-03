@@ -1,7 +1,7 @@
 const db = require('../config/db');
 const User = require('../models/User');
 const Coupon = require('../models/Coupon');
-const { sendEmailCommunication, sendWhatsapp } = require('./communications/communicationService');
+const { sendEmailCommunication, deliverWorkflowEmail, sendWhatsapp } = require('./communications/communicationService');
 const { billingAddressEnabled } = require('../utils/billingAddressConfig');
 
 const TIER_ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
@@ -418,11 +418,17 @@ const sendTierUpgradeMail = async ({ user, previousTier, newTier, status }) => {
     const benefit = String(newBenefits?.[0] || 'Exclusive member benefits').trim();
     const [emailResult, whatsappResult] = await Promise.allSettled([
         user?.email
-            ? sendEmailCommunication({
+            ? deliverWorkflowEmail({
+                workflow: 'loyalty_upgrade',
                 to: user.email,
                 subject: template.subject,
                 text: template.text,
-                html: template.html
+                html: template.html,
+                context: {
+                    userId: user?.id || null,
+                    previousTier,
+                    newTier
+                }
             })
             : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
         user?.mobile
@@ -477,11 +483,17 @@ const sendTierDowngradeMail = async ({ user, previousTier, newTier, status }) =>
             'Please keep this message for your membership records.'
         ]
     });
-    await sendEmailCommunication({
+    await deliverWorkflowEmail({
+        workflow: 'loyalty_downgrade',
         to: user.email,
         subject: template.subject,
         text: template.text,
-        html: template.html
+        html: template.html,
+        context: {
+            userId: user?.id || null,
+            previousTier,
+            newTier
+        }
     });
 };
 
@@ -516,11 +528,16 @@ const sendMonthlyStatusSummaryMail = async ({ user, status }) => {
     });
     const [emailResult, whatsappResult] = await Promise.allSettled([
         user?.email
-            ? sendEmailCommunication({
+            ? deliverWorkflowEmail({
+                workflow: 'loyalty_monthly_summary',
                 to: user.email,
                 subject: template.subject,
                 text: template.text,
-                html: template.html
+                html: template.html,
+                context: {
+                    userId: user?.id || null,
+                    tier: status?.tier || null
+                }
             })
             : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
         user?.mobile && status?.progress?.nextTier
@@ -581,11 +598,17 @@ const sendFomoMailIfEligible = async ({ user, status }) => {
     });
     const [emailResult, whatsappResult] = await Promise.allSettled([
         user?.email
-            ? sendEmailCommunication({
+            ? deliverWorkflowEmail({
+                workflow: 'loyalty_progress',
                 to: user.email,
                 subject: template.subject,
                 text: template.text,
-                html: template.html
+                html: template.html,
+                context: {
+                    userId: user?.id || null,
+                    nextTier,
+                    progressPct: pct
+                }
             })
             : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
         user?.mobile
@@ -877,11 +900,17 @@ const issueBirthdayCouponForUser = async (userId, { sendEmail = true } = {}) => 
                 'We appreciate your trust and wish you a lovely birthday.'
             ]
         });
-        await sendEmailCommunication({
+        await deliverWorkflowEmail({
+            workflow: 'birthday_coupon',
             to: user.email,
             subject: template.subject,
             text: template.text,
-            html: template.html
+            html: template.html,
+            context: {
+                userId: user?.id || null,
+                couponCode: coupon.code,
+                year
+            }
         }).catch(() => {});
     }
     if (coupon?.code && !existingRows.length && user?.mobile) {

@@ -4,7 +4,7 @@ const Order = require('../models/Order');
 const AbandonedCart = require('../models/AbandonedCart');
 const CompanyProfile = require('../models/CompanyProfile');
 const {
-    sendEmailCommunication,
+    deliverWorkflowEmail,
     sendWhatsapp
 } = require('./communications/communicationService');
 const { createStandardPaymentLink } = require('./razorpayPaymentLinkService');
@@ -815,11 +815,17 @@ const processDueAbandonedCartRecoveries = async ({ limit = 25, onJourneyUpdate =
                             totalWithShippingSubunits: Number(latestSummary.totalSubunits || 0) + Number(shippingFeeSubunits || 0),
                             linkExpiry: paymentExpiry ? paymentExpiry.toISOString() : null
                         });
-                        responses.email = await sendEmailCommunication({
+                        responses.email = await deliverWorkflowEmail({
+                            workflow: 'abandoned_cart_recovery',
                             to: user.email,
                             subject: mail.subject,
                             text: mail.text,
-                            html: mail.html
+                            html: mail.html,
+                            context: {
+                                userId: workingJourney.user_id,
+                                journeyId: workingJourney.id,
+                                attemptNo
+                            }
                         });
                         channels.push('email');
                     } catch (emailError) {

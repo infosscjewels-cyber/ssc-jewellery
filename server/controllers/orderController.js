@@ -327,6 +327,8 @@ const mapRazorpayPaymentStatusToLocalPayment = (status) => {
 };
 
 const normalizePaymentStatus = (status) => String(status || '').trim().toLowerCase();
+const isValidEmailAddress = (value = '') => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+const isValidPhoneNumber = (value = '') => /^\d{10,14}$/.test(String(value || '').replace(/\D/g, ''));
 
 const isPaidLikeStatus = (status) => {
     const normalized = normalizePaymentStatus(status);
@@ -526,6 +528,18 @@ const createRazorpayOrder = async (req, res) => {
         await assertStorefrontOpenForCheckout();
         const userId = req.user.id;
         const { billingAddress, shippingAddress, notes, couponCode } = req.body || {};
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+        const normalizedEmail = String(user.email || '').trim().toLowerCase();
+        const normalizedMobile = String(user.mobile || '').replace(/\D/g, '').trim();
+        if (!isValidEmailAddress(normalizedEmail)) {
+            return res.status(400).json({ message: 'A valid customer email is required before payment' });
+        }
+        if (!isValidPhoneNumber(normalizedMobile)) {
+            return res.status(400).json({ message: 'A valid customer mobile number is required before payment' });
+        }
         const safeShippingAddress = await normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' });
         const safeBillingAddress = billingAddressEnabled
             ? await normalizeAddressPayload(billingAddress, { fieldLabel: 'Billing address' })
@@ -2580,14 +2594,16 @@ const hydrateOrderForInvoice = async (order = {}) => {
         const missingAddress = !String(snapshot.address || '').trim();
         const missingSupport = !String(snapshot.supportEmail || '').trim();
         const missingContact = !String(snapshot.contactNumber || '').trim();
-        if (missingAddress || missingSupport || missingContact) {
+        const missingLogo = !String(snapshot.logoUrl || snapshot.logo_url || '').trim();
+        if (missingAddress || missingSupport || missingContact || missingLogo) {
             const profile = await CompanyProfile.get();
             orderForInvoice.company_snapshot = {
                 ...profile,
                 ...snapshot,
                 address: snapshot.address || profile.address || '',
                 supportEmail: snapshot.supportEmail || profile.supportEmail || '',
-                contactNumber: snapshot.contactNumber || profile.contactNumber || ''
+                contactNumber: snapshot.contactNumber || profile.contactNumber || '',
+                logoUrl: snapshot.logoUrl || snapshot.logo_url || profile.logoUrl || ''
             };
         }
     } catch {}
@@ -2610,6 +2626,16 @@ const triggerOrderLifecycleEmail = async ({
         const hydratedOrder = order?.id ? await Order.getById(order.id) : null;
         const orderForCommunication = hydratedOrder || order;
         const customer = await User.findById(orderForCommunication.user_id || orderForCommunication.userId || orderUserId);
+        console.info('[order-email] attempting lifecycle communication', {
+            orderId: orderForCommunication?.id || order?.id || null,
+            orderRef: orderForCommunication?.order_ref || orderForCommunication?.orderRef || null,
+            userId: orderForCommunication?.user_id || orderForCommunication?.userId || orderUserId,
+            stage: normalizedStage,
+            includeInvoice: Boolean(includeInvoice),
+            paymentStatus: String(orderForCommunication?.payment_status || '').trim().toLowerCase(),
+            customerEmail: String(customer?.email || '').trim().toLowerCase() || null,
+            customerMobile: String(customer?.mobile || '').trim() || null
+        });
         if (!customer?.email) {
             console.warn(`Order lifecycle email skipped for order ${orderForCommunication?.id || order?.id || 'unknown'}: missing customer email`);
             return;
@@ -2644,6 +2670,28 @@ const triggerOrderLifecycleEmail = async ({
             order: orderForCommunication,
             includeInvoice: includeInvoiceInMail,
             invoiceAttachment
+        });
+        console.info('[order-email] lifecycle communication result', {
+            orderId: orderForCommunication?.id || order?.id || null,
+            orderRef: orderForCommunication?.order_ref || orderForCommunication?.orderRef || null,
+            stage: normalizedStage,
+            includeInvoiceRequested: Boolean(includeInvoice),
+            includeInvoiceDelivered: includeInvoiceInMail,
+            email: {
+                ok: result?.email?.ok === true,
+                skipped: result?.email?.skipped === true,
+                reason: result?.email?.reason || null,
+                messageId: result?.email?.messageId || null,
+                response: result?.email?.response || null,
+                accepted: Array.isArray(result?.email?.accepted) ? result.email.accepted : []
+            },
+            whatsapp: {
+                ok: result?.whatsapp?.ok === true,
+                skipped: result?.whatsapp?.skipped === true,
+                reason: result?.whatsapp?.reason || null,
+                provider: result?.whatsapp?.provider || null,
+                statusCode: result?.whatsapp?.statusCode || null
+            }
         });
         if (result?.email?.ok !== true) {
             console.error(

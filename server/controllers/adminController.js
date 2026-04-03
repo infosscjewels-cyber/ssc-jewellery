@@ -14,6 +14,7 @@ const LoyaltyPopupTemplate = require('../models/LoyaltyPopupTemplate');
 const {
     verifyEmailTransport,
     sendEmailCommunication,
+    deliverWorkflowEmail,
     sendWhatsapp
 } = require('../services/communications/communicationService');
 const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded, reassessActiveCustomersForConfigChange } = require('../services/loyaltyService');
@@ -2427,7 +2428,8 @@ const issueCouponToUser = async (req, res) => {
         const message = `Hi ${customerName}, your coupon code is ${coupon.code}.`;
         const [emailResult, whatsappResult] = await Promise.all([
             user.email
-                ? sendEmailCommunication({
+                ? deliverWorkflowEmail({
+                    workflow: 'coupon_issue',
                     to: user.email,
                     subject: `${customerName}, a little surprise from SSC Jewellery`,
                     text: [
@@ -2487,7 +2489,11 @@ const issueCouponToUser = async (req, res) => {
                                 </tr>
                             </table>
                         </div>
-                    `
+                    `,
+                    context: {
+                        userId: user?.id || null,
+                        couponCode: coupon.code
+                    }
                 }).catch(() => ({ ok: false }))
                 : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
             user.mobile
