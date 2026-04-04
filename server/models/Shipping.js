@@ -68,7 +68,7 @@ const assertNoOverlappingOptions = (options = []) => {
         for (let i = 1; i < sorted.length; i += 1) {
             const prev = sorted[i - 1];
             const current = sorted[i];
-            if (current.start <= prev.end) {
+            if (current.start < prev.end) {
                 throw buildShippingError(`Overlapping ${key} shipping ranges are not allowed`);
             }
         }
@@ -125,7 +125,9 @@ const validateZonePayload = async (connection, { zoneId = null, name, states = [
             }
             if (min !== null && min < 0) throw buildShippingError('Shipping rule minimum cannot be negative');
             if (max !== null && max < 0) throw buildShippingError('Shipping rule maximum cannot be negative');
-            if (min !== null && max !== null && min > max) throw buildShippingError('Shipping rule minimum cannot be greater than maximum');
+            if (min !== null && max !== null && min >= max) {
+                throw buildShippingError('Shipping rule minimum must be less than maximum');
+            }
             return { name: optionName, rate, conditionType, min, max };
         })
         : [];

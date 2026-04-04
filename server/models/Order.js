@@ -91,6 +91,196 @@ const toSubunits = (amount) => Math.round(Number(amount || 0) * 100);
 const fromSubunits = (subunits) => Number(subunits || 0) / 100;
 const roundMoney = (value) => Number(Number(value || 0).toFixed(2));
 const isForcedOutOfStock = (value) => value === 1 || value === true || value === '1' || value === 'true';
+const normalizeTaxPriceMode = (value = 'exclusive') => String(value || 'exclusive').trim().toLowerCase() === 'inclusive'
+    ? 'inclusive'
+    : 'exclusive';
+const hasExplicitTaxPriceMode = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'inclusive' || normalized === 'exclusive';
+};
+const inferTaxPriceModeFromItems = ({
+    taxPriceMode = 'exclusive',
+    companySnapshot = null,
+    displayPricing = null,
+    items = []
+} = {}) => {
+    const normalized = normalizeTaxPriceMode(taxPriceMode || companySnapshot?.taxPriceMode || displayPricing?.taxPriceMode);
+    if (normalized === 'inclusive') return 'inclusive';
+    const safeItems = Array.isArray(items) ? items : [];
+    for (const item of safeItems) {
+        const snapshot = item?.item_snapshot && typeof item.item_snapshot === 'object'
+            ? item.item_snapshot
+            : item?.snapshot && typeof item.snapshot === 'object'
+                ? item.snapshot
+                : {};
+        const snapshotMode = normalizeTaxPriceMode(
+            snapshot?.taxPriceMode
+            || item?.tax_price_mode
+            || item?.taxPriceMode
+        );
+        if (snapshotMode === 'inclusive') return 'inclusive';
+        const unitPriceBase = Number(item?.unit_price_base ?? item?.unitPriceBase ?? snapshot?.unitPriceBase ?? 0);
+        const unitPriceGross = Number(item?.price ?? item?.unit_price_gross ?? item?.unitPriceGross ?? snapshot?.unitPriceGross ?? snapshot?.unitPrice ?? 0);
+        const lineTotalBase = Number(item?.line_total_base ?? item?.lineTotalBase ?? snapshot?.lineTotalBase ?? 0);
+        const lineTotalGross = Number(item?.line_total ?? item?.lineTotal ?? item?.lineTotalGross ?? snapshot?.lineTotalGross ?? snapshot?.lineTotal ?? 0);
+        if ((unitPriceBase > 0 && unitPriceGross > 0 && Math.abs(unitPriceBase - unitPriceGross) > 0.009)
+            || (lineTotalBase > 0 && lineTotalGross > 0 && Math.abs(lineTotalBase - lineTotalGross) > 0.009)) {
+            return 'inclusive';
+        }
+    }
+    return normalized;
+};
+const resolveStoredOrderTaxPriceMode = ({
+    taxPriceMode = '',
+    companySnapshot = null,
+    displayPricing = null,
+    items = []
+} = {}) => {
+    if (hasExplicitTaxPriceMode(taxPriceMode)) return normalizeTaxPriceMode(taxPriceMode);
+    if (hasExplicitTaxPriceMode(displayPricing?.taxPriceMode)) return normalizeTaxPriceMode(displayPricing.taxPriceMode);
+    if (hasExplicitTaxPriceMode(companySnapshot?.taxPriceMode)) return normalizeTaxPriceMode(companySnapshot.taxPriceMode);
+    return inferTaxPriceModeFromItems({
+        taxPriceMode,
+        companySnapshot,
+        displayPricing,
+        items
+    });
+};
+const computeOrderGrandTotal = ({
+    subtotal = 0,
+    shippingFee = 0,
+    taxTotal = 0,
+    discountTotal = 0,
+    taxPriceMode = 'exclusive'
+} = {}) => {
+    const safeSubtotal = roundMoney(Math.max(0, Number(subtotal || 0)));
+    const safeShippingFee = roundMoney(Math.max(0, Number(shippingFee || 0)));
+    const safeTaxTotal = roundMoney(Math.max(0, Number(taxTotal || 0)));
+    const safeDiscountTotal = roundMoney(Math.max(0, Number(discountTotal || 0)));
+    if (normalizeTaxPriceMode(taxPriceMode) === 'inclusive') {
+        return Math.max(0, roundMoney(safeSubtotal + safeShippingFee - safeDiscountTotal));
+    }
+    return Math.max(0, roundMoney(safeSubtotal + safeShippingFee + safeTaxTotal - safeDiscountTotal));
+};
+const inferShippingTaxRatePercent = ({
+    shippingGrossAfterDiscounts = 0,
+    shippingTaxTotal = 0,
+    taxPriceMode = 'exclusive'
+} = {}) => {
+    const safeGross = roundMoney(Math.max(0, Number(shippingGrossAfterDiscounts || 0)));
+    const safeTax = roundMoney(Math.max(0, Number(shippingTaxTotal || 0)));
+    if (safeGross <= 0 || safeTax <= 0) return 0;
+    if (normalizeTaxPriceMode(taxPriceMode) === 'inclusive') {
+        const inferredBase = roundMoney(Math.max(0, safeGross - safeTax));
+        return inferredBase > 0 ? roundMoney((safeTax * 100) / inferredBase) : 0;
+    }
+    return roundMoney((safeTax * 100) / safeGross);
+};
+const buildPricingDisplay = ({
+    items = [],
+    subtotal = 0,
+    shippingFee = 0,
+    couponDiscountTotal = 0,
+    loyaltyDiscountTotal = 0,
+    loyaltyShippingDiscountTotal = 0,
+    taxTotal = 0,
+    taxPriceMode = 'exclusive',
+    total = 0,
+    roundOffAmount = 0
+} = {}) => {
+    const mode = normalizeTaxPriceMode(taxPriceMode);
+    const normalizedItems = (Array.isArray(items) ? items : []).map((item) => {
+        const quantity = Math.max(0, Number(item?.quantity || 0));
+        const lineTotalGross = roundMoney(Math.max(0, Number(item?.lineTotalGross ?? item?.lineTotal ?? 0)));
+        const unitPriceGross = quantity > 0
+            ? roundMoney(lineTotalGross / quantity)
+            : roundMoney(Math.max(0, Number(item?.unitPriceGross ?? item?.price ?? 0)));
+        const ratePercent = roundMoney(Math.max(0, Number(item?.taxRatePercent || 0)));
+        const inferredLineTotalBase = mode === 'inclusive' && ratePercent > 0
+            ? roundMoney(lineTotalGross * (100 / (100 + ratePercent)))
+            : lineTotalGross;
+        const lineTotalBase = roundMoney(Math.max(0, Number(item?.lineTotalBase ?? inferredLineTotalBase)));
+        const unitPriceBase = quantity > 0
+            ? roundMoney(lineTotalBase / quantity)
+            : roundMoney(Math.max(0, Number(item?.unitPriceBase ?? (mode === 'inclusive' && ratePercent > 0
+                ? roundMoney(unitPriceGross * (100 / (100 + ratePercent)))
+                : lineTotalBase))));
+        const discountedLineTotalGross = roundMoney(Math.max(
+            0,
+            Number(item?.discountedLineTotalGross ?? item?.discountedLineTotal ?? lineTotalGross)
+        ));
+        const discountedLineTotalBase = roundMoney(Math.max(
+            0,
+            Number(item?.discountedLineTotalBase ?? item?.taxBase ?? (mode === 'inclusive' && ratePercent > 0
+                ? roundMoney(discountedLineTotalGross * (100 / (100 + ratePercent)))
+                : lineTotalBase))
+        ));
+        const taxAmount = roundMoney(Math.max(0, Number(item?.taxAmount || 0)));
+        return {
+            ...item,
+            unitPriceGross,
+            unitPriceBase,
+            lineTotalGross,
+            lineTotalBase,
+            discountedLineTotalGross,
+            discountedLineTotalBase,
+            taxAmount
+        };
+    });
+
+    const safeSubtotal = roundMoney(Math.max(0, Number(subtotal || 0)));
+    const safeShippingFee = roundMoney(Math.max(0, Number(shippingFee || 0)));
+    const safeCouponDiscount = roundMoney(Math.max(0, Number(couponDiscountTotal || 0)));
+    const couponProductDiscount = roundMoney(Math.min(safeCouponDiscount, safeSubtotal));
+    const couponShippingDiscount = roundMoney(Math.min(
+        Math.max(0, safeCouponDiscount - couponProductDiscount),
+        safeShippingFee
+    ));
+    const safeLoyaltyDiscount = roundMoney(Math.max(0, Number(loyaltyDiscountTotal || 0)));
+    const safeLoyaltyShippingDiscount = roundMoney(Math.max(0, Number(loyaltyShippingDiscountTotal || 0)));
+    const safeTaxTotal = roundMoney(Math.max(0, Number(taxTotal || 0)));
+    const safeTotal = roundMoney(Math.max(0, Number(total || 0)));
+    const safeRoundOffAmount = roundMoney(Number(roundOffAmount || 0));
+
+    const subtotalBase = roundMoney(normalizedItems.reduce((sum, item) => sum + item.lineTotalBase, 0));
+    const discountedSubtotalBase = roundMoney(normalizedItems.reduce((sum, item) => sum + item.discountedLineTotalBase, 0));
+    const productTaxTotal = roundMoney(normalizedItems.reduce((sum, item) => sum + item.taxAmount, 0));
+    const shippingGrossAfterDiscounts = roundMoney(Math.max(0, safeShippingFee - couponShippingDiscount - safeLoyaltyShippingDiscount));
+    const shippingTaxTotal = roundMoney(Math.max(0, safeTaxTotal - productTaxTotal));
+    const shippingRatePercent = inferShippingTaxRatePercent({
+        shippingGrossAfterDiscounts,
+        shippingTaxTotal,
+        taxPriceMode: mode
+    });
+    const shippingBase = mode === 'inclusive'
+        ? (() => {
+            const denominator = 100 + shippingRatePercent;
+            if (denominator <= 0) return safeShippingFee;
+            return roundMoney(Math.max(0, safeShippingFee * (100 / denominator)));
+        })()
+        : safeShippingFee;
+    const discountedShippingBase = mode === 'inclusive'
+        ? roundMoney(Math.max(0, shippingGrossAfterDiscounts - shippingTaxTotal))
+        : shippingGrossAfterDiscounts;
+
+    return {
+        taxPriceMode: mode,
+        roundOffAmount: safeRoundOffAmount,
+        displaySubtotalBase: mode === 'inclusive' ? subtotalBase : safeSubtotal,
+        displaySubtotalGross: safeSubtotal,
+        displayShippingBase: mode === 'inclusive' ? shippingBase : safeShippingFee,
+        displayShippingGross: safeShippingFee,
+        displayBaseBeforeDiscounts: roundMoney((mode === 'inclusive' ? subtotalBase : safeSubtotal) + (mode === 'inclusive' ? shippingBase : safeShippingFee)),
+        displayGrossBeforeDiscounts: roundMoney(safeSubtotal + safeShippingFee),
+        displayValueAfterDiscountsBase: roundMoney(discountedSubtotalBase + discountedShippingBase),
+        displayGrossAfterDiscounts: roundMoney(Math.max(0, safeSubtotal + safeShippingFee - safeCouponDiscount - safeLoyaltyDiscount - safeLoyaltyShippingDiscount)),
+        displayProductTaxTotal: productTaxTotal,
+        displayShippingTaxTotal: shippingTaxTotal,
+        displayGstTotal: safeTaxTotal,
+        displayGrossTotal: safeTotal,
+        items: normalizedItems
+    };
+};
 
 const applyDefaultPending = (order) => {
     if (!order) return order;
@@ -134,12 +324,12 @@ const computeShippingFee = async (connection, shippingAddress, subtotal, totalWe
         const max = opt.max_value === null ? null : Number(opt.max_value);
         if (opt.condition_type === 'weight') {
             if (min !== null && totalWeightKg < min) return false;
-            if (max !== null && totalWeightKg > max) return false;
+            if (max !== null && totalWeightKg >= max) return false;
             return true;
         }
         if (opt.condition_type === 'price' || !opt.condition_type) {
             if (min !== null && subtotal < min) return false;
-            if (max !== null && subtotal > max) return false;
+            if (max !== null && subtotal >= max) return false;
             return true;
         }
         return true;
@@ -223,12 +413,15 @@ const computeTaxForItems = async ({
         return {
             taxTotal: 0,
             taxBreakup: [],
-            items: []
+            items: [],
+            roundOffAmount: 0,
+            taxPriceMode: 'exclusive'
         };
     }
 
     const companyProfile = await CompanyProfile.get();
     const taxEnabled = Boolean(companyProfile?.taxEnabled);
+    const taxPriceMode = normalizeTaxPriceMode(companyProfile?.taxPriceMode);
     const activeTaxes = taxEnabled ? await TaxConfig.listActive() : [];
     const taxesById = new Map(activeTaxes.map((tax) => [Number(tax.id), tax]));
     const defaultTax = activeTaxes.find((tax) => tax.isDefault) || activeTaxes[0] || null;
@@ -251,7 +444,9 @@ const computeTaxForItems = async ({
         return {
             taxTotal: 0,
             taxBreakup: [],
-            items: zeroItems
+            items: zeroItems,
+            roundOffAmount: 0,
+            taxPriceMode
         };
     }
 
@@ -274,14 +469,37 @@ const computeTaxForItems = async ({
 
     const taxBreakupMap = new Map();
     let taxTotal = 0;
+    let inclusiveProductTaxTotal = 0;
+    let inclusiveExpectedGrossSubtotal = 0;
+    let inclusiveAllocatedGrossSubtotal = 0;
     const taxedItems = normalizedItems.map((item, index) => {
         const assignedTax = taxesById.get(Number(item.taxConfigId || 0)) || defaultTax;
         const ratePercent = roundMoney(Math.max(0, Number(assignedTax?.ratePercent || 0)));
         const lineTotal = lineTotals[index] || 0;
         const lineDiscount = roundMoney((couponAllocations[index] || 0) + (loyaltyAllocations[index] || 0));
-        const taxBase = roundMoney(Math.max(0, lineTotal - lineDiscount));
-        const taxAmount = roundMoney((taxBase * ratePercent) / 100);
-        taxTotal = roundMoney(taxTotal + taxAmount);
+        const discountedLineTotal = roundMoney(Math.max(0, lineTotal - lineDiscount));
+        const isInclusiveMode = taxPriceMode === 'inclusive';
+        const unitPriceGross = roundMoney(Math.max(0, Number(item.price || 0)));
+        const lineTotalGross = lineTotal;
+        const unitPriceBase = isInclusiveMode
+            ? roundMoney(unitPriceGross * (100 / (100 + ratePercent)))
+            : unitPriceGross;
+        const lineTotalBase = isInclusiveMode
+            ? roundMoney(lineTotalGross * (100 / (100 + ratePercent)))
+            : lineTotalGross;
+        const taxBase = isInclusiveMode
+            ? roundMoney(discountedLineTotal * (100 / (100 + ratePercent)))
+            : discountedLineTotal;
+        const taxAmount = isInclusiveMode
+            ? roundMoney(discountedLineTotal - taxBase)
+            : roundMoney((taxBase * ratePercent) / 100);
+        if (isInclusiveMode) {
+            inclusiveProductTaxTotal = roundMoney(inclusiveProductTaxTotal + taxAmount);
+            inclusiveExpectedGrossSubtotal = roundMoney(inclusiveExpectedGrossSubtotal + discountedLineTotal);
+            inclusiveAllocatedGrossSubtotal = roundMoney(inclusiveAllocatedGrossSubtotal + taxBase + taxAmount);
+        } else {
+            taxTotal = roundMoney(taxTotal + taxAmount);
+        }
 
         const key = `${assignedTax?.id || 0}`;
         const current = taxBreakupMap.get(key) || {
@@ -302,7 +520,14 @@ const computeTaxForItems = async ({
             taxAmount,
             taxName: assignedTax?.name || null,
             taxCode: assignedTax?.code || null,
+            unitPriceGross,
+            unitPriceBase,
+            lineTotalGross,
+            lineTotalBase,
             taxBase,
+            discountedLineTotal,
+            discountedLineTotalGross: discountedLineTotal,
+            discountedLineTotalBase: taxBase,
             taxSnapshot: assignedTax ? {
                 id: assignedTax.id,
                 name: assignedTax.name,
@@ -315,19 +540,38 @@ const computeTaxForItems = async ({
                 taxAmount,
                 taxName: assignedTax?.name || null,
                 taxCode: assignedTax?.code || null,
-                taxBase
+                unitPriceGross,
+                unitPriceBase,
+                lineTotalGross,
+                lineTotalBase,
+                taxBase,
+                discountedLineTotal,
+                discountedLineTotalGross: discountedLineTotal,
+                discountedLineTotalBase: taxBase,
+                taxPriceMode
             }
         };
     });
 
-    const shippingTaxBase = roundMoney(Math.max(
+    const shippingDiscountedTotal = roundMoney(Math.max(
         0,
         safeShippingFee - couponShippingDiscount - safeLoyaltyShippingDiscount
     ));
-    if (shippingTaxBase > 0) {
+    if (shippingDiscountedTotal > 0) {
         const shippingRatePercent = roundMoney(Math.max(0, Number(defaultTax?.ratePercent || 0)));
-        const shippingTaxAmount = roundMoney((shippingTaxBase * shippingRatePercent) / 100);
-        taxTotal = roundMoney(taxTotal + shippingTaxAmount);
+        const shippingTaxBase = taxPriceMode === 'inclusive'
+            ? roundMoney(shippingDiscountedTotal * (100 / (100 + shippingRatePercent)))
+            : shippingDiscountedTotal;
+        const shippingTaxAmount = taxPriceMode === 'inclusive'
+            ? roundMoney(shippingDiscountedTotal - shippingTaxBase)
+            : roundMoney((shippingTaxBase * shippingRatePercent) / 100);
+        if (taxPriceMode === 'inclusive') {
+            inclusiveExpectedGrossSubtotal = roundMoney(inclusiveExpectedGrossSubtotal + shippingDiscountedTotal);
+            inclusiveAllocatedGrossSubtotal = roundMoney(inclusiveAllocatedGrossSubtotal + shippingTaxBase + shippingTaxAmount);
+            inclusiveProductTaxTotal = roundMoney(inclusiveProductTaxTotal + shippingTaxAmount);
+        } else {
+            taxTotal = roundMoney(taxTotal + shippingTaxAmount);
+        }
         const shippingKey = `${defaultTax?.id || 0}`;
         const shippingCurrent = taxBreakupMap.get(shippingKey) || {
             taxId: defaultTax?.id || null,
@@ -342,10 +586,19 @@ const computeTaxForItems = async ({
         taxBreakupMap.set(shippingKey, shippingCurrent);
     }
 
+    const roundOffAmount = taxPriceMode === 'inclusive'
+        ? roundMoney(inclusiveExpectedGrossSubtotal - inclusiveAllocatedGrossSubtotal)
+        : 0;
+    const finalTaxTotal = taxPriceMode === 'inclusive'
+        ? roundMoney(inclusiveProductTaxTotal + taxTotal)
+        : roundMoney(taxTotal);
+
     return {
-        taxTotal: roundMoney(taxTotal),
+        taxTotal: finalTaxTotal,
         taxBreakup: Array.from(taxBreakupMap.values()),
-        items: taxedItems
+        items: taxedItems,
+        roundOffAmount,
+        taxPriceMode
     };
 };
 
@@ -814,7 +1067,27 @@ class Order {
                 loyaltyShippingDiscountTotal
             });
             const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal;
-            const total = Math.max(0, subtotal + shippingFee + Number(taxResult.taxTotal || 0) - discountTotal);
+            const taxPriceMode = normalizeTaxPriceMode(taxResult.taxPriceMode);
+            const roundOffAmount = Number(taxResult.roundOffAmount || 0);
+            const total = computeOrderGrandTotal({
+                subtotal,
+                shippingFee,
+                taxTotal: Number(taxResult.taxTotal || 0),
+                discountTotal,
+                taxPriceMode
+            });
+            const displayPricing = buildPricingDisplay({
+                items: taxResult.items || [],
+                subtotal,
+                shippingFee,
+                couponDiscountTotal,
+                loyaltyDiscountTotal,
+                loyaltyShippingDiscountTotal,
+                taxTotal: Number(taxResult.taxTotal || 0),
+                taxPriceMode,
+                total,
+                roundOffAmount
+            });
 
             return {
                 itemCount,
@@ -825,7 +1098,10 @@ class Order {
                 loyaltyShippingDiscountTotal,
                 taxTotal: Number(taxResult.taxTotal || 0),
                 taxBreakup: taxResult.taxBreakup || [],
-                items: (taxResult.items || []).map((item) => ({
+                taxPriceMode,
+                roundOffAmount,
+                displayPricing,
+                items: (displayPricing.items || []).map((item) => ({
                     productId: item.productId,
                     variantId: item.variantId || '',
                     title: item.title || 'Product',
@@ -835,6 +1111,14 @@ class Order {
                     quantity: item.quantity,
                     price: item.price,
                     lineTotal: item.lineTotal,
+                    unitPriceBase: Number(item.unitPriceBase || 0),
+                    unitPriceGross: Number(item.unitPriceGross || 0),
+                    lineTotalBase: Number(item.lineTotalBase || 0),
+                    lineTotalGross: Number(item.lineTotalGross || 0),
+                    discountedLineTotalBase: Number(item.discountedLineTotalBase || 0),
+                    discountedLineTotalGross: Number(item.discountedLineTotalGross || 0),
+                    discountedLineTotal: Number(item.discountedLineTotal ?? item.lineTotal ?? 0),
+                    taxBase: Number(item.taxBase || 0),
                     taxAmount: Number(item.taxAmount || 0),
                     taxRatePercent: Number(item.taxRatePercent || 0),
                     taxName: item.taxName || null,
@@ -1086,8 +1370,16 @@ class Order {
             const taxedOrderItems = taxResult.items || orderItems;
             const taxTotal = Number(taxResult.taxTotal || 0);
             const taxBreakup = taxResult.taxBreakup || [];
+            const taxPriceMode = normalizeTaxPriceMode(taxResult.taxPriceMode);
+            const roundOffAmount = Number(taxResult.roundOffAmount || 0);
             const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal;
-            const total = Math.max(0, subtotal + shippingFee + taxTotal - discountTotal);
+            const total = computeOrderGrandTotal({
+                subtotal,
+                shippingFee,
+                taxTotal,
+                discountTotal,
+                taxPriceMode
+            });
             const orderRef = await buildOrderRef(connection);
             const paymentStatus = payment?.paymentStatus || 'created';
             const paymentGateway = payment?.gateway || 'razorpay';
@@ -1114,8 +1406,8 @@ class Order {
 
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders 
-                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, round_off_amount, tax_price_mode, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     orderRef,
                     userId,
@@ -1140,6 +1432,8 @@ class Order {
                     shippingFee,
                     discountTotal,
                     taxTotal,
+                    roundOffAmount,
+                    taxPriceMode,
                     JSON.stringify(taxBreakup),
                     total,
                     'INR',
@@ -1211,6 +1505,8 @@ class Order {
                 discountTotal,
                 taxTotal,
                 taxBreakup,
+                taxPriceMode,
+                roundOffAmount,
                 total,
                 currency: 'INR',
                 couponCode: coupon?.code || null,
@@ -1319,7 +1615,15 @@ class Order {
             const taxedOrderItems = taxResult.items || orderItems;
             const taxTotal = Number(taxResult.taxTotal || 0);
             const taxBreakup = taxResult.taxBreakup || [];
-            const total = subtotal + shippingFee + taxTotal - discountTotal;
+            const taxPriceMode = normalizeTaxPriceMode(taxResult.taxPriceMode);
+            const roundOffAmount = Number(taxResult.roundOffAmount || 0);
+            const total = computeOrderGrandTotal({
+                subtotal,
+                shippingFee,
+                taxTotal,
+                discountTotal,
+                taxPriceMode
+            });
 
             const paymentStatus = payment?.paymentStatus || 'paid';
             const paymentGateway = payment?.gateway || 'razorpay';
@@ -1336,8 +1640,8 @@ class Order {
 
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders
-                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, round_off_amount, tax_price_mode, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     finalOrderRef,
                     userId,
@@ -1362,6 +1666,8 @@ class Order {
                     shippingFee,
                     discountTotal,
                     taxTotal,
+                    roundOffAmount,
+                    taxPriceMode,
                     JSON.stringify(taxBreakup),
                     total,
                     'INR',
@@ -1489,9 +1795,17 @@ class Order {
             const taxedOrderItems = taxResult.items || orderItems;
             const taxTotal = Number(taxResult.taxTotal || 0);
             const taxBreakup = taxResult.taxBreakup || [];
+            const taxPriceMode = normalizeTaxPriceMode(taxResult.taxPriceMode);
+            const roundOffAmount = Number(taxResult.roundOffAmount || 0);
             const discountTotal = couponDiscountTotal + loyaltyDiscountTotal + loyaltyShippingDiscountTotal;
-            const total = Math.max(0, subtotal + shippingFee + taxTotal - discountTotal);
-            return {
+            const total = computeOrderGrandTotal({
+                subtotal,
+                shippingFee,
+                taxTotal,
+                discountTotal,
+                taxPriceMode
+            });
+            const displayPricing = buildPricingDisplay({
                 items: taxedOrderItems,
                 subtotal,
                 shippingFee,
@@ -1499,7 +1813,22 @@ class Order {
                 loyaltyDiscountTotal,
                 loyaltyShippingDiscountTotal,
                 taxTotal,
+                taxPriceMode,
+                total,
+                roundOffAmount
+            });
+            return {
+                items: displayPricing.items,
+                subtotal,
+                shippingFee,
+                couponDiscountTotal,
+                loyaltyDiscountTotal,
+                loyaltyShippingDiscountTotal,
+                taxTotal,
                 taxBreakup,
+                taxPriceMode,
+                roundOffAmount,
+                displayPricing,
                 discountTotal,
                 total,
                 currency: 'INR',
@@ -1535,6 +1864,8 @@ class Order {
                 loyaltyShippingDiscountTotal,
                 taxTotal,
                 taxBreakup,
+                taxPriceMode,
+                roundOffAmount,
                 discountTotal,
                 total,
                 coupon,
@@ -1561,8 +1892,8 @@ class Order {
             const companySnapshot = CompanyProfile.sanitizeForSnapshot(companyProfile);
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders 
-                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, round_off_amount, tax_price_mode, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     orderRef,
                     userId,
@@ -1587,6 +1918,8 @@ class Order {
                     shippingFee,
                     discountTotal,
                     taxTotal,
+                    roundOffAmount,
+                    taxPriceMode,
                     JSON.stringify(taxBreakup || []),
                     total,
                     'INR',
@@ -1766,6 +2099,8 @@ class Order {
             const total = Number(pricing.total ?? fromSubunits(lockedAttempt.amount_subunits) ?? 0);
             const taxTotal = Number(pricing.taxTotal ?? 0);
             const taxBreakup = Array.isArray(pricing.taxBreakup) ? pricing.taxBreakup : [];
+            const snapshotTaxPriceMode = normalizeTaxPriceMode(pricing.taxPriceMode);
+            const snapshotRoundOffAmount = Number(pricing.roundOffAmount ?? 0);
             const couponDiscountTotal = Number(pricing.couponDiscountTotal ?? 0);
             const loyaltyDiscountTotal = Number(pricing.loyaltyDiscountTotal ?? 0);
             const loyaltyShippingDiscountTotal = Number(pricing.loyaltyShippingDiscountTotal ?? 0);
@@ -1814,12 +2149,16 @@ class Order {
                 ? {
                     taxTotal: Number.isFinite(taxTotal) ? taxTotal : 0,
                     taxBreakup: Array.isArray(taxBreakup) ? taxBreakup : [],
+                    taxPriceMode: snapshotTaxPriceMode,
+                    roundOffAmount: snapshotRoundOffAmount,
                     items: orderItems.map((item) => {
                         const snap = item?.snapshot && typeof item.snapshot === 'object' ? item.snapshot : {};
                         return {
                             ...item,
                             taxRatePercent: Number(item.taxRatePercent ?? snap.taxRatePercent ?? 0),
                             taxAmount: Number(item.taxAmount ?? snap.taxAmount ?? 0),
+                            taxBase: Number(item.taxBase ?? snap.taxBase ?? item.lineTotal ?? 0),
+                            discountedLineTotal: Number(item.discountedLineTotal ?? snap.discountedLineTotal ?? item.lineTotal ?? 0),
                             taxName: item.taxName ?? snap.taxName ?? null,
                             taxCode: item.taxCode ?? snap.taxCode ?? null,
                             taxSnapshot: snap?.taxSnapshot || (snap.taxCode || snap.taxName ? {
@@ -1842,15 +2181,23 @@ class Order {
                 });
             const finalTaxTotal = Number(taxComputed.taxTotal || 0);
             const finalTaxBreakup = taxComputed.taxBreakup || [];
+            const finalTaxPriceMode = normalizeTaxPriceMode(taxComputed.taxPriceMode || snapshotTaxPriceMode);
+            const finalRoundOffAmount = Number(taxComputed.roundOffAmount ?? snapshotRoundOffAmount ?? 0);
             const finalOrderItems = taxComputed.items || orderItems;
             const finalTotal = Number.isFinite(total) && total > 0
                 ? total
-                : Math.max(0, subtotal + shippingFee + finalTaxTotal - discountTotal);
+                : computeOrderGrandTotal({
+                    subtotal,
+                    shippingFee,
+                    taxTotal: finalTaxTotal,
+                    discountTotal,
+                    taxPriceMode: finalTaxPriceMode
+                });
 
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders
-                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, round_off_amount, tax_price_mode, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     orderRef,
                     userId,
@@ -1875,6 +2222,8 @@ class Order {
                     shippingFee,
                     discountTotal,
                     finalTaxTotal,
+                    finalRoundOffAmount,
+                    finalTaxPriceMode,
                     JSON.stringify(finalTaxBreakup),
                     finalTotal,
                     String(lockedAttempt.currency || 'INR'),
@@ -2521,6 +2870,8 @@ class Order {
                     shipping_fee: Number(pricing?.shippingFee ?? base.shipping_fee ?? 0),
                     discount_total: Number(pricing?.discountTotal ?? base.discount_total ?? 0),
                     tax_total: Number(pricing?.taxTotal ?? base.tax_total ?? 0),
+                    round_off_amount: Number(pricing?.roundOffAmount ?? base.round_off_amount ?? 0),
+                    tax_price_mode: normalizeTaxPriceMode(pricing?.taxPriceMode ?? base.tax_price_mode ?? base.company_snapshot?.taxPriceMode),
                     tax_breakup_json: Array.isArray(pricing?.taxBreakup)
                         ? pricing.taxBreakup
                         : (parseJsonSafe(base.tax_breakup_json) || []),
@@ -2532,8 +2883,50 @@ class Order {
             }
             return applyDefaultPending(base);
         });
+        const decoratedOrders = normalized.map((order) => {
+            const orderItems = Array.isArray(order.items) ? order.items : [];
+            const resolvedTaxPriceMode = resolveStoredOrderTaxPriceMode({
+                taxPriceMode: order.tax_price_mode,
+                companySnapshot: order.company_snapshot,
+                displayPricing: order.display_pricing,
+                items: orderItems
+            });
+            const resolvedOrder = {
+                ...order,
+                tax_price_mode: resolvedTaxPriceMode
+            };
+            const displayPricing = buildPricingDisplay({
+                items: orderItems.map((item) => {
+                    const snapshot = item?.item_snapshot && typeof item.item_snapshot === 'object' ? item.item_snapshot : item;
+                    return {
+                        ...item,
+                        quantity: Number(item?.quantity ?? snapshot?.quantity ?? 0),
+                        price: Number(item?.price ?? snapshot?.unitPrice ?? 0),
+                        lineTotal: Number(item?.line_total ?? item?.lineTotal ?? snapshot?.lineTotal ?? 0),
+                        taxAmount: Number(item?.tax_amount ?? item?.taxAmount ?? snapshot?.taxAmount ?? 0),
+                        taxBase: Number(item?.tax_base ?? item?.taxBase ?? snapshot?.taxBase ?? item?.line_total ?? snapshot?.lineTotal ?? 0),
+                        unitPriceBase: Number(item?.unit_price_base ?? item?.unitPriceBase ?? snapshot?.unitPriceBase ?? 0),
+                        unitPriceGross: Number(item?.unit_price_gross ?? item?.unitPriceGross ?? snapshot?.unitPriceGross ?? item?.price ?? snapshot?.unitPrice ?? 0),
+                        lineTotalBase: Number(item?.line_total_base ?? item?.lineTotalBase ?? snapshot?.lineTotalBase ?? 0),
+                        lineTotalGross: Number(item?.line_total_gross ?? item?.lineTotalGross ?? snapshot?.lineTotalGross ?? item?.line_total ?? snapshot?.lineTotal ?? 0),
+                        discountedLineTotalBase: Number(item?.discounted_line_total_base ?? item?.discountedLineTotalBase ?? snapshot?.discountedLineTotalBase ?? snapshot?.taxBase ?? 0),
+                        discountedLineTotalGross: Number(item?.discounted_line_total_gross ?? item?.discountedLineTotalGross ?? snapshot?.discountedLineTotalGross ?? snapshot?.discountedLineTotal ?? item?.line_total ?? snapshot?.lineTotal ?? 0)
+                    };
+                }),
+                subtotal: Number(order.subtotal || 0),
+                shippingFee: Number(order.shipping_fee || 0),
+                couponDiscountTotal: Number(order.coupon_discount_value || 0),
+                loyaltyDiscountTotal: Number(order.loyalty_discount_total || 0),
+                loyaltyShippingDiscountTotal: Number(order.loyalty_shipping_discount_total || 0),
+                taxTotal: Number(order.tax_total || 0),
+                taxPriceMode: resolvedTaxPriceMode,
+                total: Number(order.total || 0),
+                roundOffAmount: Number(order.round_off_amount || 0)
+            });
+            return { ...resolvedOrder, display_pricing: displayPricing };
+        });
         return {
-            orders: normalized,
+            orders: decoratedOrders,
             total,
             totalPages: Math.ceil(total / safeLimit)
         };
@@ -2568,15 +2961,24 @@ class Order {
             'SELECT * FROM order_status_events WHERE order_id = ? ORDER BY created_at ASC',
             [orderId]
         );
-        return applyDefaultPending({
+        const parsedCompanySnapshot = parseJsonSafe(order.company_snapshot);
+        const resolvedTaxPriceMode = resolveStoredOrderTaxPriceMode({
+            taxPriceMode: order.tax_price_mode,
+            companySnapshot: parsedCompanySnapshot,
+            displayPricing: parseJsonSafe(order.display_pricing),
+            items: normalizedItems
+        });
+        const baseOrder = applyDefaultPending({
             ...order,
             billing_address: normalizeAddress(order.billing_address),
             shipping_address: normalizeAddress(order.shipping_address),
-            company_snapshot: parseJsonSafe(order.company_snapshot),
+            company_snapshot: parsedCompanySnapshot,
             settlement_snapshot: parseJsonSafe(order.settlement_snapshot),
             refund_notes: parseJsonSafe(order.refund_notes),
             loyalty_meta: parseJsonSafe(order.loyalty_meta),
             tax_breakup_json: parseJsonSafe(order.tax_breakup_json),
+            round_off_amount: Number(order.round_off_amount || 0),
+            tax_price_mode: resolvedTaxPriceMode,
             coupon_meta: order?.coupon_meta && typeof order.coupon_meta === 'string'
                 ? (() => {
                     try { return JSON.parse(order.coupon_meta); } catch { return null; }
@@ -2585,6 +2987,38 @@ class Order {
             items: normalizedItems,
             events
         });
+        const displayPricing = buildPricingDisplay({
+            items: normalizedItems.map((item) => {
+                const snapshot = item?.item_snapshot && typeof item.item_snapshot === 'object' ? item.item_snapshot : item;
+                return {
+                    ...item,
+                    quantity: Number(item?.quantity ?? snapshot?.quantity ?? 0),
+                    price: Number(item?.price ?? snapshot?.unitPrice ?? 0),
+                    lineTotal: Number(item?.line_total ?? snapshot?.lineTotal ?? 0),
+                    taxAmount: Number(item?.tax_amount ?? snapshot?.taxAmount ?? 0),
+                    taxBase: Number(snapshot?.taxBase ?? item?.line_total ?? snapshot?.lineTotal ?? 0),
+                    unitPriceBase: Number(snapshot?.unitPriceBase ?? 0),
+                    unitPriceGross: Number(snapshot?.unitPriceGross ?? item?.price ?? snapshot?.unitPrice ?? 0),
+                    lineTotalBase: Number(snapshot?.lineTotalBase ?? 0),
+                    lineTotalGross: Number(snapshot?.lineTotalGross ?? item?.line_total ?? snapshot?.lineTotal ?? 0),
+                    discountedLineTotalBase: Number(snapshot?.discountedLineTotalBase ?? snapshot?.taxBase ?? 0),
+                    discountedLineTotalGross: Number(snapshot?.discountedLineTotalGross ?? snapshot?.discountedLineTotal ?? item?.line_total ?? snapshot?.lineTotal ?? 0)
+                };
+            }),
+            subtotal: Number(baseOrder.subtotal || 0),
+            shippingFee: Number(baseOrder.shipping_fee || 0),
+            couponDiscountTotal: Number(baseOrder.coupon_discount_value || 0),
+            loyaltyDiscountTotal: Number(baseOrder.loyalty_discount_total || 0),
+            loyaltyShippingDiscountTotal: Number(baseOrder.loyalty_shipping_discount_total || 0),
+            taxTotal: Number(baseOrder.tax_total || 0),
+            taxPriceMode: baseOrder.tax_price_mode,
+            total: Number(baseOrder.total || 0),
+            roundOffAmount: Number(baseOrder.round_off_amount || 0)
+        });
+        return {
+            ...baseOrder,
+            display_pricing: displayPricing
+        };
     }
 
     static async getByUser(userId) {
@@ -3018,5 +3452,6 @@ class Order {
 
 module.exports = Order;
 module.exports.__test = {
-    computeTaxForItems
+    computeTaxForItems,
+    resolveStoredOrderTaxPriceMode
 };

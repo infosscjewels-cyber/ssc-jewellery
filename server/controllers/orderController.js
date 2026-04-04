@@ -500,8 +500,18 @@ const buildAttemptSnapshot = async ({
             const last = items[items.length - 1];
             last.taxAmount = Number(taxRef.taxAmount || 0);
             last.taxRatePercent = Number(taxRef.taxRatePercent || 0);
+            last.taxBase = Number(taxRef.taxBase || 0);
             last.taxName = taxRef.taxName || null;
             last.taxCode = taxRef.taxCode || null;
+            last.unitPriceBase = Number(taxRef.unitPriceBase || 0);
+            last.unitPriceGross = Number(taxRef.unitPriceGross || unitPrice);
+            last.lineTotalBase = Number(taxRef.lineTotalBase || 0);
+            last.lineTotalGross = Number(taxRef.lineTotalGross || lineTotal);
+            last.discountedLineTotalBase = Number(taxRef.discountedLineTotalBase || 0);
+            last.discountedLineTotalGross = Number(taxRef.discountedLineTotalGross || lineTotal);
+            last.taxPriceMode = String(summary?.taxPriceMode || summary?.displayPricing?.taxPriceMode || 'exclusive').trim().toLowerCase() === 'inclusive'
+                ? 'inclusive'
+                : 'exclusive';
             last.taxSnapshot = taxRef.taxName || taxRef.taxCode
                 ? {
                     id: taxRef.taxId || null,
@@ -529,9 +539,16 @@ const buildAttemptSnapshot = async ({
             loyaltyShippingDiscountTotal: Number(summary.loyaltyShippingDiscountTotal || 0),
             taxTotal: Number(summary.taxTotal || 0),
             taxBreakup: Array.isArray(summary.taxBreakup) ? summary.taxBreakup : [],
+            taxPriceMode: String(summary.taxPriceMode || summary.displayPricing?.taxPriceMode || 'exclusive').trim().toLowerCase() === 'inclusive'
+                ? 'inclusive'
+                : 'exclusive',
+            roundOffAmount: Number(summary.roundOffAmount || summary.displayPricing?.roundOffAmount || 0),
             discountTotal: Number(summary.discountTotal || 0),
             total: Number(summary.total || 0),
-            currency: String(summary.currency || 'INR')
+            currency: String(summary.currency || 'INR'),
+            displayPricing: summary.displayPricing && typeof summary.displayPricing === 'object'
+                ? summary.displayPricing
+                : null
         },
         loyalty: {
             tier: String(summary.loyaltyTier || 'regular').toLowerCase(),

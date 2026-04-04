@@ -791,6 +791,69 @@ test('payment lifecycle communication does not let email failure block WhatsApp'
     assert.equal(result.whatsapp.ok, true);
 });
 
+test('order lifecycle communication uses stored display pricing tax mode and includes round off in email summary', async () => {
+    let emailPayload = null;
+    const service = loadCommunicationService({
+        emailChannel: {
+            sendEmail: async (payload) => {
+                emailPayload = payload;
+                return { ok: true, provider: 'smtp' };
+            }
+        },
+        whatsappChannel: {
+            sendWhatsapp: async () => ({ ok: true, provider: 'whatsapp' })
+        }
+    });
+
+    const result = await service.sendOrderLifecycleCommunication({
+        stage: 'confirmed',
+        customer: { name: 'A', email: 'a@example.com', mobile: '9999999999' },
+        order: {
+            id: 'ord_2',
+            order_ref: 'REF-2',
+            user_id: 'u2',
+            subtotal: 118,
+            shipping_fee: 0,
+            coupon_discount_value: 18,
+            loyalty_discount_total: 0,
+            loyalty_shipping_discount_total: 0,
+            discount_total: 18,
+            tax_total: 18,
+            round_off_amount: -0.01,
+            tax_price_mode: 'exclusive',
+            display_pricing: {
+                taxPriceMode: 'inclusive',
+                displaySubtotalBase: 100,
+                displayShippingBase: 0,
+                displayBaseBeforeDiscounts: 100,
+                displayValueAfterDiscountsBase: 84
+            },
+            items: [
+                {
+                    quantity: 1,
+                    price: 118,
+                    line_total: 118,
+                    item_snapshot: {
+                        quantity: 1,
+                        title: 'Necklace',
+                        unitPriceBase: 100,
+                        unitPriceGross: 118,
+                        lineTotalBase: 100,
+                        lineTotalGross: 118,
+                        taxAmount: 18
+                    }
+                }
+            ]
+        },
+        includeInvoice: false
+    });
+
+    assert.equal(result.email.ok, true);
+    assert.match(String(emailPayload?.html || ''), /Value After Discounts/i);
+    assert.doesNotMatch(String(emailPayload?.html || ''), /Taxable Value After Discounts/i);
+    assert.match(String(emailPayload?.html || ''), /Round Off:/i);
+});
+
 test('whatsapp channel respects admin global disable switch', async () => {
     const originalEnabled = process.env.WHATSAPP_ENABLED;
     const originalLicense = process.env.WHATSAPP_LICENSE_NUMBER;
@@ -932,6 +995,67 @@ test('sendAdminInvoiceCommunication reports only actually queued channels and us
         if (originalAppBaseUrl === undefined) delete process.env.APP_BASE_URL;
         else process.env.APP_BASE_URL = originalAppBaseUrl;
     }
+});
+
+test('invoice pdf prefers stored order tax mode over inferred item pricing fallback', async () => {
+    const invoicePdf = require('../utils/invoicePdf');
+    const order = {
+        id: 501,
+        order_ref: 'REF-501',
+        created_at: '2026-04-04T10:00:00.000Z',
+        payment_status: 'paid',
+        payment_gateway: 'razorpay',
+        subtotal: 118,
+        shipping_fee: 0,
+        discount_total: 18,
+        coupon_discount_value: 18,
+        loyalty_discount_total: 0,
+        loyalty_shipping_discount_total: 0,
+        tax_total: 18,
+        round_off_amount: 0,
+        total: 118,
+        tax_price_mode: 'exclusive',
+        display_pricing: {
+            taxPriceMode: 'inclusive',
+            displaySubtotalBase: 100,
+            displayShippingBase: 0,
+            displayBaseBeforeDiscounts: 100,
+            displayValueAfterDiscountsBase: 84
+        },
+        company_snapshot: {
+            displayName: 'SSC Jewellery',
+            address: 'Test Address',
+            supportEmail: 'support@example.com',
+            contactNumber: '9999999999',
+            taxEnabled: true
+        },
+        billing_address: { name: 'User', line1: 'Line 1', city: 'Chennai', state: 'Tamil Nadu', zip: '600001' },
+        shipping_address: { line1: 'Line 1', city: 'Chennai', state: 'Tamil Nadu', zip: '600001' },
+        items: [
+            {
+                title: 'Necklace',
+                quantity: 1,
+                price: 118,
+                line_total: 118,
+                tax_amount: 18,
+                item_snapshot: {
+                    title: 'Necklace',
+                    quantity: 1,
+                    unitPriceBase: 100,
+                    unitPriceGross: 118,
+                    lineTotalBase: 100,
+                    lineTotalGross: 118,
+                    taxAmount: 18
+                }
+            }
+        ]
+    };
+
+    const buffer = await invoicePdf.buildInvoicePdfBuffer(order);
+    const content = buffer.toString('latin1');
+
+    assert.match(content, /Taxable Value After Discounts/);
+    assert.doesNotMatch(content, /Value After Discounts/);
 });
 
 test('welcome communication still attempts WhatsApp when email send fails', async () => {

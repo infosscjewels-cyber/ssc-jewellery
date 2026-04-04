@@ -17,6 +17,7 @@ const DEFAULT_COMPANY_PROFILE = {
     longitude: '',
     gstNumber: '',
     taxEnabled: false,
+    taxPriceMode: 'exclusive',
     instagramUrl: '',
     youtubeUrl: '',
     facebookUrl: '',
@@ -68,6 +69,9 @@ const normalizeRow = (row) => {
         longitude: row.longitude == null ? '' : String(row.longitude),
         gstNumber: row.gst_number || '',
         taxEnabled: Number(row.tax_enabled || 0) === 1,
+        taxPriceMode: String(row.tax_price_mode || DEFAULT_COMPANY_PROFILE.taxPriceMode).trim().toLowerCase() === 'inclusive'
+            ? 'inclusive'
+            : 'exclusive',
         instagramUrl: row.instagram_url || '',
         youtubeUrl: row.youtube_url || '',
         facebookUrl: row.facebook_url || '',
@@ -104,8 +108,8 @@ class CompanyProfile {
     static async ensureSeed() {
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, sub_categories_enabled, advanced_analytics_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, tax_price_mode, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, sub_categories_enabled, advanced_analytics_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE id = id`,
             [
                 DEFAULT_COMPANY_PROFILE.displayName,
@@ -122,6 +126,7 @@ class CompanyProfile {
                 null,
                 DEFAULT_COMPANY_PROFILE.gstNumber,
                 DEFAULT_COMPANY_PROFILE.taxEnabled ? 1 : 0,
+                DEFAULT_COMPANY_PROFILE.taxPriceMode,
                 DEFAULT_COMPANY_PROFILE.instagramUrl,
                 DEFAULT_COMPANY_PROFILE.youtubeUrl,
                 DEFAULT_COMPANY_PROFILE.facebookUrl,
@@ -183,6 +188,9 @@ class CompanyProfile {
             longitude: String(payload.longitude ?? '').trim(),
             gstNumber: String(payload.gstNumber || '').trim(),
             taxEnabled: payload.taxEnabled === true || payload.taxEnabled === 1 || String(payload.taxEnabled || '').toLowerCase() === 'true',
+            taxPriceMode: String(payload.taxPriceMode || DEFAULT_COMPANY_PROFILE.taxPriceMode).trim().toLowerCase() === 'inclusive'
+                ? 'inclusive'
+                : 'exclusive',
             instagramUrl: String(payload.instagramUrl || '').trim(),
             youtubeUrl: String(payload.youtubeUrl || '').trim(),
             facebookUrl: String(payload.facebookUrl || '').trim(),
@@ -211,8 +219,8 @@ class CompanyProfile {
 
         await db.execute(
             `INSERT INTO company_profile
-             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, sub_categories_enabled, advanced_analytics_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, gst_number, tax_enabled, tax_price_mode, instagram_url, youtube_url, facebook_url, whatsapp_number, logo_url, favicon_url, apple_touch_icon_url, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, sub_categories_enabled, advanced_analytics_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+             VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                 display_name = VALUES(display_name),
                 storefront_open = VALUES(storefront_open),
@@ -228,6 +236,7 @@ class CompanyProfile {
                 longitude = VALUES(longitude),
                 gst_number = VALUES(gst_number),
                 tax_enabled = VALUES(tax_enabled),
+                tax_price_mode = VALUES(tax_price_mode),
                 instagram_url = VALUES(instagram_url),
                 youtube_url = VALUES(youtube_url),
                 facebook_url = VALUES(facebook_url),
@@ -266,6 +275,7 @@ class CompanyProfile {
                 next.longitude || null,
                 next.gstNumber,
                 next.taxEnabled ? 1 : 0,
+                next.taxPriceMode,
                 next.instagramUrl,
                 next.youtubeUrl,
                 next.facebookUrl,
@@ -335,6 +345,9 @@ class CompanyProfile {
             longitude: String(source.longitude ?? ''),
             gstNumber: String(source.gstNumber || ''),
             taxEnabled: source.taxEnabled === true || source.taxEnabled === 1,
+            taxPriceMode: String(source.taxPriceMode || DEFAULT_COMPANY_PROFILE.taxPriceMode).trim().toLowerCase() === 'inclusive'
+                ? 'inclusive'
+                : 'exclusive',
             instagramUrl: String(source.instagramUrl || ''),
             youtubeUrl: String(source.youtubeUrl || ''),
             facebookUrl: String(source.facebookUrl || ''),

@@ -292,6 +292,8 @@ const initDB = async () => {
                 shipping_fee DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 discount_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 tax_total DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                round_off_amount DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                tax_price_mode VARCHAR(20) NOT NULL DEFAULT 'exclusive',
                 tax_breakup_json JSON,
                 total DECIMAL(10, 2) NOT NULL DEFAULT 0,
                 currency VARCHAR(10) DEFAULT 'INR',
@@ -401,6 +403,12 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE orders ADD COLUMN tax_total DECIMAL(10, 2) NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query("ALTER TABLE orders ADD COLUMN round_off_amount DECIMAL(10, 2) NOT NULL DEFAULT 0");
+        } catch {}
+        try {
+            await connection.query("ALTER TABLE orders ADD COLUMN tax_price_mode VARCHAR(20) NOT NULL DEFAULT 'exclusive'");
         } catch {}
         try {
             await connection.query('ALTER TABLE orders ADD COLUMN tax_breakup_json JSON');
@@ -1256,6 +1264,7 @@ const initDB = async () => {
                 apple_touch_icon_url TEXT,
                 gst_number VARCHAR(30),
                 tax_enabled TINYINT(1) NOT NULL DEFAULT 0,
+                tax_price_mode VARCHAR(20) NOT NULL DEFAULT 'exclusive',
                 contact_jumbotron_image_url TEXT,
                 email_channel_enabled TINYINT(1) NOT NULL DEFAULT 1,
                 whatsapp_channel_enabled TINYINT(1) NOT NULL DEFAULT 1,
@@ -1315,6 +1324,9 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN tax_enabled TINYINT(1) NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query("ALTER TABLE company_profile ADD COLUMN tax_price_mode VARCHAR(20) NOT NULL DEFAULT 'exclusive'");
         } catch {}
         try {
             await connection.query('ALTER TABLE company_profile ADD COLUMN contact_jumbotron_image_url TEXT');
@@ -1478,9 +1490,9 @@ const initDB = async () => {
         if (companyRows.length === 0) {
             await connection.execute(
                 `INSERT INTO company_profile
-                (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, instagram_url, youtube_url, facebook_url, whatsapp_number, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, advanced_analytics_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [1, 'SSC Jewellery', 1, '', '', '', '', '', '', '', '', null, null, '', '', '', '', '/assets/contact.jpg', 1, 1, JSON.stringify({ loginOtp: true, order: true, payment: true, welcome: true, loyaltyUpgrade: true, loyaltyProgress: true, birthday: true, abandonedCartRecovery: true, couponIssue: true, dashboardAlert: true }), 0, '', '', '', 1, '', '', '', 3000, 12]
+                (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, instagram_url, youtube_url, facebook_url, whatsapp_number, tax_price_mode, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, advanced_analytics_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [1, 'SSC Jewellery', 1, '', '', '', '', '', '', '', '', null, null, '', '', '', '', 'exclusive', '/assets/contact.jpg', 1, 1, JSON.stringify({ loginOtp: true, order: true, payment: true, welcome: true, loyaltyUpgrade: true, loyaltyProgress: true, birthday: true, abandonedCartRecovery: true, couponIssue: true, dashboardAlert: true }), 0, '', '', '', 1, '', '', '', 3000, 12]
             );
         }
         const [popupRows] = await connection.execute('SELECT id FROM loyalty_popup_config WHERE id = 1 LIMIT 1');

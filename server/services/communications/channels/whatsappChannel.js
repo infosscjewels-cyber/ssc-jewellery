@@ -49,6 +49,11 @@ const EXPOSE_FULL_DEBUG = String(process.env.NODE_ENV || '').trim().toLowerCase(
 const toText = (value = '') => String(value == null ? '' : value).trim();
 const stripUnsafe = (value = '') => toText(value).replace(/[\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim();
 const normalizeTemplateName = (value = '') => toText(value).replace(/\s+/g, '_').toLowerCase();
+const setSearchParamIfPresent = (searchParams, key, value) => {
+    const normalized = toText(value);
+    if (!normalized) return;
+    searchParams.set(key, normalized);
+};
 
 const normalizeMobile = (value = '') => {
     const digits = String(value || '').replace(/\D/g, '');
@@ -132,7 +137,7 @@ const httpGet = (url) => new Promise((resolve, reject) => {
 const buildProviderUrl = (payload = {}, { templateOverride = '', includeTemplateAliases = false } = {}) => {
     const workflow = toText(payload.type || payload.template || 'generic').toLowerCase();
     const content = resolveWorkflowContent({ workflow, payload });
-    const templateName = toText(templateOverride || resolveTemplateName({ payload, workflow, content }));
+    const templateName = normalizeTemplateName(templateOverride || resolveTemplateName({ payload, workflow, content }));
     if (!templateName) throw new Error('WhatsApp template is missing');
 
     const contact = normalizeMobile(payload.contact || payload.mobile || payload.to || '');
@@ -149,13 +154,14 @@ const buildProviderUrl = (payload = {}, { templateOverride = '', includeTemplate
     }
 
     const paramString = resolveParamString({ payload, content });
-    url.searchParams.set('Param', paramString || '');
+    setSearchParamIfPresent(url.searchParams, 'Param', paramString);
 
     const fileUrl = toText(payload.fileUrl || payload.fileurl || content.fileUrl || '');
-    url.searchParams.set('Fileurl', fileUrl || '');
+    setSearchParamIfPresent(url.searchParams, 'Fileurl', fileUrl);
 
     const explicitUrlParam = toText(payload.urlParam || payload.URLParam || content.urlParam || '');
     const isOtpWorkflow = ['otp', 'login_otp'].includes(String(workflow || '').toLowerCase());
+    const suppressNameParam = ['otp', 'login_otp', 'birthday', 'loyalty_progress', 'loyalty_upgrade', 'welcome', 'abandoned_cart_recovery', 'order'].includes(String(workflow || '').toLowerCase());
     const otpButtonValue = toText(
         (Array.isArray(payload.params) && payload.params.length > 0 ? payload.params[0] : '')
         || (Array.isArray(content.params) && content.params.length > 0 ? content.params[0] : '')
@@ -163,19 +169,21 @@ const buildProviderUrl = (payload = {}, { templateOverride = '', includeTemplate
         || ''
     );
     const urlParam = explicitUrlParam || (isOtpWorkflow ? otpButtonValue : '');
-    url.searchParams.set('URLParam', urlParam || '');
+    setSearchParamIfPresent(url.searchParams, 'URLParam', urlParam);
 
     const headUrl = toText(payload.headUrl || payload.HeadURL || content.headUrl || '');
-    url.searchParams.set('HeadURL', headUrl || '');
+    setSearchParamIfPresent(url.searchParams, 'HeadURL', headUrl);
 
     const headParam = toText(payload.headParam || payload.HeadParam || content.headParam || '');
-    url.searchParams.set('HeadParam', headParam || '');
+    setSearchParamIfPresent(url.searchParams, 'HeadParam', headParam);
 
-    const name = stripUnsafe(payload.name || payload.Name || content.name || '');
-    url.searchParams.set('Name', name || '');
+    const name = suppressNameParam
+        ? ''
+        : stripUnsafe(payload.name || payload.Name || content.name || '');
+    setSearchParamIfPresent(url.searchParams, 'Name', name);
 
     const pdfName = stripUnsafe(payload.pdfName || payload.PDFName || content.pdfName || '');
-    url.searchParams.set('PDFName', pdfName || '');
+    setSearchParamIfPresent(url.searchParams, 'PDFName', pdfName);
 
     return { url, templateName, contact, workflow };
 };
@@ -189,19 +197,24 @@ const maskSensitiveUrl = (urlObject) => {
 const buildDebugRequest = (urlObject) => ({
     endpoint: `${urlObject.origin}${urlObject.pathname}`,
     method: 'GET',
-    query: {
-        LicenseNumber: urlObject.searchParams.get('LicenseNumber') || '',
-        APIKey: urlObject.searchParams.get('APIKey') || '',
-        Contact: urlObject.searchParams.get('Contact') || '',
-        Template: urlObject.searchParams.get('Template') || '',
-        Param: urlObject.searchParams.get('Param') || '',
-        Fileurl: urlObject.searchParams.get('Fileurl') || '',
-        URLParam: urlObject.searchParams.get('URLParam') || '',
-        HeadURL: urlObject.searchParams.get('HeadURL') || '',
-        HeadParam: urlObject.searchParams.get('HeadParam') || '',
-        Name: urlObject.searchParams.get('Name') || '',
-        PDFName: urlObject.searchParams.get('PDFName') || ''
-    },
+    query: [
+        'LicenseNumber',
+        'APIKey',
+        'Contact',
+        'Template',
+        'Param',
+        'Fileurl',
+        'URLParam',
+        'HeadURL',
+        'HeadParam',
+        'Name',
+        'PDFName'
+    ].reduce((acc, key) => {
+        if (urlObject.searchParams.has(key)) {
+            acc[key] = urlObject.searchParams.get(key) || '';
+        }
+        return acc;
+    }, {}),
     url: urlObject.toString()
 });
 

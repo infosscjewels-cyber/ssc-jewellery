@@ -10,6 +10,7 @@ const { emitToUserAudiences } = require('../utils/socketAudience');
 const { normalizeAndValidateAddress } = require('../utils/addressValidation');
 const { billingAddressEnabled, resolveBillingAddress } = require('../utils/billingAddressConfig');
 const PushSubscription = require('../models/PushSubscription');
+const { normalizeMobile, isSuspiciousMobile, getStorefrontMobileValidationMessage } = require('../utils/mobileValidation');
 
 const JWT_SECRET = String(process.env.JWT_SECRET || '').trim();
 if (!JWT_SECRET) {
@@ -305,7 +306,8 @@ const validateRegistration = (data) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push("Invalid email format.");
 
     // Mobile: 10 digits only
-    if (!/^[0-9]{10}$/.test(mobile)) errors.push("Mobile must be 10 digits.");
+    const mobileMessage = getStorefrontMobileValidationMessage(mobile);
+    if (mobileMessage) errors.push(mobileMessage);
 
     // Password: Min 6 chars
     if (!password || password.length < 6) errors.push("Password too short (min 6 chars).");
@@ -319,7 +321,7 @@ const validateRegistration = (data) => {
 
 exports.sendOtp = async (req, res) => {
     try {
-        const mobile = sanitize(req.body.mobile);
+        const mobile = normalizeMobile(sanitize(req.body.mobile));
         const identifier = sanitize(req.body.identifier).toLowerCase();
         const purpose = normalizeOtpPurpose(req.body.purpose);
 
@@ -362,6 +364,8 @@ exports.sendOtp = async (req, res) => {
                 : String(user.whatsapp || user.mobile || '').trim();
         } else if (!/^[0-9]{10,12}$/.test(mobile)) {
             return res.status(400).json({ message: "Invalid mobile number." });
+        } else if (purpose !== 'login' && purpose !== 'password_reset' && isSuspiciousMobile(mobile)) {
+            return res.status(400).json({ message: 'Enter a valid mobile number.' });
         }
 
         // 1. Generate OTP Here
@@ -478,7 +482,7 @@ exports.register = async (req, res) => {
         const safeData = {
             name: sanitize(req.body.name),
             email: sanitize(req.body.email).toLowerCase(),
-            mobile: sanitize(req.body.mobile),
+            mobile: normalizeMobile(sanitize(req.body.mobile)),
             password: req.body.password,
             otp: sanitize(req.body.otp),
             address: req.body.address,
@@ -704,8 +708,12 @@ exports.updateProfile = async (req, res) => {
         if (safeEmail && !isEmail(safeEmail)) {
             return res.status(400).json({ message: 'Invalid email format' });
         }
-        if (mobile && !/^\d{10,14}$/.test(String(mobile).trim())) {
-            return res.status(400).json({ message: 'Mobile must contain 10-14 digits' });
+        const normalizedMobile = mobile === undefined ? undefined : normalizeMobile(mobile);
+        if (normalizedMobile && !/^\d{10}$/.test(normalizedMobile)) {
+            return res.status(400).json({ message: 'Mobile must be 10 digits' });
+        }
+        if (normalizedMobile && isSuspiciousMobile(normalizedMobile)) {
+            return res.status(400).json({ message: 'Enter a valid mobile number' });
         }
         if (password && String(password).length < 6) {
             return res.status(400).json({ message: 'Password too short (min 6 chars).' });
@@ -724,8 +732,8 @@ exports.updateProfile = async (req, res) => {
             : resolveBillingAddress({ shippingAddress: normalizedAddress });
 
         // 1. Check if mobile is already taken by ANOTHER user
-        if (mobile) {
-            const existingUser = await User.findByMobile(mobile);
+        if (normalizedMobile) {
+            const existingUser = await User.findByMobile(normalizedMobile);
             if (existingUser && existingUser.id !== userId) {
                 return res.status(400).json({ message: 'Mobile number already in use' });
             }
@@ -786,7 +794,7 @@ exports.updateProfile = async (req, res) => {
         await User.updateProfile(userId, {
             name: safeName || undefined,
             email: safeEmail || undefined,
-            mobile,
+            mobile: normalizedMobile,
             address: normalizedAddress,
             billingAddress: normalizedBillingAddress,
             profileImage,

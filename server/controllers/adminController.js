@@ -2010,6 +2010,7 @@ const updateCompanyInfo = async (req, res) => {
         const latitude = String(mergedPayload.latitude ?? '').trim();
         const longitude = String(mergedPayload.longitude ?? '').trim();
         const contactJumbotronImageUrl = String(mergedPayload.contactJumbotronImageUrl || '').trim();
+        const taxPriceMode = String(mergedPayload.taxPriceMode || 'exclusive').trim().toLowerCase();
         const usageAudienceEnabled = mergedPayload.usageAudienceEnabled === true
             || mergedPayload.usageAudienceEnabled === 1
             || String(mergedPayload.usageAudienceEnabled || '').toLowerCase() === 'true';
@@ -2086,6 +2087,9 @@ const updateCompanyInfo = async (req, res) => {
         if (usageAudienceEnabled && (!usageAudienceMenImageUrl || !usageAudienceWomenImageUrl || !usageAudienceKidsImageUrl)) {
             return res.status(400).json({ message: 'Men, Women, and Kids usage images are required when usage audience classification is enabled' });
         }
+        if (!['exclusive', 'inclusive'].includes(taxPriceMode)) {
+            return res.status(400).json({ message: 'Tax price mode must be inclusive or exclusive' });
+        }
         if (razorpayKeyId && !/^rzp_(test|live)_[a-zA-Z0-9]+$/.test(razorpayKeyId)) {
             return res.status(400).json({ message: 'Razorpay Key ID format is invalid' });
         }
@@ -2104,6 +2108,7 @@ const updateCompanyInfo = async (req, res) => {
 
         mergedPayload.emailChannelEnabled = true;
         mergedPayload.whatsappChannelEnabled = mergedPayload.whatsappChannelEnabled !== false;
+        mergedPayload.taxPriceMode = taxPriceMode;
         const company = await CompanyProfile.update(mergedPayload);
         if (
             existingCompany?.logoUrl

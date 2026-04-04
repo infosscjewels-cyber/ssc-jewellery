@@ -22,6 +22,32 @@ const normalizeEmailRecipients = (value) => {
         .filter(Boolean);
 };
 
+const hasExplicitTaxPriceMode = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'inclusive' || normalized === 'exclusive';
+};
+
+const resolveOrderTaxPriceMode = (order = {}) => {
+    const displayPricing = order?.display_pricing && typeof order.display_pricing === 'object'
+        ? order.display_pricing
+        : order?.displayPricing && typeof order.displayPricing === 'object'
+            ? order.displayPricing
+            : null;
+    const directMode = order?.tax_price_mode || order?.taxPriceMode || displayPricing?.taxPriceMode || order?.company_snapshot?.taxPriceMode || order?.companySnapshot?.taxPriceMode || '';
+    if (hasExplicitTaxPriceMode(directMode)) {
+        return String(directMode).trim().toLowerCase() === 'inclusive' ? 'inclusive' : 'exclusive';
+    }
+    const items = Array.isArray(order?.items) ? order.items : [];
+    for (const item of items) {
+        const snapshot = parseSnapshotSafe(item?.item_snapshot) || parseSnapshotSafe(item?.itemSnapshot) || parseSnapshotSafe(item?.snapshot) || {};
+        const snapshotMode = snapshot?.taxPriceMode || item?.tax_price_mode || item?.taxPriceMode || '';
+        if (hasExplicitTaxPriceMode(snapshotMode)) {
+            return String(snapshotMode).trim().toLowerCase() === 'inclusive' ? 'inclusive' : 'exclusive';
+        }
+    }
+    return 'exclusive';
+};
+
 const buildSkippedEmailResult = (reason = 'missing_email') => ({
     ok: false,
     skipped: true,
@@ -313,27 +339,40 @@ const parseSnapshotSafe = (value) => {
 };
 const buildOrderSnapshotLine = (order = {}) => {
     const items = Array.isArray(order?.items) ? order.items : [];
+    const displayPricing = order?.display_pricing && typeof order.display_pricing === 'object'
+        ? order.display_pricing
+        : order?.displayPricing && typeof order.displayPricing === 'object'
+            ? order.displayPricing
+            : null;
+    const taxPriceMode = resolveOrderTaxPriceMode(order);
     const resolvedItems = items
         .map((item) => {
             const snapshot = parseSnapshotSafe(item?.item_snapshot) || {};
             const quantity = Math.max(0, Number(snapshot?.quantity ?? item?.quantity ?? 0));
             const title = String(snapshot?.title || item?.title || 'Item').trim() || 'Item';
             const variantTitle = String(snapshot?.variantTitle || item?.variant_title || item?.variantTitle || '').trim();
-            const paidUnit = Number(item?.price ?? snapshot?.unitPrice ?? 0);
-            const mrpUnit = Number(item?.original_price ?? snapshot?.originalPrice ?? paidUnit);
-            const lineTotal = Number(snapshot?.lineTotal ?? item?.line_total ?? ((paidUnit * quantity) || 0));
+            const paidUnitGross = Number(item?.price ?? snapshot?.unitPriceGross ?? snapshot?.unitPrice ?? 0);
+            const paidUnitBase = Number(item?.unit_price_base ?? item?.unitPriceBase ?? snapshot?.unitPriceBase ?? paidUnitGross);
+            const mrpUnitGross = Number(item?.original_price ?? snapshot?.originalPrice ?? paidUnitGross);
+            const mrpUnitBase = Number(snapshot?.originalPriceBase ?? mrpUnitGross);
+            const lineTotalGross = Number(snapshot?.lineTotalGross ?? snapshot?.lineTotal ?? item?.line_total ?? ((paidUnitGross * quantity) || 0));
+            const lineTotalBase = Number(item?.line_total_base ?? item?.lineTotalBase ?? snapshot?.lineTotalBase ?? lineTotalGross);
             const taxAmount = Number(item?.tax_amount ?? snapshot?.taxAmount ?? 0);
             const taxRatePercent = Number(item?.tax_rate_percent ?? snapshot?.taxRatePercent ?? 0);
             return {
                 quantity,
                 title,
                 variantTitle,
-                paidUnit,
-                mrpUnit,
-                lineTotal,
+                paidUnit: taxPriceMode === 'inclusive' ? paidUnitBase : paidUnitGross,
+                mrpUnit: taxPriceMode === 'inclusive' ? mrpUnitBase : mrpUnitGross,
+                lineTotal: taxPriceMode === 'inclusive' ? lineTotalBase : lineTotalGross,
+                lineTotalGross,
                 taxAmount,
                 taxRatePercent,
-                productDiscount: Math.max(0, (mrpUnit - paidUnit) * quantity)
+                productDiscount: Math.max(
+                    0,
+                    ((taxPriceMode === 'inclusive' ? mrpUnitBase : mrpUnitGross) - (taxPriceMode === 'inclusive' ? paidUnitBase : paidUnitGross)) * quantity
+                )
             };
         })
         .filter((item) => item.quantity > 0);
@@ -342,19 +381,18 @@ const buildOrderSnapshotLine = (order = {}) => {
     const loyaltyDiscount = Number(order?.loyalty_discount_total || 0);
     const loyaltyShippingDiscount = Number(order?.loyalty_shipping_discount_total || 0);
     const totalDiscount = Number(order?.discount_total || (couponDiscount + loyaltyDiscount + loyaltyShippingDiscount));
-    const subtotal = Number(order?.subtotal || 0);
-    const shippingFee = Number(order?.shipping_fee || 0);
+    const subtotal = Number((displayPricing?.displaySubtotalBase ?? order?.subtotal ?? 0));
+    const shippingFee = Number((displayPricing?.displayShippingBase ?? order?.shipping_fee ?? 0));
     const taxTotal = Number(order?.tax_total || 0);
-    const basePriceBeforeDiscounts = Math.max(0, subtotal + shippingFee);
-    const taxableValueAfterDiscounts = Math.max(0, basePriceBeforeDiscounts - couponDiscount - loyaltyDiscount - loyaltyShippingDiscount);
+    const roundOffAmount = Number(order?.round_off_amount ?? order?.roundOffAmount ?? displayPricing?.roundOffAmount ?? 0);
+    const basePriceBeforeDiscounts = Number(displayPricing?.displayBaseBeforeDiscounts ?? Math.max(0, subtotal + shippingFee));
+    const taxableValueAfterDiscounts = Number(displayPricing?.displayValueAfterDiscountsBase ?? Math.max(0, basePriceBeforeDiscounts - couponDiscount - loyaltyDiscount - loyaltyShippingDiscount));
     const couponCode = String(order?.coupon_code || '').trim().toUpperCase();
-    const lineDenominator = subtotal > 0
-        ? subtotal
-        : Math.max(1, resolvedItems.reduce((sum, item) => sum + Math.max(0, Number(item.lineTotal || 0)), 0));
+    const lineDenominator = Math.max(1, resolvedItems.reduce((sum, item) => sum + Math.max(0, Number(item.lineTotalGross || item.lineTotal || 0)), 0));
     let couponAllocated = 0;
     let memberAllocated = 0;
     const allocatedItems = resolvedItems.map((item, index) => {
-        const ratio = lineDenominator > 0 ? (Math.max(0, item.lineTotal) / lineDenominator) : 0;
+        const ratio = lineDenominator > 0 ? (Math.max(0, Number(item.lineTotalGross || item.lineTotal || 0)) / lineDenominator) : 0;
         const isLast = index === resolvedItems.length - 1;
         const couponShare = isLast ? Math.max(0, couponDiscount - couponAllocated) : roundCurrency(couponDiscount * ratio);
         couponAllocated += couponShare;
@@ -367,7 +405,9 @@ const buildOrderSnapshotLine = (order = {}) => {
             shippingShare: 0,
             shippingBenefitShare: 0,
             netShippingShare: 0,
-            lineTotalInclTax: Math.max(0, item.lineTotal - couponShare - memberShare) + Math.max(0, item.taxAmount)
+            lineTotalInclTax: taxPriceMode === 'inclusive'
+                ? Math.max(0, Number(item.lineTotalGross || 0) - couponShare - memberShare)
+                : Math.max(0, item.lineTotal - couponShare - memberShare) + Math.max(0, item.taxAmount)
         };
     });
     const shippingTaxAmount = Math.max(0, roundCurrency(taxTotal - allocatedItems.reduce((sum, item) => sum + Math.max(0, Number(item.taxAmount || 0)), 0)));
@@ -377,14 +417,16 @@ const buildOrderSnapshotLine = (order = {}) => {
             title: 'Shipping',
             variantTitle: 'Delivery charge',
             mrpUnit: shippingFee,
-            lineTotal: Math.max(0, shippingFee - loyaltyShippingDiscount),
+            lineTotal: Math.max(0, shippingFee - loyaltyShippingDiscount - (taxPriceMode === 'inclusive' ? shippingTaxAmount : 0)),
             taxAmount: shippingTaxAmount,
             taxRatePercent: 0,
             productDiscount: 0,
             couponShare: 0,
             memberShare: 0,
             shippingBenefitShare: loyaltyShippingDiscount,
-            lineTotalInclTax: Math.max(0, shippingFee - loyaltyShippingDiscount) + shippingTaxAmount
+            lineTotalInclTax: taxPriceMode === 'inclusive'
+                ? Math.max(0, Number(order?.shipping_fee || 0) - loyaltyShippingDiscount)
+                : Math.max(0, shippingFee - loyaltyShippingDiscount) + shippingTaxAmount
         }
         : null;
     const tableItems = shippingRow ? [...allocatedItems, shippingRow] : allocatedItems;
@@ -396,8 +438,9 @@ const buildOrderSnapshotLine = (order = {}) => {
         loyaltyDiscount > 0 ? `Member discount: <strong>${formatCurrency(loyaltyDiscount)}</strong>` : null,
         loyaltyShippingDiscount > 0 ? `Member shipping discount: <strong>${formatCurrency(loyaltyShippingDiscount)}</strong>` : null,
         totalDiscount > 0 ? `Total savings: <strong>${formatCurrency(totalDiscount)}</strong>` : null,
-        `Taxable Value After Discounts: <strong>${formatCurrency(taxableValueAfterDiscounts)}</strong>`,
-        taxTotal > 0 ? `GST: <strong>${formatCurrency(taxTotal)}</strong> (${formatSplitTaxLabel(taxTotal)})` : null
+        `${taxPriceMode === 'inclusive' ? 'Value After Discounts' : 'Taxable Value After Discounts'}: <strong>${formatCurrency(taxableValueAfterDiscounts)}</strong>`,
+        taxTotal > 0 ? `${taxPriceMode === 'inclusive' ? 'GST Breakdown' : 'GST'}: <strong>${formatCurrency(taxTotal)}</strong> (${formatSplitTaxLabel(taxTotal)})` : null,
+        roundOffAmount !== 0 ? `Round Off: <strong>${formatCurrency(roundOffAmount)}</strong>` : null
     ].filter(Boolean);
     const visibleItems = tableItems.slice(0, 8);
     const rows = visibleItems.map((item, idx) => `
@@ -430,7 +473,7 @@ const buildOrderSnapshotLine = (order = {}) => {
                 <tr style="background:#f9fafb;">
                     <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:left;">#</th>
                     <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:left;">Item</th>
-                    <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:right;">Unit Price (MRP)</th>
+                    <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:right;">${taxPriceMode === 'inclusive' ? 'Taxable Value' : 'Unit Price (MRP)'}</th>
                     <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:right;">Qty</th>
                     <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:right;">Discount</th>
                     <th style="padding:10px 8px;font-size:11px;color:#4b5563;text-align:right;">GST</th>
@@ -889,4 +932,8 @@ module.exports = {
     sendPaymentLifecycleCommunication,
     sendAbandonedCartRecoveryCommunication,
     sendWhatsapp
+};
+module.exports.__test = {
+    resolveOrderTaxPriceMode,
+    buildOrderLifecycleTemplate
 };

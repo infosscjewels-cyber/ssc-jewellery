@@ -59,7 +59,6 @@ const buildGenericContent = (payload = {}) => ({
 
 const buildLoginOtpContent = (payload = {}) => {
     const otp = normalize(payload?.data?.otp || payload?.otp || '');
-    const name = fallbackName(payload);
     const urlParam = normalize(
         payload?.data?.urlParam
         || payload?.urlParam
@@ -70,7 +69,6 @@ const buildLoginOtpContent = (payload = {}) => {
         // Template "Otp" expects a single variable: {{1}} = OTP code.
         params: [otp || '000000'],
         message: normalize(payload?.message || '') || `${otp || '000000'} is your verification code`,
-        name,
         urlParam
     };
 };
@@ -78,10 +76,10 @@ const buildLoginOtpContent = (payload = {}) => {
 const buildWelcomeContent = (payload = {}) => {
     const name = fallbackName(payload);
     return {
-        // Template "Welcome" uses {{1}} in header/body for customer name.
+        // Template "Welcome" uses {{1}} in body for customer name and header text separately.
         params: [name],
         message: normalize(payload?.message || '') || `Hello ${name}, your account has been created successfully.`,
-        name
+        headParam: name
     };
 };
 
@@ -108,8 +106,7 @@ const buildLoyaltyProgressContent = (payload = {}) => {
     const nextTier = normalize(data?.nextTier || payload?.nextTier || 'Next') || 'Next';
     return {
         params: [name, currentTier, `${Math.round(progressPct)}`, nextTier],
-        message: normalize(payload?.message || '') || `Hello ${name}, current tier ${currentTier}. You have completed ${Math.round(progressPct)}% towards ${nextTier}.`,
-        name
+        message: normalize(payload?.message || '') || `Hello ${name}, current tier ${currentTier}. You have completed ${Math.round(progressPct)}% towards ${nextTier}.`
     };
 };
 
@@ -123,9 +120,7 @@ const buildBirthdayContent = (payload = {}) => {
     return {
         params: [name, couponCode, offer, validUntil || 'Limited period'],
         message: normalize(payload?.message || '') || `Happy Birthday ${name}. Coupon: ${couponCode}. Offer: ${offer}. Valid until: ${validUntil || 'Limited period'}.`,
-        name,
-        // Used by provider for dynamic button attribute; pass coupon code for "Copy offer code".
-        urlParam: couponCode
+        headParam: name
     };
 };
 
@@ -182,18 +177,13 @@ const buildAbandonedCartContent = (payload = {}) => {
         return {
             template: withoutOfferTemplate,
             params: [name, reminderMessage, cartValue],
-            message: normalize(payload?.message || '') || `Hello ${name}, ${reminderMessage} Cart Value: ${cartValue}.`,
-            name,
-            urlParam: checkoutLink || ''
+            message: normalize(payload?.message || '') || `Hello ${name}, ${reminderMessage} Cart Value: ${cartValue}.`
         };
     }
     return {
         template: withOfferTemplate,
-        params: [name, reminderMessage, discountCode, discountLabel, validUntil || 'Limited period'].filter(Boolean),
-        message: normalize(payload?.message || '') || `Hello ${name}, ${reminderMessage} Coupon: ${discountCode}. Discount: ${discountLabel}. Valid Until: ${validUntil || 'Limited period'}.`,
-        name,
-        // Provider maps this dynamic attribute for button actions; pass coupon code for copy-offer-code button.
-        urlParam: discountCode || checkoutLink || ''
+        params: [name, reminderMessage, discountCode, discountLabel, validUntil || 'Limited period'],
+        message: normalize(payload?.message || '') || `Hello ${name}, ${reminderMessage} Coupon: ${discountCode}. Discount: ${discountLabel}. Valid Until: ${validUntil || 'Limited period'}.`
     };
 };
 
@@ -219,8 +209,7 @@ const buildCouponIssueContent = (payload = {}) => {
     return {
         params: [storeName, code, offer, validUntil, shopUrl].filter(Boolean),
         message: normalize(payload?.message || '') || `Hello, good news! A special coupon has been issued for you on ${storeName}. Coupon: ${code || 'N/A'} | Discount: ${offer || 'Special offer'} | Valid Until: ${validUntil || 'Limited period'} | Shop: ${shopUrl}`.trim(),
-        name,
-        urlParam: shopUrl
+        headParam: name
     };
 };
 

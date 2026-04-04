@@ -58,7 +58,7 @@ test('shipping zone create rejects overlapping ranges and duplicate state covera
                 name: 'Bad overlap',
                 states: ['Tamil Nadu'],
                 options: [
-                    { name: 'Standard', rate: 100, conditionType: 'price', min: 0, max: 999 },
+                    { name: 'Standard', rate: 100, conditionType: 'price', min: 0, max: 1000 },
                     { name: 'Express', rate: 150, conditionType: 'price', min: 999, max: null }
                 ]
             }),
@@ -73,6 +73,44 @@ test('shipping zone create rejects overlapping ranges and duplicate state covera
             }),
             /already assigned to another zone/i
         );
+    } finally {
+        db.getConnection = originalGetConnection;
+    }
+});
+
+test('shipping zone create allows touching ranges when the upper bound is exclusive', async () => {
+    const originalGetConnection = db.getConnection;
+    const fakeConnection = {
+        async beginTransaction() {},
+        async commit() {},
+        async rollback() {},
+        release() {},
+        async execute(sql) {
+            if (sql.includes('SELECT id, states FROM shipping_zones')) {
+                return [[]];
+            }
+            if (sql.includes('INSERT INTO shipping_zones')) {
+                return [{ insertId: 321 }];
+            }
+            return [[]];
+        },
+        async query() {
+            return [];
+        }
+    };
+    db.getConnection = async () => fakeConnection;
+
+    try {
+        const zoneId = await Shipping.createZone({
+            name: 'Touching ranges',
+            states: ['Tamil Nadu'],
+            options: [
+                { name: 'Band 1', rate: 100, conditionType: 'price', min: 0, max: 1 },
+                { name: 'Band 2', rate: 150, conditionType: 'price', min: 1, max: 2 }
+            ]
+        });
+
+        assert.equal(zoneId, 321);
     } finally {
         db.getConnection = originalGetConnection;
     }
@@ -172,4 +210,22 @@ test('client shipping preview normalizes state formatting consistently', async (
     });
 
     assert.equal(result.fee, 125);
+});
+
+test('client shipping preview treats max as exclusive at range boundaries', async () => {
+    const preview = await importClientModule('client/src/utils/shippingPreview.js');
+    const result = preview.computeShippingPreview({
+        zones: [{
+            states: ['Tamil Nadu'],
+            options: [
+                { rate: 100, conditionType: 'price', min: 0, max: 1 },
+                { rate: 150, conditionType: 'price', min: 1, max: 2 }
+            ]
+        }],
+        state: 'Tamil Nadu',
+        subtotal: 1,
+        totalWeightKg: 0.2
+    });
+
+    assert.equal(result.fee, 150);
 });

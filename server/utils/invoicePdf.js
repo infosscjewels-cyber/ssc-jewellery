@@ -38,6 +38,10 @@ const inr = (value) => `INR ${toNumber(value).toLocaleString('en-IN', {
 
 const roundToTwo = (value) => Math.round(toNumber(value, 0) * 100) / 100;
 const roundCurrency = (value) => roundToTwo(value);
+const hasExplicitTaxPriceMode = (value) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    return normalized === 'inclusive' || normalized === 'exclusive';
+};
 const formatPercent = (value) => `${roundToTwo(value).toLocaleString('en-IN', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2
@@ -215,15 +219,44 @@ const stringifyVariantOptions = (value) => {
         .map(([key, val]) => `${key}: ${val}`)
         .join(', ');
 };
+const resolveBaseFromGross = (gross = 0, ratePercent = 0) => {
+    const safeGross = Math.max(0, toNumber(gross, 0));
+    const safeRate = Math.max(0, toNumber(ratePercent, 0));
+    if (safeGross <= 0 || safeRate <= 0) return roundCurrency(safeGross);
+    return roundCurrency(safeGross * (100 / (100 + safeRate)));
+};
+const resolveInvoiceTaxPriceMode = (order = {}) => {
+    const displayPricing = parseObject(order.display_pricing || order.displayPricing) || {};
+    const directMode = order.tax_price_mode || order.taxPriceMode || displayPricing.taxPriceMode || order.company_snapshot?.taxPriceMode || order.companySnapshot?.taxPriceMode || '';
+    if (hasExplicitTaxPriceMode(directMode)) {
+        return String(directMode).trim().toLowerCase() === 'inclusive' ? 'inclusive' : 'exclusive';
+    }
+    const items = Array.isArray(order.items) ? order.items : [];
+    for (const item of items) {
+        const snapshot = parseObject(item.item_snapshot || item.itemSnapshot || item.snapshot) || {};
+        const snapshotMode = String(snapshot.taxPriceMode || item.tax_price_mode || item.taxPriceMode || '').trim().toLowerCase();
+        if (snapshotMode === 'inclusive') return 'inclusive';
+        const unitPriceBase = toNumber(item.unit_price_base ?? item.unitPriceBase ?? snapshot.unitPriceBase, 0);
+        const unitPriceGross = toNumber(item.price ?? item.unit_price_gross ?? item.unitPriceGross ?? snapshot.unitPriceGross ?? snapshot.unitPrice, 0);
+        const lineTotalBase = toNumber(item.line_total_base ?? item.lineTotalBase ?? snapshot.lineTotalBase, 0);
+        const lineTotalGross = toNumber(item.line_total ?? item.lineTotal ?? item.lineTotalGross ?? snapshot.lineTotalGross ?? snapshot.lineTotal, 0);
+        if ((unitPriceBase > 0 && unitPriceGross > 0 && Math.abs(unitPriceBase - unitPriceGross) > 0.009)
+            || (lineTotalBase > 0 && lineTotalGross > 0 && Math.abs(lineTotalBase - lineTotalGross) > 0.009)) {
+            return 'inclusive';
+        }
+    }
+    return 'exclusive';
+};
 
 const getItems = (order = {}) => {
     const raw = Array.isArray(order.items) ? order.items : [];
+    const taxPriceMode = resolveInvoiceTaxPriceMode(order);
     const baseItems = raw.map((item) => {
         const snapshot = parseObject(item.item_snapshot || item.itemSnapshot || item.snapshot) || {};
         const qty = Math.max(0, toNumber(item.quantity ?? snapshot.quantity, 0));
-        const paidUnit = toNumber(item.price ?? snapshot.unitPrice, 0);
-        const mrpUnit = toNumber(item.original_price ?? snapshot.originalPrice, paidUnit) || paidUnit;
-        const finalLineTotal = toNumber(item.line_total ?? snapshot.lineTotal, paidUnit * qty);
+        const paidUnitGross = toNumber(item.price ?? snapshot.unitPriceGross ?? snapshot.unitPrice, 0);
+        const mrpUnitGross = toNumber(item.original_price ?? snapshot.originalPrice, paidUnitGross) || paidUnitGross;
+        const finalLineTotalGross = toNumber(item.line_total ?? snapshot.lineTotalGross ?? snapshot.lineTotal, paidUnitGross * qty);
         const taxRatePercent = toNumber(item.tax_rate_percent ?? snapshot.taxRatePercent, 0);
         const taxAmount = toNumber(item.tax_amount ?? snapshot.taxAmount, 0);
         const variantTitle = item.variant_title || snapshot.variantTitle || '';
@@ -232,6 +265,21 @@ const getItems = (order = {}) => {
         const resolvedTaxRatePercent = taxRatePercent > 0
             ? taxRatePercent
             : toNumber(parseObject(item.tax_snapshot_json || item.taxSnapshot || item.tax_snapshot || snapshot.taxSnapshot)?.ratePercent, 0);
+        const unitPriceBase = taxPriceMode === 'inclusive'
+            ? toNumber(item.unit_price_base ?? item.unitPriceBase ?? snapshot.unitPriceBase, resolveBaseFromGross(paidUnitGross, resolvedTaxRatePercent))
+            : paidUnitGross;
+        const mrpUnitBase = taxPriceMode === 'inclusive'
+            ? toNumber(snapshot.originalPriceBase, resolveBaseFromGross(mrpUnitGross, resolvedTaxRatePercent))
+            : mrpUnitGross;
+        const lineTotalBase = taxPriceMode === 'inclusive'
+            ? toNumber(item.line_total_base ?? item.lineTotalBase ?? snapshot.lineTotalBase, resolveBaseFromGross(finalLineTotalGross, resolvedTaxRatePercent))
+            : finalLineTotalGross;
+        const discountedLineGross = taxPriceMode === 'inclusive'
+            ? toNumber(item.discounted_line_total_gross ?? item.discountedLineTotalGross ?? snapshot.discountedLineTotalGross ?? snapshot.discountedLineTotal, lineTotalBase + taxAmount)
+            : toNumber(item.discounted_line_total_gross ?? item.discountedLineTotalGross ?? snapshot.discountedLineTotalGross ?? snapshot.discountedLineTotal, finalLineTotalGross - 0);
+        const discountedLineBase = taxPriceMode === 'inclusive'
+            ? toNumber(item.discounted_line_total_base ?? item.discountedLineTotalBase ?? snapshot.discountedLineTotalBase ?? snapshot.taxBase, Math.max(0, discountedLineGross - taxAmount))
+            : toNumber(item.discounted_line_total_base ?? item.discountedLineTotalBase ?? snapshot.discountedLineTotalBase ?? snapshot.taxBase, Math.max(0, discountedLineGross));
         const parsedWarrantyMonths = Number(snapshot.polishWarrantyMonths || 0);
         const polishWarrantyMonths = [6, 7, 8, 9, 12].includes(parsedWarrantyMonths) ? parsedWarrantyMonths : 0;
 
@@ -241,29 +289,34 @@ const getItems = (order = {}) => {
             subCategoryLine: subCategory ? `Sub Category: ${subCategory}` : '',
             warrantyLine: polishWarrantyMonths > 0 ? `Polish Warranty: ${polishWarrantyMonths} months` : '',
             qty,
-            unitPriceMrp: mrpUnit,
-            unitPricePaid: paidUnit,
-            discount: Math.max(0, (mrpUnit - paidUnit) * qty),
-            lineTotal: finalLineTotal,
+            unitPriceMrp: mrpUnitBase,
+            unitPricePaid: unitPriceBase,
+            discount: Math.max(0, (mrpUnitBase - unitPriceBase) * qty),
+            lineTotal: lineTotalBase,
+            lineTotalGross: finalLineTotalGross,
             taxAmount,
             taxRatePercent: resolvedTaxRatePercent,
-            lineTotalInclTax: finalLineTotal + taxAmount
+            discountedLineGross,
+            discountedLineBase,
+            lineTotalInclTax: taxPriceMode === 'inclusive'
+                ? discountedLineGross
+                : discountedLineBase + taxAmount
         };
     });
 
-    const subtotal = Math.max(0, toNumber(order.subtotal, baseItems.reduce((sum, item) => sum + toNumber(item.lineTotal, 0), 0)));
+    const subtotal = Math.max(0, baseItems.reduce((sum, item) => sum + toNumber(item.lineTotalGross, 0), 0));
     const couponDiscount = Math.max(0, toNumber(order.coupon_discount_value, 0));
     const loyaltyDiscount = Math.max(0, toNumber(order.loyalty_discount_total, 0));
     const lineDenominator = subtotal > 0
         ? subtotal
-        : Math.max(1, baseItems.reduce((sum, item) => sum + Math.max(0, toNumber(item.lineTotal, 0)), 0));
+        : Math.max(1, baseItems.reduce((sum, item) => sum + Math.max(0, toNumber(item.lineTotalGross, 0)), 0));
 
     let couponAllocated = 0;
     let memberAllocated = 0;
 
     return baseItems.map((item, index) => {
-        const lineBase = Math.max(0, toNumber(item.lineTotal, 0));
-        const ratio = lineDenominator > 0 ? (lineBase / lineDenominator) : 0;
+        const lineGross = Math.max(0, toNumber(item.lineTotalGross, item.lineTotal));
+        const ratio = lineDenominator > 0 ? (lineGross / lineDenominator) : 0;
         const isLast = index === baseItems.length - 1;
 
         const couponShare = isLast
@@ -275,7 +328,12 @@ const getItems = (order = {}) => {
             ? Math.max(0, loyaltyDiscount - memberAllocated)
             : roundCurrency(loyaltyDiscount * ratio);
         memberAllocated += memberShare;
-        const taxableValue = Math.max(0, lineBase - couponShare - memberShare);
+        const discountedGross = taxPriceMode === 'inclusive'
+            ? Math.max(0, toNumber(item.discountedLineGross, lineGross - couponShare - memberShare))
+            : Math.max(0, lineGross - couponShare - memberShare);
+        const taxableValue = taxPriceMode === 'inclusive'
+            ? Math.max(0, toNumber(item.discountedLineBase, discountedGross - toNumber(item.taxAmount, 0)))
+            : Math.max(0, discountedGross);
 
         return {
             ...item,
@@ -285,38 +343,50 @@ const getItems = (order = {}) => {
             shippingBenefitShare: 0,
             netShippingShare: 0,
             taxableValue,
-            lineTotalInclTax: taxableValue + toNumber(item.taxAmount, 0)
+            lineTotal: taxableValue,
+            lineTotalInclTax: taxPriceMode === 'inclusive'
+                ? discountedGross
+                : taxableValue + toNumber(item.taxAmount, 0)
         };
     });
 };
 
 const buildShippingRow = (order = {}, items = []) => {
-    const shippingFee = Math.max(0, toNumber(order.shipping_fee, 0));
+    const displayPricing = parseObject(order.display_pricing || order.displayPricing) || {};
+    const shippingFeeGross = Math.max(0, toNumber(order.shipping_fee, 0));
+    const shippingFeeBase = Math.max(0, toNumber(displayPricing.displayShippingBase, shippingFeeGross));
     const shippingBenefitShare = Math.max(0, toNumber(order.loyalty_shipping_discount_total, 0));
+    const taxPriceMode = resolveInvoiceTaxPriceMode(order);
     const totalTax = Math.max(0, toNumber(order.tax_total, 0));
     const itemTaxTotal = items.reduce((sum, item) => sum + Math.max(0, toNumber(item.taxAmount, 0)), 0);
     const shippingTaxAmount = Math.max(0, roundCurrency(totalTax - itemTaxTotal));
-    if (shippingFee <= 0 && shippingBenefitShare <= 0 && shippingTaxAmount <= 0) return null;
+    if (shippingFeeGross <= 0 && shippingBenefitShare <= 0 && shippingTaxAmount <= 0) return null;
 
-    const taxableValue = Math.max(0, shippingFee - shippingBenefitShare);
+    const grossAfterDiscounts = Math.max(0, shippingFeeGross - shippingBenefitShare);
+    const taxableValue = taxPriceMode === 'inclusive'
+        ? Math.max(0, roundCurrency(grossAfterDiscounts - shippingTaxAmount))
+        : grossAfterDiscounts;
     return {
         name: 'Shipping',
         variantLine: 'Delivery charge',
         warrantyLine: '',
         qty: 1,
-        unitPriceMrp: shippingFee,
+        unitPriceMrp: shippingFeeBase,
         unitPricePaid: taxableValue,
         discount: 0,
         couponDiscount: 0,
         memberDiscount: 0,
-        shippingShare: shippingFee,
+        shippingShare: shippingFeeGross,
         shippingBenefitShare,
         netShippingShare: taxableValue,
         taxableValue,
         taxAmount: shippingTaxAmount,
         taxRatePercent: 0,
         lineTotal: taxableValue,
-        lineTotalInclTax: taxableValue + shippingTaxAmount,
+        lineTotalGross: shippingFeeGross,
+        lineTotalInclTax: taxPriceMode === 'inclusive'
+            ? grossAfterDiscounts
+            : taxableValue + shippingTaxAmount,
         isShippingRow: true
     };
 };
@@ -351,15 +421,18 @@ const drawAddressBlock = (doc, fonts, { x, y, width, heading, lines = [], forced
     return boxHeight;
 };
 
-const drawTableHeader = (doc, y, { showTaxColumns = false } = {}) => {
+const drawTableHeader = (doc, y, { showTaxColumns = false, taxPriceMode = 'exclusive' } = {}) => {
     const left = 42;
     const tableWidth = 510;
     const headerHeight = showTaxColumns ? 30 : 22;
+    const priceLabel = showTaxColumns && String(taxPriceMode || '').toLowerCase() === 'inclusive'
+        ? 'Taxable Value'
+        : 'Unit Price (MRP)';
     const cols = showTaxColumns
         ? {
             idx: { x: 46, width: 14, label: '#', align: 'left' },
             name: { x: 62, width: 136, label: 'Item', align: 'left' },
-            price: { x: 200, width: 74, label: 'Unit Price (MRP)', align: 'right' },
+            price: { x: 200, width: 74, label: priceLabel, align: 'right' },
             qty: { x: 276, width: 24, label: 'Qty', align: 'right' },
             discount: { x: 302, width: 106, label: 'Discount', align: 'right' },
             gstAmount: { x: 410, width: 78, label: 'GST', align: 'right' },
@@ -368,7 +441,7 @@ const drawTableHeader = (doc, y, { showTaxColumns = false } = {}) => {
         : {
             idx: { x: 46, width: 18, label: '#', align: 'left' },
             name: { x: 66, width: 224, label: 'Item', align: 'left' },
-            price: { x: 292, width: 82, label: 'Unit Price (MRP)', align: 'right' },
+            price: { x: 292, width: 82, label: priceLabel, align: 'right' },
             qty: { x: 376, width: 32, label: 'Qty', align: 'right' },
             discount: { x: 410, width: 72, label: 'Discount', align: 'right' },
             total: { x: 484, width: 66, label: 'Line Total', align: 'right' }
@@ -382,9 +455,9 @@ const drawTableHeader = (doc, y, { showTaxColumns = false } = {}) => {
     return { left, tableWidth, cols, nextY: y + headerHeight, showTaxColumns };
 };
 
-const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false } = {}) => {
+const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false, taxPriceMode = 'exclusive' } = {}) => {
     const pageBottom = doc.page.height - 220;
-    const table = drawTableHeader(doc, startY, { showTaxColumns });
+    const table = drawTableHeader(doc, startY, { showTaxColumns, taxPriceMode });
     let y = table.nextY;
 
     if (!items.length) {
@@ -420,7 +493,7 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
 
         if (y + rowHeight > pageBottom) {
             doc.addPage();
-            const next = drawTableHeader(doc, 52, { showTaxColumns });
+            const next = drawTableHeader(doc, 52, { showTaxColumns, taxPriceMode });
             y = next.nextY;
         }
 
@@ -480,7 +553,7 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
         : 24;
     if (y + totalsRowHeight > pageBottom) {
         doc.addPage();
-        const next = drawTableHeader(doc, 52, { showTaxColumns });
+        const next = drawTableHeader(doc, 52, { showTaxColumns, taxPriceMode });
         y = next.nextY;
     }
     doc.rect(table.left, y, table.tableWidth, totalsRowHeight).fill('#F9FAFB');
@@ -545,6 +618,7 @@ const buildInvoicePdfBuffer = async (order = {}) => {
 
     const company = getCompany(order);
     const companySnapshot = parseObject(order.company_snapshot || order.companySnapshot) || {};
+    const displayPricing = parseObject(order.display_pricing || order.displayPricing) || {};
     const billing = parseObject(order.billing_address || order.billingAddress) || {};
     const shipping = parseObject(order.shipping_address || order.shippingAddress) || {};
     const items = getItems(order);
@@ -552,16 +626,23 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     const tableItems = shippingRow ? [...items, shippingRow] : items;
     const orderRef = order.order_ref || order.orderRef || `ORDER-${order.id || 'N/A'}`;
 
-    const subtotal = toNumber(order.subtotal, items.reduce((sum, item) => sum + item.lineTotal, 0));
-    const shippingFee = toNumber(order.shipping_fee, 0);
+    const subtotal = toNumber(displayPricing.displaySubtotalBase, items.reduce((sum, item) => sum + toNumber(item.lineTotal, 0), 0));
+    const shippingFee = toNumber(displayPricing.displayShippingBase, shippingRow ? toNumber(shippingRow.lineTotal, 0) : toNumber(order.shipping_fee, 0));
     const couponDiscount = toNumber(order.coupon_discount_value, 0);
     const loyaltyDiscount = toNumber(order.loyalty_discount_total, 0);
     const loyaltyShippingDiscount = toNumber(order.loyalty_shipping_discount_total, 0);
     const taxTotal = toNumber(order.tax_total, tableItems.reduce((sum, item) => sum + toNumber(item.taxAmount, 0), 0));
+    const roundOffAmount = toNumber(order.round_off_amount, 0);
+    const taxPriceMode = resolveInvoiceTaxPriceMode(order);
     const showTaxTotals = taxTotal > 0;
     const showTaxColumns = toBoolean(companySnapshot.taxEnabled ?? companySnapshot.tax_enabled, false) || showTaxTotals;
     const totalDiscount = toNumber(order.discount_total, couponDiscount + loyaltyDiscount + loyaltyShippingDiscount);
-    const total = toNumber(order.total, subtotal + shippingFee + taxTotal - totalDiscount);
+    const total = toNumber(
+        order.total,
+        taxPriceMode === 'inclusive'
+            ? subtotal + shippingFee - totalDiscount
+            : subtotal + shippingFee + taxTotal - totalDiscount
+    );
     const couponCode = String(order.coupon_code || order.couponCode || '').trim();
     const tierTheme = getTierTheme(order.loyalty_tier || order.loyaltyTier || 'regular');
 
@@ -625,7 +706,7 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     doc.font('Helvetica').fontSize(9).fillColor('#6B7280').text('Membership:', 42, infoY + 16, { continued: true });
     doc.font('Helvetica-Bold').fillColor(tierTheme.color).text(` ${tierTheme.label}`);
 
-    let cursorY = drawItemsTable(doc, fonts, infoY + 34, tableItems, { showTaxColumns });
+    let cursorY = drawItemsTable(doc, fonts, infoY + 34, tableItems, { showTaxColumns, taxPriceMode });
 
     doc.y = cursorY + 12;
     ensureSpace(doc, 230, 52);
@@ -651,8 +732,11 @@ const buildInvoicePdfBuffer = async (order = {}) => {
         return y + rowHeight + rowGap;
     };
 
-    const basePriceBeforeDiscounts = Math.max(0, subtotal + shippingFee);
-    const taxableValueAfterDiscounts = Math.max(0, basePriceBeforeDiscounts - couponDiscount - loyaltyDiscount - loyaltyShippingDiscount);
+    const basePriceBeforeDiscounts = toNumber(displayPricing.displayBaseBeforeDiscounts, Math.max(0, subtotal + shippingFee));
+    const taxableValueAfterDiscounts = toNumber(
+        displayPricing.displayValueAfterDiscountsBase,
+        Math.max(0, tableItems.reduce((sum, item) => sum + toNumber(item.taxableValue, item.lineTotal), 0))
+    );
     let runningY = totalsY;
     runningY = writeTotal('Subtotal', inr(subtotal), runningY);
     runningY = writeTotal('Shipping', inr(shippingFee), runningY);
@@ -665,12 +749,15 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     runningY = writeTotal(`Member Discount (${tierTheme.label})`, `- ${inr(loyaltyDiscount)}`, runningY);
     runningY = writeTotal('Member Shipping Benefit', `- ${inr(loyaltyShippingDiscount)}`, runningY);
     runningY = writeTotal('Total Savings', inr(totalDiscount), runningY);
-    runningY = writeTotal('Taxable Value After Discounts', inr(taxableValueAfterDiscounts), runningY);
+    runningY = writeTotal(taxPriceMode === 'inclusive' ? 'Value After Discounts' : 'Taxable Value After Discounts', inr(taxableValueAfterDiscounts), runningY);
     if (showTaxTotals) {
         const taxSplit = getGstAmountSplit(taxTotal);
-        runningY = writeTotal('GST Total', inr(taxTotal), runningY, false, { rowGap: 3 });
+        runningY = writeTotal(taxPriceMode === 'inclusive' ? 'GST Breakdown' : 'GST Total', inr(taxTotal), runningY, false, { rowGap: 3 });
         doc.font('Helvetica').fontSize(8).fillColor('#6B7280').text(taxSplit.label, totalsX, runningY, { width: 215, align: 'right' });
         runningY += doc.heightOfString(taxSplit.label, { width: 215, align: 'right' }) + 4;
+    }
+    if (roundOffAmount !== 0) {
+        runningY = writeTotal('Round Off', inr(roundOffAmount), runningY);
     }
     doc.moveTo(totalsX, runningY).lineTo(totalsX + 215, runningY).strokeColor('#D1D5DB').stroke();
     writeTotal('Grand Total', inr(total), runningY + 8, true);
@@ -714,3 +801,6 @@ const buildInvoicePdfBuffer = async (order = {}) => {
 };
 
 module.exports = { buildInvoicePdfBuffer };
+module.exports.__test = {
+    resolveInvoiceTaxPriceMode
+};
