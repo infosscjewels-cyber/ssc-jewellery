@@ -382,7 +382,7 @@ const attemptHasChannelData = (attempt = {}, channel = '') => {
 const JOURNEY_PAGE_SIZE = 20;
 const MAX_CAMPAIGN_ATTEMPTS = 6;
 const RECOVERY_WINDOW_BUFFER_HOURS = 2;
-const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
+const buildVisiblePages = (currentPage, totalPages, windowSize = 4) => {
     const safeTotal = Math.max(1, Number(totalPages || 1));
     const safeCurrent = Math.min(safeTotal, Math.max(1, Number(currentPage || 1)));
     if (safeTotal <= windowSize) return Array.from({ length: safeTotal }, (_, idx) => idx + 1);
@@ -543,7 +543,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
         () => isLatestJourneyWindow ? 1 : Math.max(1, Math.ceil(Number(journeyTotal || 0) / JOURNEY_PAGE_SIZE)),
         [isLatestJourneyWindow, journeyTotal]
     );
-    const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 5), [page, totalPages]);
+    const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 4), [page, totalPages]);
 
     useEffect(() => {
         setPage((prev) => Math.min(Math.max(1, Number(prev || 1)), totalPages));
@@ -1179,8 +1179,8 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                             <Search size={18} />
                         </button>
                     </div>
-                    <div className="md:hidden w-full pb-1">
-                        <div className="flex flex-wrap gap-2">
+                    <div className="md:hidden w-full pb-1 overflow-x-hidden">
+                        <div className="grid grid-cols-5 gap-1.5">
                             {mobileJourneyStatusOptions.map((option) => {
                                 const active = mobileStatusFilter === option.value;
                                 return (
@@ -1188,7 +1188,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                         key={option.value}
                                         type="button"
                                         onClick={() => setMobileStatusFilter(option.value)}
-                                        className={`inline-flex max-w-full items-center justify-center rounded-full border px-3 py-2 text-[11px] font-semibold leading-none transition ${getMobileJourneyFilterBadgeClass(option.value, active)}`}
+                                        className={`min-w-0 rounded-full border px-1.5 py-2 text-[10px] font-semibold leading-none tracking-tight transition ${getMobileJourneyFilterBadgeClass(option.value, active)}`}
                                     >
                                         {option.label}
                                     </button>
@@ -1358,11 +1358,11 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                             );
                         })}
                     </div>
-                    <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
+                    <div className="px-5 py-4 border-t border-gray-100 flex flex-col items-center justify-between gap-3 overflow-x-hidden md:flex-row md:items-center">
                         <p className="text-xs text-gray-500">
                             Page {page} of {totalPages}
                         </p>
-                        <div className="flex items-center gap-2">
+                        <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
                             <button
                                 type="button"
                                 onClick={() => setPage((prev) => Math.max(1, prev - 1))}
@@ -1376,7 +1376,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                     key={pageNo}
                                     type="button"
                                     onClick={() => setPage(pageNo)}
-                                    className={`px-3 py-1.5 rounded-md border text-xs font-semibold ${
+                                    className={`min-w-9 px-3 py-1.5 rounded-md border text-xs font-semibold ${
                                         pageNo === page
                                             ? 'border-primary bg-primary text-accent'
                                             : 'border-gray-200 text-gray-700 hover:bg-gray-50'

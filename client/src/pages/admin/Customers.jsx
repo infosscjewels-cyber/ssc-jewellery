@@ -60,7 +60,7 @@ const sanitizeCouponCode = (value = '') => String(value || '')
     .replace(/[^A-Z0-9-]/g, '')
     .slice(0, 15);
 
-const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
+const buildVisiblePages = (currentPage, totalPages, windowSize = 4) => {
     const safeTotal = Math.max(1, Number(totalPages || 1));
     const safeCurrent = Math.min(safeTotal, Math.max(1, Number(currentPage || 1)));
     if (safeTotal <= windowSize) return Array.from({ length: safeTotal }, (_, idx) => idx + 1);
@@ -315,7 +315,7 @@ export default function Customers({
     }, [filteredCustomers, page]);
 
     const visiblePages = useMemo(
-        () => buildVisiblePages(page, customerTotalPages, 5),
+        () => buildVisiblePages(page, customerTotalPages, 4),
         [customerTotalPages, page]
     );
 
@@ -1303,14 +1303,14 @@ export default function Customers({
                     </div>
 
                     {customerTotalPages > 1 && (
-                        <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-                            <button onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1} className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 disabled:opacity-40">Prev</button>
+                        <div className="mt-6 flex max-w-full flex-wrap items-center justify-center gap-2 overflow-x-hidden">
+                            <button onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1} className="px-3 py-2 rounded-lg border border-gray-200 text-xs md:text-sm text-gray-600 disabled:opacity-40">Prev</button>
                             {visiblePages.map((p) => (
-                                <button key={p} onClick={() => setPage(p)} className={`px-3 py-2 rounded-lg border text-sm ${page === p ? 'bg-primary text-accent border-primary' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                                <button key={p} onClick={() => setPage(p)} className={`min-w-9 px-3 py-2 rounded-lg border text-xs md:text-sm ${page === p ? 'bg-primary text-accent border-primary' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
                                     {p}
                                 </button>
                             ))}
-                            <button onClick={() => setPage((prev) => Math.min(customerTotalPages, prev + 1))} disabled={page === customerTotalPages} className="px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 disabled:opacity-40">Next</button>
+                            <button onClick={() => setPage((prev) => Math.min(customerTotalPages, prev + 1))} disabled={page === customerTotalPages} className="px-3 py-2 rounded-lg border border-gray-200 text-xs md:text-sm text-gray-600 disabled:opacity-40">Next</button>
                         </div>
                     )}
 

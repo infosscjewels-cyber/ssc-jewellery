@@ -231,6 +231,7 @@ export const CartProvider = ({ children }) => {
                 const data = await cartService.addItem({ productId: product.id, variantId: variant?.id || '', quantity });
                 setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
                 await removeFromWishlist(product.id, variant?.id || '', { silent: true, removeAllVariants: !variant?.id });
+                setIsOpen(true);
             } catch (error) {
                 setItems(previousItems);
                 throw error;
@@ -239,6 +240,7 @@ export const CartProvider = ({ children }) => {
             setItems(prev => upsertLocalCartItem(prev, snapshot, quantity, toast));
             notifyCartItemAdded(product.id, variant?.id || '');
             playFacebookLikeSound();
+            setIsOpen(true);
         }
         return { status: 'added' };
     }, [removeFromWishlist, toast, user, items]);

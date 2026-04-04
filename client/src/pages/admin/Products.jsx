@@ -13,7 +13,7 @@ import AddProductModal from '../../components/AddProductModal';
 import emptyIllustration from '../../assets/closed.svg';
 import { isDiscoveryItemInStock } from '../../utils/shopDiscovery';
 
-const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
+const buildVisiblePages = (currentPage, totalPages, windowSize = 4) => {
     const safeTotal = Math.max(1, Number(totalPages || 1));
     const safeCurrent = Math.min(safeTotal, Math.max(1, Number(currentPage || 1)));
     if (safeTotal <= windowSize) return Array.from({ length: safeTotal }, (_, idx) => idx + 1);
@@ -567,7 +567,7 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
     }, [allProducts, filterStatus, filterStock, filterUsageAudience, searchTerm]);
 
     const totalPages = Math.max(1, Math.ceil(filteredProducts.length / PAGE_SIZE));
-    const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 5), [page, totalPages]);
+    const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 4), [page, totalPages]);
     const paginatedProducts = useMemo(() => {
         const start = (page - 1) * PAGE_SIZE;
         return filteredProducts.slice(start, start + PAGE_SIZE);
@@ -578,7 +578,7 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
     }, [page, totalPages]);
 
     return (
-        <div className="animate-fade-in space-y-6 relative">
+        <div className="animate-fade-in space-y-6 relative overflow-x-hidden">
             {/* --- ADD/EDIT MODAL --- */}
             <AddProductModal 
                 isOpen={isAddModalOpen} 
@@ -1260,19 +1260,19 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                     
                     {/* --- PAGINATION --- */}
                      {filteredProducts.length > 0 && (
-                        <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-6 border-t border-gray-200 mt-4">
+                        <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-6 border-t border-gray-200 mt-4 overflow-x-hidden">
                             <p className="text-sm text-gray-500 font-medium order-2 md:order-1">
                                 Page <span className="text-primary font-bold">{page}</span> of {totalPages}
                             </p>
-                            <div className="flex gap-3 order-1 md:order-2">
-                                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-white disabled:opacity-50 text-sm font-bold bg-gray-50">
+                            <div className="flex max-w-full flex-wrap items-center justify-center gap-2 order-1 md:order-2">
+                                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg hover:bg-white disabled:opacity-50 text-xs md:text-sm font-bold bg-gray-50">
                                     <ChevronLeft size={18} /> Prev
                                 </button>
                                 {visiblePages.map((pageNo) => (
                                     <button
                                         key={pageNo}
                                         onClick={() => setPage(pageNo)}
-                                        className={`px-4 py-2 border rounded-lg text-sm font-bold ${
+                                        className={`min-w-9 px-3 py-2 border rounded-lg text-xs md:text-sm font-bold ${
                                             pageNo === page
                                                 ? 'border-primary bg-primary text-accent'
                                                 : 'border-gray-200 hover:bg-white bg-gray-50 text-gray-600'
@@ -1281,7 +1281,7 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                                         {pageNo}
                                     </button>
                                 ))}
-                                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-white disabled:opacity-50 text-sm font-bold bg-gray-50">
+                                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg hover:bg-white disabled:opacity-50 text-xs md:text-sm font-bold bg-gray-50">
                                     Next <ChevronRight size={18} />
                                 </button>
                             </div>

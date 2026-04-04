@@ -2373,6 +2373,41 @@ class Order {
         };
     }
 
+    static async listSettlementSyncCandidates({
+        limit = 100,
+        minAgeHours = 24
+    } = {}) {
+        const safeLimit = Math.max(1, Math.min(500, Number(limit || 100)));
+        const safeMinAgeHours = Math.max(0, Number(minAgeHours || 24));
+        const [rows] = await db.execute(
+            `SELECT id,
+                    order_ref,
+                    payment_status,
+                    payment_gateway,
+                    razorpay_order_id,
+                    razorpay_payment_id,
+                    settlement_id,
+                    settlement_snapshot,
+                    created_at
+             FROM orders
+             WHERE LOWER(COALESCE(payment_gateway, '')) = 'razorpay'
+               AND LOWER(COALESCE(payment_status, '')) = 'paid'
+               AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)
+               AND (
+                    COALESCE(NULLIF(settlement_id, ''), '') = ''
+                    OR settlement_snapshot IS NULL
+                    OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(settlement_snapshot, '$.status')), '')) IN ('pending', 'processing')
+               )
+             ORDER BY created_at ASC
+             LIMIT ?`,
+            [safeMinAgeHours, safeLimit]
+        );
+        return Array.isArray(rows) ? rows.map((row) => ({
+            ...row,
+            settlement_snapshot: parseJsonSafe(row.settlement_snapshot)
+        })) : [];
+    }
+
     static async updatePaymentByRazorpayOrderId({
         razorpayOrderId,
         paymentStatus,

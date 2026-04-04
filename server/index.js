@@ -90,7 +90,8 @@ const {
     pruneCommunicationDeliveryLogs
 } = require('./services/communications/communicationRetryService');
 const {
-    runPaymentAttemptReconciliationPass
+    runPaymentAttemptReconciliationPass,
+    runSettlementSyncPass
 } = require('./services/paymentReconciliationService');
 const {
     buildRobotsTxt,
@@ -414,6 +415,46 @@ const schedulePaymentAttemptReconciliationJob = () => {
     setInterval(run, intervalMs);
 };
 
+const scheduleSettlementSyncJob = () => {
+    let lastRunKey = '';
+    const runIfWindow = async () => {
+        try {
+            const now = new Date();
+            const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'Asia/Kolkata',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            }).formatToParts(now).reduce((acc, part) => {
+                acc[part.type] = part.value;
+                return acc;
+            }, {});
+
+            const hour = Number(parts.hour || 0);
+            const minute = Number(parts.minute || 0);
+            const dayKey = `${parts.year}-${parts.month}-${parts.day}`;
+            if (hour !== 0 || minute >= 10 || lastRunKey === dayKey) return;
+
+            lastRunKey = dayKey;
+            const result = await runSettlementSyncPass({
+                limit: 200,
+                minAgeHours: 24
+            });
+            if (Number(result?.updated || 0) > 0 || Number(result?.failed || 0) > 0) {
+                console.log('Settlement sync job summary:', result);
+            }
+        } catch (error) {
+            console.error('Settlement sync job failed:', error?.message || error);
+        }
+    };
+
+    void runIfWindow();
+    setInterval(runIfWindow, 10 * 60 * 1000);
+};
+
 const scheduleMonthlyLoyaltyReassessment = () => {
     let lastRunKey = '';
     const runIfWindow = async () => {
@@ -571,6 +612,7 @@ const initBackgroundJobs = () => {
     scheduleMidnightJob();
     schedulePaymentAttemptExpiryJob();
     schedulePaymentAttemptReconciliationJob();
+    scheduleSettlementSyncJob();
     ensureLoyaltyConfigLoaded({ force: true }).catch(() => {});
     scheduleMonthlyLoyaltyReassessment();
     scheduleDailyBirthdayCoupons();

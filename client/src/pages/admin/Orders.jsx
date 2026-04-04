@@ -111,6 +111,15 @@ const getOrderStatusBadgeClasses = (status) => {
 };
 const getOrderHeaderTheme = (status) => {
     const normalized = normalizeOrderStatus(status);
+    if (normalized === 'failed') {
+        return {
+            shell: 'bg-gradient-to-br from-rose-700 via-red-800 to-rose-950',
+            accent: 'bg-rose-200/15 text-rose-50 border border-rose-200/35',
+            micro: 'text-rose-100/80',
+            subtle: 'text-rose-50/90',
+            rowLabel: 'text-rose-100/75'
+        };
+    }
     if (normalized === 'cancelled') {
         return {
             shell: 'bg-gradient-to-br from-red-700 via-red-800 to-rose-950',
@@ -139,12 +148,22 @@ const getOrderHeaderTheme = (status) => {
 };
 const getOrderHeaderBadgeClasses = (status) => {
     const normalized = normalizeOrderStatus(status);
+    if (normalized === 'failed') return 'bg-rose-200 text-rose-950 border border-rose-300';
     if (normalized === 'cancelled') return 'bg-red-200 text-red-950 border border-red-300';
     if (normalized === 'pending') return 'bg-amber-200 text-amber-950 border border-amber-300';
     return 'bg-lime-200 text-emerald-950 border border-lime-300';
 };
 const getOrderDrawerSectionTheme = (status) => {
     const normalized = normalizeOrderStatus(status);
+    if (normalized === 'failed') {
+        return {
+            shell: 'border-rose-200 bg-gradient-to-br from-white via-rose-50/60 to-red-50/75',
+            header: 'bg-rose-50 text-rose-800 border-rose-100',
+            divider: 'divide-rose-100 border-rose-100',
+            timelineDot: 'bg-rose-500',
+            title: 'text-rose-800'
+        };
+    }
     if (normalized === 'cancelled') {
         return {
             shell: 'border-rose-200 bg-gradient-to-br from-white via-rose-50/60 to-red-50/75',
@@ -276,7 +295,7 @@ const getCallLink = (mobile = '') => {
 };
 const normalizeMobileDigits = (value = '') => String(value || '').replace(/\D/g, '');
 
-const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
+const buildVisiblePages = (currentPage, totalPages, windowSize = 4) => {
     const safeTotal = Math.max(1, Number(totalPages || 1));
     const safeCurrent = Math.min(safeTotal, Math.max(1, Number(currentPage || 1)));
     if (safeTotal <= windowSize) return Array.from({ length: safeTotal }, (_, idx) => idx + 1);
@@ -542,7 +561,7 @@ export function Orders({
     const [labelPrintModalOrder, setLabelPrintModalOrder] = useState(null);
     const [isPrinterConnecting, setIsPrinterConnecting] = useState(false);
     const [selectedStatusCount, setSelectedStatusCount] = useState(0);
-    const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 5), [page, totalPages]);
+    const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 4), [page, totalPages]);
     const [confirmModal, setConfirmModal] = useState({
         isOpen: false,
         title: '',
@@ -626,10 +645,10 @@ export function Orders({
     const getTierBadgeClasses = (order) => {
         const tier = String(order?.loyalty_tier || order?.loyaltyTier || 'regular').toLowerCase();
         if (tier === 'platinum') return 'bg-sky-200 text-sky-950 border border-sky-300';
-        if (tier === 'gold') return 'bg-lime-200 text-emerald-950 border border-lime-300';
-        if (tier === 'silver') return 'bg-fuchsia-200 text-rose-950 border border-fuchsia-300';
+        if (tier === 'gold') return 'bg-amber-200 text-amber-950 border border-amber-300';
+        if (tier === 'silver') return 'bg-slate-200 text-slate-800 border border-slate-300';
         if (tier === 'bronze') return 'bg-amber-200 text-amber-950 border border-amber-300';
-        return 'bg-rose-200 text-rose-950 border border-rose-300';
+        return 'bg-slate-100 text-slate-700 border border-slate-200';
     };
     const isAttemptEntry = (order) => String(order?.entity_type || '').toLowerCase() === 'attempt';
     const isAbandonedRecoveryOrder = (order) => Boolean(order?.is_abandoned_recovery || order?.source_channel === 'abandoned_recovery');
@@ -2214,7 +2233,7 @@ export function Orders({
         { value: 'confirmed', label: 'Confirmed' },
         { value: 'pending', label: 'Pending' },
         { value: 'completed', label: 'Completed' },
-        { value: 'cancelled', label: 'Cancelled' },
+        { value: 'failed', label: 'Failed' },
         { value: 'all', label: 'All' }
     ];
     const sortOptions = [
@@ -2908,14 +2927,14 @@ export function Orders({
                         </div>
                     </>
                 )}
-                <div className="px-6 py-4 border-t border-gray-100">
+                <div className="px-6 py-4 border-t border-gray-100 overflow-x-hidden">
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                         <p className="text-xs text-gray-400 text-center md:text-left">Page {page} of {totalPages}</p>
-                        <div className="flex items-center gap-3 md:justify-end">
+                        <div className="flex max-w-full flex-wrap items-center justify-center gap-2 md:justify-end">
                             <button
                                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                                 disabled={page === 1}
-                                className="flex-1 md:flex-none md:w-28 px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                                className="px-3 py-2 rounded-lg border border-gray-200 text-xs md:text-sm font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-50 md:w-28"
                             >
                                 Previous
                             </button>
@@ -2923,7 +2942,7 @@ export function Orders({
                                 <button
                                     key={pageNo}
                                     onClick={() => setPage(pageNo)}
-                                    className={`px-3 py-2 rounded-lg border text-sm font-semibold ${
+                                    className={`min-w-9 px-3 py-2 rounded-lg border text-xs md:text-sm font-semibold ${
                                         pageNo === page
                                             ? 'border-primary bg-primary text-accent'
                                             : 'border-gray-200 text-gray-500 hover:bg-gray-50'
@@ -2935,7 +2954,7 @@ export function Orders({
                             <button
                                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                                 disabled={page === totalPages}
-                                className="flex-1 md:flex-none md:w-28 px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                                className="px-3 py-2 rounded-lg border border-gray-200 text-xs md:text-sm font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-50 md:w-28"
                             >
                                 Next
                             </button>

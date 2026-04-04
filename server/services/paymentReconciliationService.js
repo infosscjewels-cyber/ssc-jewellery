@@ -38,6 +38,25 @@ const normalizeGatewayError = (error, fallbackMessage) => (
         .slice(0, 500)
 );
 
+const normalizeSettlementSnapshot = (settlement = null) => {
+    if (!settlement) return null;
+    const amount = Number(settlement.amount || 0);
+    const fees = Number(settlement.fees || 0);
+    const tax = Number(settlement.tax || 0);
+    return {
+        id: settlement.id || null,
+        entity: settlement.entity || 'settlement',
+        amount,
+        status: settlement.status || null,
+        fees,
+        tax,
+        net_amount: amount - fees - tax,
+        utr: settlement.utr || null,
+        created_at: settlement.created_at || null,
+        fetched_at: Math.floor(Date.now() / 1000)
+    };
+};
+
 const ensureCapturedPaymentMatchesAttempt = async ({
     attempt,
     razorpayPaymentId = null,
@@ -318,8 +337,74 @@ const runPaymentAttemptReconciliationPass = async ({
     return summary;
 };
 
+const runSettlementSyncPass = async ({
+    limit = 100,
+    minAgeHours = 24
+} = {}) => {
+    const candidates = await Order.listSettlementSyncCandidates({
+        limit,
+        minAgeHours
+    });
+    const summary = {
+        scanned: candidates.length,
+        updated: 0,
+        pending: 0,
+        missingSettlementId: 0,
+        failed: 0
+    };
+
+    if (!candidates.length) return summary;
+
+    const razorpay = await createRazorpayClient();
+    for (const order of candidates) {
+        try {
+            const paymentId = String(order?.razorpay_payment_id || '').trim();
+            if (!paymentId) {
+                summary.failed += 1;
+                continue;
+            }
+
+            const paymentDetails = await razorpay.payments.fetch(paymentId);
+            const settlementId = String(paymentDetails?.settlement_id || order?.settlement_id || '').trim();
+            if (!settlementId) {
+                summary.missingSettlementId += 1;
+                continue;
+            }
+
+            const settlement = await razorpay.settlements.fetch(settlementId);
+            const settlementSnapshot = normalizeSettlementSnapshot(settlement);
+            if (!settlementSnapshot) {
+                summary.pending += 1;
+                continue;
+            }
+
+            await Order.updateSettlementByOrderId({
+                orderId: order.id,
+                settlementId,
+                settlementSnapshot
+            });
+            summary.updated += 1;
+        } catch (error) {
+            const message = String(error?.message || '').toLowerCase();
+            if (
+                message.includes('not found')
+                || message.includes('does not exist')
+                || message.includes('bad request')
+                || message.includes('invalid')
+            ) {
+                summary.pending += 1;
+            } else {
+                summary.failed += 1;
+            }
+        }
+    }
+
+    return summary;
+};
+
 module.exports = {
     ensureCapturedPaymentMatchesAttempt,
     reconcilePaymentAttemptById,
-    runPaymentAttemptReconciliationPass
+    runPaymentAttemptReconciliationPass,
+    runSettlementSyncPass
 };
