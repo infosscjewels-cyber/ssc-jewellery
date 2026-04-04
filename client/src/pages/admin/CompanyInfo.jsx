@@ -52,6 +52,7 @@ const DEFAULT_FORM = {
     longitude: '',
     gstNumber: '',
     taxEnabled: false,
+    taxPriceMode: 'exclusive',
     instagramUrl: '',
     youtubeUrl: '',
     facebookUrl: '',
@@ -415,6 +416,16 @@ export default function CompanyInfo() {
         } finally {
             setIsSaving(false);
         }
+    };
+
+    const handleTaxSectionKeyDown = (e) => {
+        const target = e.target;
+        if (!(target instanceof HTMLElement)) return;
+        const tagName = String(target.tagName || '').toLowerCase();
+        if (!['input', 'select'].includes(tagName)) return;
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        e.stopPropagation();
     };
 
     const handleCaptureLocation = async () => {
@@ -941,7 +952,7 @@ export default function CompanyInfo() {
             <form onSubmit={handleSave} className="grid grid-cols-1 gap-5">
                 <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
                     <Building2 size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
-                    <div className="relative z-10">
+                    <div className="relative z-10" onKeyDown={handleTaxSectionKeyDown}>
                         <h3 className="text-sm font-semibold text-gray-800">Company Info</h3>
                         <p className="text-xs text-gray-500 mt-1">Mandatory fields are highlighted in red if invalid.</p>
                     </div>
@@ -1193,6 +1204,40 @@ export default function CompanyInfo() {
                     <div className="relative z-10">
                         <h3 className="text-sm font-semibold text-gray-800">Tax Management</h3>
                         <p className="text-xs text-gray-500 mt-1">Configure multiple tax rates and mark one as default for products.</p>
+                    </div>
+                    <div className="relative z-10 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div>
+                                <h4 className="text-sm font-semibold text-gray-800">Tax component in product price</h4>
+                                <p className="mt-1 text-[11px] text-gray-500">
+                                    {form.taxPriceMode === 'inclusive'
+                                        ? 'Admin-entered product, variant, and shipping prices are treated as GST-inclusive. Checkout shows GST only as a breakup.'
+                                        : 'Admin-entered product, variant, and shipping prices exclude GST. Checkout adds GST on top of the entered price.'}
+                                </p>
+                            </div>
+                            <div className="inline-flex rounded-xl border border-gray-200 bg-white p-1">
+                                {[
+                                    { value: 'exclusive', label: 'Exclusive' },
+                                    { value: 'inclusive', label: 'Inclusive' }
+                                ].map((option) => {
+                                    const active = form.taxPriceMode === option.value;
+                                    return (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() => handleChange('taxPriceMode', option.value)}
+                                            className={`min-w-[112px] rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                                                active
+                                                    ? 'bg-accent text-white shadow-sm'
+                                                    : 'text-gray-600 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            {option.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     </div>
                     <div className="relative z-10">
                         <label className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 ${hasGstNumber ? 'border-gray-200 bg-white' : 'border-gray-200 bg-gray-50 text-gray-400'}`}>

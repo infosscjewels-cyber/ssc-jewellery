@@ -173,7 +173,25 @@ const MOBILE_CARD_THEMES = [
         cartNote: 'border-amber-200 bg-amber-50 text-amber-800'
     }
 ];
-const getMobileCustomerCardTheme = (index = 0) => MOBILE_CARD_THEMES[index % MOBILE_CARD_THEMES.length];
+const MOBILE_CUSTOMER_THEME_BY_KEY = {
+    blue: MOBILE_CARD_THEMES[0],
+    green: MOBILE_CARD_THEMES[1],
+    rose: MOBILE_CARD_THEMES[2],
+    orange: MOBILE_CARD_THEMES[3]
+};
+
+const getMobileCustomerCardTheme = (user = {}) => {
+    const hasMobile = Boolean(String(user?.mobile || '').trim());
+    const hasEmail = Boolean(String(user?.email || '').trim());
+    const hasActiveCart = Number(user?.cart_count ?? 0) > 0;
+    const isTieredCustomer = String(user?.loyaltyTier || 'regular').toLowerCase() !== 'regular';
+
+    if (!hasMobile) return MOBILE_CUSTOMER_THEME_BY_KEY.orange;
+    if (hasActiveCart) return MOBILE_CUSTOMER_THEME_BY_KEY.green;
+    if (hasMobile && hasEmail) return MOBILE_CUSTOMER_THEME_BY_KEY.blue;
+    if (isTieredCustomer) return MOBILE_CUSTOMER_THEME_BY_KEY.rose;
+    return MOBILE_CUSTOMER_THEME_BY_KEY.green;
+};
 
 export default function Customers({
     storefrontOpen = true,
@@ -816,7 +834,7 @@ export default function Customers({
                 <div className="fixed inset-0 z-[60] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
                     <div className="bg-white w-full max-w-xl h-full shadow-2xl p-6 overflow-y-auto">
                         {(() => {
-                            const drawerTheme = getMobileCustomerCardTheme(1);
+                            const drawerTheme = getMobileCustomerCardTheme(selectedUser);
                             const profileImage = getCustomerProfileImage(selectedUser);
                             const callLink = getCallLink(selectedUser.mobile);
                             const waLink = getWhatsappLink(selectedUser.mobile);
@@ -1190,14 +1208,17 @@ export default function Customers({
                             )}
                             {paginatedCustomersOnly.length > 0 && (
                                 <div className="grid grid-cols-1 gap-3">
-                                    {paginatedCustomersOnly.map((user, index) => {
+                                    {paginatedCustomersOnly.map((user) => {
                                         const waLink = getWhatsappLink(user.mobile);
                                         const callLink = getCallLink(user.mobile);
                                         const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
                                         const cartLastActivity = getCartLastActivityLabel(user);
                                         const isBasicTier = String(user.loyaltyTier || 'regular').toLowerCase() === 'regular';
                                         const profileImage = getCustomerProfileImage(user);
-                                        const theme = getMobileCustomerCardTheme(index);
+                                        const theme = getMobileCustomerCardTheme({
+                                            ...user,
+                                            cart_count: cartCount
+                                        });
                                         return (
                                             <div
                                                 key={`m-${user.id}`}

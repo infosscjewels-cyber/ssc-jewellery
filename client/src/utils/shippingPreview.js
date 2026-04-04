@@ -42,12 +42,12 @@ export const computeShippingPreview = ({
     const max = toNullableNumber(option?.max);
     if (option?.conditionType === 'weight') {
       if (min !== null && totalWeightKg < min) return false;
-      if (max !== null && totalWeightKg > max) return false;
+      if (max !== null && totalWeightKg >= max) return false;
       return true;
     }
     if (option?.conditionType === 'price' || !option?.conditionType) {
       if (min !== null && subtotal < min) return false;
-      if (max !== null && subtotal > max) return false;
+      if (max !== null && subtotal >= max) return false;
       return true;
     }
     return false;

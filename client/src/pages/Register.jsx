@@ -4,6 +4,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Loader2, Check, X as XIcon, AlertCircle,Eye, EyeOff } from 'lucide-react';
 import { useToast } from '../context/ToastContext'; 
 import { BRAND_LOGO_URL } from '../utils/branding.js'; 
+import { getStorefrontMobileValidationMessage, normalizeStorefrontMobileInput } from '../utils/mobileValidation';
 
 export default function Register() {
   const navigate = useNavigate();
@@ -52,7 +53,7 @@ export default function Register() {
 
   // --- VALIDATION HELPER ---
   const validateField = (name, value) => {
-    if (name === 'mobile' && !/^[0-9]{10}$/.test(value)) return "Invalid mobile (10 digits)";
+    if (name === 'mobile') return getStorefrontMobileValidationMessage(value);
     
     // NEW: Real-time Password Validation
     if (name === 'password') {
@@ -72,7 +73,8 @@ export default function Register() {
     if ((name === 'mobile' || name === 'zip') && !/^\d*$/.test(value)) {
         return; // Ignore the keystroke if it's not a number
     }
-    setFormData({ ...formData, [name]: value });
+    const nextValue = name === 'mobile' ? normalizeStorefrontMobileInput(value) : value;
+    setFormData({ ...formData, [name]: nextValue });
     
     // Clear "User Exists" error if they change email or mobile
     if (name === 'email' || name === 'mobile') setUserExistsError(false);
@@ -80,7 +82,7 @@ export default function Register() {
     // Reset OTP status if user types
     if (name === 'otp') setOtpStatus('neutral');
 
-    const error = validateField(name, value);
+    const error = validateField(name, nextValue);
     setErrors({ ...errors, [name]: error });
   };
 
@@ -184,7 +186,7 @@ export default function Register() {
               <p className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wide">Mobile Verification</p>
               
               <div className="flex gap-2 mb-2">
-                <input name="mobile" placeholder="Mobile Number" className="input-field flex-1" value={formData.mobile} onChange={handleChange} required />
+                <input name="mobile" type="tel" inputMode="numeric" maxLength={10} placeholder="Mobile Number" className="input-field flex-1" value={formData.mobile} onChange={handleChange} required />
                 <button 
                     type="button" onClick={handleSendOtp} disabled={isLoading || timer > 0}
                     className={`px-4 rounded-lg text-sm font-medium transition-colors min-w-[100px]
@@ -193,6 +195,7 @@ export default function Register() {
                     {isLoading ? <Loader2 className="animate-spin w-4 h-4" /> : (timer > 0 ? `${timer}s` : "Send OTP")}
                 </button>
               </div>
+              {errors.mobile && <p className="text-xs text-red-600 mt-1">{errors.mobile}</p>}
               
               {otpSent && (
                 <div className="relative animate-fade-in mt-2">

@@ -76,6 +76,31 @@ const getItemQuantity = (item) => {
     const snapshot = getItemSnapshot(item);
     return toNumber(item?.quantity ?? snapshot?.quantity, 0);
 };
+const getOrderDisplayPricing = (order) => (
+    order?.display_pricing && typeof order.display_pricing === 'object'
+        ? order.display_pricing
+        : order?.displayPricing && typeof order.displayPricing === 'object'
+            ? order.displayPricing
+            : null
+);
+const getOrderTaxPriceMode = (order) => String(
+    order?.tax_price_mode
+    || order?.taxPriceMode
+    || getOrderDisplayPricing(order)?.taxPriceMode
+    || order?.company_snapshot?.taxPriceMode
+    || 'exclusive'
+).toLowerCase() === 'inclusive'
+    ? 'inclusive'
+    : 'exclusive';
+const getItemUnitPriceBase = (item) => {
+    const snapshot = getItemSnapshot(item);
+    return toNumber(item?.unit_price_base ?? item?.unitPriceBase ?? snapshot?.unitPriceBase, getItemUnitPrice(item));
+};
+const getItemLineTotalBase = (item) => {
+    const snapshot = getItemSnapshot(item);
+    return toNumber(item?.line_total_base ?? item?.lineTotalBase ?? snapshot?.lineTotalBase, getItemLineTotal(item));
+};
+const isInclusiveOrder = (order) => getOrderTaxPriceMode(order) === 'inclusive';
 const getItemUnitPrice = (item) => {
     const snapshot = getItemSnapshot(item);
     return toNumber(item?.price ?? snapshot?.unitPrice, 0);
@@ -574,7 +599,7 @@ export default function Orders() {
                                                 <p className="text-[11px] text-gray-400 line-clamp-1">Sub Category: {getItemSubCategoryLabel(item)}</p>
                                             )}
                                             <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                                                <p className="text-xs text-gray-700 font-semibold">₹{getItemUnitPrice(item).toLocaleString()}</p>
+                                                <p className="text-xs text-gray-700 font-semibold">₹{(isInclusiveOrder(selectedOrder) ? getItemUnitPriceBase(item) : getItemUnitPrice(item)).toLocaleString()}</p>
                                                 {getItemOriginalPrice(item) > getItemUnitPrice(item) && (
                                                     <>
                                                         <p className="text-[11px] text-gray-400 line-through">₹{getItemOriginalPrice(item).toLocaleString()}</p>
@@ -584,10 +609,10 @@ export default function Orders() {
                                                     </>
                                                 )}
                                             </div>
-                                            <p className="text-xs text-gray-500 mt-1">₹{getItemUnitPrice(item).toLocaleString()} x {getItemQuantity(item)}</p>
+                                            <p className="text-xs text-gray-500 mt-1">₹{(isInclusiveOrder(selectedOrder) ? getItemUnitPriceBase(item) : getItemUnitPrice(item)).toLocaleString()} x {getItemQuantity(item)}</p>
                                         </div>
                                         <div className="text-sm font-semibold text-gray-800">
-                                            ₹{getItemLineTotal(item).toLocaleString()}
+                                            ₹{(isInclusiveOrder(selectedOrder) ? getItemLineTotalBase(item) : getItemLineTotal(item)).toLocaleString()}
                                             {getItemTaxAmount(item) > 0 && (
                                                 <p className="text-[11px] text-gray-500 font-medium">
                                                     {(() => {
@@ -722,15 +747,15 @@ export default function Orders() {
                                 )}
                                 <div className="flex items-center justify-between text-gray-600">
                                     <span>Subtotal</span>
-                                    <span>₹{toNumber(selectedOrder.subtotal).toLocaleString()}</span>
+                                    <span>₹{toNumber(getOrderDisplayPricing(selectedOrder)?.displaySubtotalBase ?? selectedOrder.subtotal).toLocaleString()}</span>
                                 </div>
                                 <div className="flex items-center justify-between text-gray-600">
                                     <span>Shipping</span>
-                                    <span>₹{toNumber(selectedOrder.shipping_fee).toLocaleString()}</span>
+                                    <span>₹{toNumber(getOrderDisplayPricing(selectedOrder)?.displayShippingBase ?? selectedOrder.shipping_fee).toLocaleString()}</span>
                                 </div>
                                 <div className="flex items-center justify-between text-gray-600">
                                     <span>Base Price (Before Discounts)</span>
-                                    <span>₹{Math.max(0, toNumber(selectedOrder.subtotal) + toNumber(selectedOrder.shipping_fee)).toLocaleString()}</span>
+                                    <span>₹{toNumber(getOrderDisplayPricing(selectedOrder)?.displayBaseBeforeDiscounts ?? Math.max(0, toNumber(selectedOrder.subtotal) + toNumber(selectedOrder.shipping_fee))).toLocaleString()}</span>
                                 </div>
                                 {toNumber(selectedOrder.coupon_discount_value) > 0 && (
                                     <div className="flex items-center justify-between text-emerald-700">
@@ -757,18 +782,24 @@ export default function Orders() {
                                     </div>
                                 )}
                                 <div className="flex items-center justify-between text-gray-600">
-                                    <span>Taxable Value After Discounts</span>
-                                    <span>₹{Math.max(0, toNumber(selectedOrder.subtotal) + toNumber(selectedOrder.shipping_fee) - toNumber(selectedOrder.coupon_discount_value) - toNumber(selectedOrder.loyalty_discount_total) - toNumber(selectedOrder.loyalty_shipping_discount_total)).toLocaleString()}</span>
+                                    <span>{getOrderTaxPriceMode(selectedOrder) === 'inclusive' ? 'Value After Discounts' : 'Taxable Value After Discounts'}</span>
+                                    <span>₹{toNumber(getOrderDisplayPricing(selectedOrder)?.displayValueAfterDiscountsBase ?? Math.max(0, toNumber(selectedOrder.subtotal) + toNumber(selectedOrder.shipping_fee) - toNumber(selectedOrder.coupon_discount_value) - toNumber(selectedOrder.loyalty_discount_total) - toNumber(selectedOrder.loyalty_shipping_discount_total))).toLocaleString()}</span>
                                 </div>
                                 {toNumber(selectedOrder.tax_total) > 0 && (
                                     <div className="flex items-start justify-between text-gray-600">
                                         <span>
-                                            GST
+                                            {getOrderTaxPriceMode(selectedOrder) === 'inclusive' ? 'GST Breakdown' : 'GST'}
                                             <span className="block text-[11px] text-gray-400">
                                                 {getGstDisplayDetails({ taxAmount: toNumber(selectedOrder.tax_total) }).splitAmountLabel}
                                             </span>
                                         </span>
                                         <span>₹{toNumber(selectedOrder.tax_total).toLocaleString()}</span>
+                                    </div>
+                                )}
+                                {toNumber(selectedOrder.round_off_amount) !== 0 && (
+                                    <div className="flex items-center justify-between text-gray-600">
+                                        <span>Round Off</span>
+                                        <span>₹{toNumber(selectedOrder.round_off_amount).toLocaleString()}</span>
                                     </div>
                                 )}
                                 <div className="pt-2 border-t border-gray-200 flex items-center justify-between font-semibold text-gray-900">

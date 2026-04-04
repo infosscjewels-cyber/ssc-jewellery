@@ -23,6 +23,7 @@ import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpe
 import { formatMissingProfileFields } from '../utils/membershipUnlock';
 import { getAllowedShippingStates, isAllowedShippingState, isValidIndianPincode, lookupStateByPincode, normalizePincodeInput, resolveAllowedStateName } from '../utils/addressValidation';
 import { billingAddressEnabled } from '../utils/billingAddressConfig';
+import { isValidStorefrontMobile, normalizeStorefrontMobileInput } from '../utils/mobileValidation';
 import ordersIllustration from '../assets/orders.svg';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
@@ -183,7 +184,10 @@ export default function Profile() {
 
     const handleFieldChange = (e) => {
         const { name, value } = e.target;
-        setForm((prev) => ({ ...prev, [name]: value }));
+        const nextValue = name === 'mobile'
+            ? normalizeStorefrontMobileInput(value)
+            : value;
+        setForm((prev) => ({ ...prev, [name]: nextValue }));
     };
 
     const handleAddressChange = (section, field, value) => {
@@ -265,6 +269,10 @@ export default function Profile() {
 
     const handleSave = async () => {
         if (isSaving) return;
+        if (!isValidStorefrontMobile(form.mobile)) {
+            toast.error('Enter a valid 10-digit mobile number');
+            return;
+        }
         if (!isValidIndianPincode(form.address.zip) || (billingAddressEnabled && !isValidIndianPincode(form.billingAddress.zip))) {
             toast.error(`Enter a valid 6-digit PIN code for ${billingAddressEnabled ? 'both addresses' : 'the shipping address'}`);
             return;
@@ -371,11 +379,11 @@ export default function Profile() {
     const membershipUnlockState = formatMissingProfileFields(missingProfileFields);
     const isVerifiedShopper = (
         /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(form.email || '').trim())
-        && /^\d{10,14}$/.test(String(form.mobile || '').replace(/\D/g, ''))
+        && isValidStorefrontMobile(form.mobile)
     );
     const missingVerifiedFields = [
         !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(form.email || '').trim()) ? 'email' : null,
-        !/^\d{10,14}$/.test(String(form.mobile || '').replace(/\D/g, '')) ? 'mobile' : null
+        !isValidStorefrontMobile(form.mobile) ? 'mobile' : null
     ].filter(Boolean);
 
     const handleVerifyProfileClick = () => {
@@ -630,6 +638,9 @@ export default function Profile() {
                                                 <input
                                                     ref={mobileInputRef}
                                                     name="mobile"
+                                                    type="tel"
+                                                    inputMode="numeric"
+                                                    maxLength={10}
                                                     value={form.mobile}
                                                     onChange={handleFieldChange}
                                                     disabled={!isEditing}

@@ -751,7 +751,14 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                 className={`group relative overflow-hidden rounded-2xl border p-5 shadow-sm flex items-start justify-between text-left transition-transform hover:-translate-y-0.5 ${advancedAnalyticsEnabled ? 'min-h-[152px]' : 'aspect-square md:aspect-auto md:min-h-[152px]'} ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
                             >
                                 <div>
-                                    <p className={`text-xs uppercase tracking-[0.2em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>{card.label}</p>
+                                    <p className={`text-xs uppercase tracking-[0.2em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
+                                        {card.widgetId === 'kpi_orders' ? (
+                                            <>
+                                                <span className="sm:hidden">New Orders</span>
+                                                <span className="hidden sm:inline">{card.label}</span>
+                                            </>
+                                        ) : card.label}
+                                    </p>
                                     <p className={`text-3xl font-semibold mt-2 ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
                                     {card.helper && (
                                         <p className={`text-xs mt-2 ${KPI_CARD_THEMES[card.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext}`}>

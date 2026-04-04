@@ -194,27 +194,33 @@ export default function PaymentSuccess() {
                                         const memberShippingBenefit = Number(order.loyalty_shipping_discount_total || 0);
                                         const discount = Number(order.discount_total || (couponDiscount + memberDiscount + memberShippingBenefit));
                                         const shipping = Number(order.shipping_fee || 0);
+                                        const displayPricing = order.display_pricing && typeof order.display_pricing === 'object' ? order.display_pricing : null;
                                         const tax = Number(order.tax_total || 0);
+                                        const taxPriceMode = String(order.tax_price_mode || order.taxPriceMode || displayPricing?.taxPriceMode || order.company_snapshot?.taxPriceMode || 'exclusive').trim().toLowerCase() === 'inclusive'
+                                            ? 'inclusive'
+                                            : 'exclusive';
+                                        const roundOff = Number(order.round_off_amount || 0);
                                         const taxableTotal = Math.max(0, subtotal + shipping - couponDiscount - memberDiscount - memberShippingBenefit);
                                         const grossBeforeDiscounts = Math.max(0, subtotal + shipping);
                                         return (
                                             <>
-                                                <p>Subtotal: ₹{subtotal.toLocaleString()}</p>
-                                                <p>Shipping: ₹{shipping.toLocaleString()}</p>
-                                                <p>Base Price (Before Discounts): ₹{grossBeforeDiscounts.toLocaleString()}</p>
+                                                <p>Subtotal: ₹{Number(displayPricing?.displaySubtotalBase ?? subtotal).toLocaleString()}</p>
+                                                <p>Shipping: ₹{Number(displayPricing?.displayShippingBase ?? shipping).toLocaleString()}</p>
+                                                <p>Base Price (Before Discounts): ₹{Number(displayPricing?.displayBaseBeforeDiscounts ?? grossBeforeDiscounts).toLocaleString()}</p>
                                                 {couponDiscount > 0 && <p>Coupon{order.coupon_code ? ` (${order.coupon_code})` : ''}: -₹{couponDiscount.toLocaleString()}</p>}
                                                 {memberDiscount > 0 && <p>Member Discount: -₹{memberDiscount.toLocaleString()}</p>}
                                                 {memberShippingBenefit > 0 && <p>Member Shipping Benefit: -₹{memberShippingBenefit.toLocaleString()}</p>}
                                                 <p>Total Savings: ₹{discount.toLocaleString()}</p>
-                                                <p>Taxable Value After Discounts: ₹{taxableTotal.toLocaleString()}</p>
+                                                <p>{taxPriceMode === 'inclusive' ? 'Value After Discounts' : 'Taxable Value After Discounts'}: ₹{Number(displayPricing?.displayValueAfterDiscountsBase ?? taxableTotal).toLocaleString()}</p>
                                                 {tax > 0 && (
                                                     <p>
-                                                        GST: ₹{tax.toLocaleString()}
+                                                        {taxPriceMode === 'inclusive' ? 'GST Breakdown' : 'GST'}: ₹{tax.toLocaleString()}
                                                         <span className="block text-[11px] text-gray-500">
                                                             {getGstDisplayDetails({ taxAmount: tax }).splitAmountLabel}
                                                         </span>
                                                     </p>
                                                 )}
+                                                {roundOff !== 0 && <p>Round Off: ₹{roundOff.toLocaleString()}</p>}
                                             </>
                                         );
                                     })()}

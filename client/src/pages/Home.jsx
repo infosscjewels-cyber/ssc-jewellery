@@ -99,7 +99,10 @@ const CarouselHero = ({ slides }) => {
 
                             {slide.link && (
                                 <div className="pt-8 flex items-center justify-center">
-                                    <Link to={slide.link} className="btn-primary w-[65%] px-8 py-4 text-lg shadow-xl shadow-accent/20">
+                                    <Link
+                                        to={slide.link}
+                                        className="btn-primary w-[min(22rem,82vw)] min-w-[16rem] whitespace-nowrap px-8 py-4 text-lg shadow-xl shadow-accent/20"
+                                    >
                                         Explore Collection
                                     </Link>
                                 </div>

@@ -46,7 +46,8 @@ export default function QuickAddModal({ product, onClose, onConfirm }) {
         if (!selected || !canAdd || isSubmitting) return;
         setIsSubmitting(true);
         try {
-            await onConfirm(selected);
+            const result = await onConfirm(selected);
+            if (result?.status === 'gated') return;
             setJustAdded(true);
             closeTimerRef.current = setTimeout(() => {
                 onClose();

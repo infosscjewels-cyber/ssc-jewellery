@@ -113,6 +113,8 @@ const normalizeOrderForCache = (order) => {
             quantity: Number(item.quantity ?? item.item_snapshot?.quantity ?? item.snapshot?.quantity ?? 0),
             price: Number(item.price ?? item.item_snapshot?.unitPrice ?? item.snapshot?.unitPrice ?? 0),
             line_total: Number(item.line_total ?? item.lineTotal ?? item.item_snapshot?.lineTotal ?? item.snapshot?.lineTotal ?? 0),
+            discounted_line_total: Number(item.discounted_line_total ?? item.discountedLineTotal ?? item.item_snapshot?.discountedLineTotal ?? item.snapshot?.discountedLineTotal ?? item.line_total ?? item.lineTotal ?? 0),
+            tax_base: Number(item.tax_base ?? item.taxBase ?? item.item_snapshot?.taxBase ?? item.snapshot?.taxBase ?? item.line_total ?? item.lineTotal ?? 0),
             tax_rate_percent: Number(item.tax_rate_percent ?? item.taxRatePercent ?? item.item_snapshot?.taxRatePercent ?? item.snapshot?.taxRatePercent ?? 0),
             tax_amount: Number(item.tax_amount ?? item.taxAmount ?? item.item_snapshot?.taxAmount ?? item.snapshot?.taxAmount ?? 0),
             tax_name: item.tax_name || item.taxName || item.item_snapshot?.taxName || item.snapshot?.taxName || null,
@@ -143,6 +145,8 @@ const normalizeOrderForCache = (order) => {
             return null;
         }
     })();
+    const displayPricing = order.display_pricing || order.displayPricing || null;
+    const directTaxMode = order.tax_price_mode || order.taxPriceMode || displayPricing?.taxPriceMode || order.company_snapshot?.taxPriceMode || '';
     return {
         ...order,
         order_ref: order.order_ref || order.orderRef || '',
@@ -176,7 +180,12 @@ const normalizeOrderForCache = (order) => {
         shipping_fee: Number(order.shipping_fee ?? order.shippingFee ?? 0),
         discount_total: Number(order.discount_total ?? order.discountTotal ?? 0),
         tax_total: Number(order.tax_total ?? order.taxTotal ?? 0),
+        round_off_amount: Number(order.round_off_amount ?? order.roundOffAmount ?? 0),
+        tax_price_mode: String(directTaxMode || 'exclusive').trim().toLowerCase() === 'inclusive'
+            ? 'inclusive'
+            : 'exclusive',
         tax_breakup_json: order.tax_breakup_json || order.taxBreakupJson || order.taxBreakup || [],
+        display_pricing: displayPricing,
         total: Number(order.total ?? 0),
         items
     };

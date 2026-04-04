@@ -53,7 +53,7 @@ const validateZoneDraft = (zone = null) => {
         if ((option?.max ?? '') !== '' && max === null) return 'Maximum value must be a valid number.';
         if (min !== null && min < 0) return 'Minimum value cannot be negative.';
         if (max !== null && max < 0) return 'Maximum value cannot be negative.';
-        if (min !== null && max !== null && min > max) return 'Minimum value cannot be greater than maximum.';
+        if (min !== null && max !== null && min >= max) return 'Minimum value must be less than maximum.';
 
         const key = option?.conditionType || 'price';
         const start = min === null ? Number.NEGATIVE_INFINITY : min;
@@ -66,7 +66,7 @@ const validateZoneDraft = (zone = null) => {
     for (const [conditionType, entries] of grouped.entries()) {
         const sorted = [...entries].sort((a, b) => a.start - b.start);
         for (let i = 1; i < sorted.length; i += 1) {
-            if (sorted[i].start <= sorted[i - 1].end) {
+            if (sorted[i].start < sorted[i - 1].end) {
                 return `Overlapping ${conditionType} ranges are not allowed in the same zone.`;
             }
         }
@@ -233,9 +233,9 @@ export default function ShippingSettings() {
         const min = option.min || '0';
         const max = option.max || '—';
         if (option.conditionType === 'weight') {
-            return `${min}kg - ${max === '—' ? 'and up' : `${max}kg`}`;
+            return `${min}kg - ${max === '—' ? 'and up' : `under ${max}kg`}`;
         }
-        return `₹${min} - ${max === '—' ? 'and up' : `₹${max}`}`;
+        return `₹${min} - ${max === '—' ? 'and up' : `under ₹${max}`}`;
     };
 
     const selectedStatesLabel = useMemo(() => {

@@ -99,6 +99,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
         subCategory: ''
     });
     const [availableTaxes, setAvailableTaxes] = useState([]);
+    const [taxPriceMode, setTaxPriceMode] = useState('exclusive');
 
     const [mediaItems, setMediaItems] = useState([]); 
     
@@ -164,6 +165,12 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
             adminService.getTaxConfigs()
                 .then((data) => setAvailableTaxes(Array.isArray(data?.taxes) ? data.taxes : []))
                 .catch(() => setAvailableTaxes([]));
+            adminService.getCompanyInfo()
+                .then((data) => {
+                    const nextMode = String(data?.company?.taxPriceMode || 'exclusive').trim().toLowerCase();
+                    setTaxPriceMode(nextMode === 'inclusive' ? 'inclusive' : 'exclusive');
+                })
+                .catch(() => setTaxPriceMode('exclusive'));
 
             // Existing Form Population Logic
             if (productToEdit) {
@@ -281,6 +288,10 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
             .filter(c => c.toLowerCase().includes(categorySearch.toLowerCase()))
             .slice(0, 50);
     }, [availableCategories, categorySearch]);
+
+    const taxPriceModeCopy = taxPriceMode === 'inclusive'
+        ? 'Entered product and variant prices already include GST. Checkout will show GST as a breakup instead of adding it on top.'
+        : 'Entered product and variant prices exclude GST. Checkout adds GST on top of these prices.';
 
     // --- 3. RETURN NULL IF CLOSED ---
     if (!isOpen) return null;
@@ -717,6 +728,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                 )}
                                 <div className="space-y-4">
                                     <label className="block text-sm font-bold text-gray-700">Tax Rate</label>
+                                    <p className="text-xs text-gray-500 -mt-2">{taxPriceModeCopy}</p>
                                     <select
                                         name="tax_config_id"
                                         value={formData.tax_config_id}
@@ -795,8 +807,11 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                             {/* --- CONDITIONAL: VARIANTS OR DEFAULT PRICING --- */}
                             {options.length > 0 ? (
                                 <div className="p-5 bg-white rounded-xl border border-gray-100 shadow-sm space-y-4 overflow-x-auto animate-in fade-in">
-                                    <div className="flex justify-between items-end">
-                                        <h3 className="font-bold text-gray-800">Variants Preview & Pricing</h3>
+                                    <div className="flex justify-between items-end gap-4">
+                                        <div>
+                                            <h3 className="font-bold text-gray-800">Variants Preview & Pricing</h3>
+                                            <p className="mt-1 text-xs text-gray-500">{taxPriceModeCopy}</p>
+                                        </div>
                                         
                                         {/* GLOBAL INVENTORY CONTROLS */}
                                         {inventoryTrackingEnabled ? (
@@ -869,9 +884,9 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                             ) : (
                                 <>
                                     {/* DEFAULT PRICING */}
-                                    <div className="md:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-white rounded-xl border border-gray-100 shadow-sm animate-in fade-in">
+                                    <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-white rounded-xl border border-gray-100 shadow-sm animate-in fade-in">
                                         <div className="space-y-2">
-                                            <label className="block text-sm font-bold text-gray-700">MRP *</label>
+                                            <label className="block text-sm font-bold text-gray-700">{taxPriceMode === 'inclusive' ? 'Price *' : 'MRP *'}</label>
                                             <input type="number" min="0" name="mrp" value={formData.mrp} onChange={handleChange} className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none" placeholder="₹" />
                                         </div>
                                         <div className="space-y-2">
@@ -885,6 +900,9 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                         <div className="space-y-2">
                                             <label className="block text-sm font-bold text-gray-700">Weight (Kg)</label>
                                             <input type="number" min="0" step="0.001" name="weight_kg" value={formData.weight_kg} onChange={handleChange} className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none" placeholder="0.000" />
+                                        </div>
+                                        <div className="md:col-span-4">
+                                            <p className="text-xs text-gray-500">{taxPriceModeCopy}</p>
                                         </div>
                                     </div>
                                     

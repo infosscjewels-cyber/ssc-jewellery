@@ -838,12 +838,12 @@ function MobileNavBtn({ icon: Icon, label, active, onClick, disabled = false }) 
         <button 
             onClick={onClick}
             disabled={disabled}
-            className={`flex flex-col items-center gap-1 p-2 transition-all ${disabled ? 'text-gray-300 grayscale opacity-70' : active ? 'text-primary -translate-y-1' : 'text-gray-400'}`}
+            className={`relative z-10 flex flex-1 flex-col items-center gap-1 p-2 transition-all ${disabled ? 'text-gray-300 grayscale opacity-70' : active ? 'text-primary -translate-y-1' : 'text-gray-800'}`}
         >
-            <div className={`p-2 rounded-xl ${disabled ? 'bg-gray-100 text-gray-400' : active ? 'bg-accent text-primary shadow-lg shadow-accent/20' : ''}`}>
-                <Icon size={active ? 22 : 22} strokeWidth={2} />
+            <div className={`rounded-xl p-2 ${disabled ? 'bg-gray-100 text-gray-400' : active ? 'bg-accent text-primary shadow-lg shadow-accent/20' : 'text-gray-900'}`}>
+                <Icon size={22} strokeWidth={2.4} />
             </div>
-            <span className={`text-[10px] ${active ? 'font-bold' : 'font-medium'}`}>{label}</span>
+            <span className="text-[10px] font-bold tracking-[0.02em] text-current">{label}</span>
         </button>
     );
 }

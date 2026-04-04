@@ -17,6 +17,13 @@ const journeyStatusOptions = [
     { value: 'expired', label: 'Expired' },
     { value: 'cancelled', label: 'Cancelled' }
 ];
+const mobileJourneyStatusOptions = [
+    { value: 'new', label: 'New' },
+    { value: 'attempted', label: 'Attempted' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'expired', label: 'Expired' },
+    { value: 'all', label: 'All' }
+];
 
 const sortOptions = [
     { value: 'newest', label: 'Newest First' },
@@ -73,33 +80,38 @@ const applyKpiThemeRotation = (cards = [], startIndex = 0) => cards.map((card, i
     ...card,
     theme: KPI_THEME_SEQUENCE[(startIndex + index) % KPI_THEME_SEQUENCE.length]
 }));
-const MOBILE_JOURNEY_CARD_THEMES = [
-    {
+const MOBILE_JOURNEY_CARD_THEMES = {
+    new: {
         shell: 'border-sky-200 bg-gradient-to-br from-white via-sky-50/60 to-cyan-50/75 shadow-sky-100/70',
         strip: 'from-sky-400 via-cyan-400 to-sky-300',
         meta: 'border-sky-100 bg-sky-50/80',
         divider: 'border-sky-100'
     },
-    {
+    attempted: {
+        shell: 'border-amber-200 bg-gradient-to-br from-white via-amber-50/60 to-orange-50/75 shadow-amber-100/70',
+        strip: 'from-amber-400 via-orange-400 to-amber-300',
+        meta: 'border-amber-100 bg-amber-50/80',
+        divider: 'border-amber-100'
+    },
+    attemptedStrong: {
+        shell: 'border-orange-200 bg-gradient-to-br from-white via-orange-50/60 to-amber-50/75 shadow-orange-100/70',
+        strip: 'from-orange-500 via-amber-400 to-orange-300',
+        meta: 'border-orange-100 bg-orange-50/80',
+        divider: 'border-orange-100'
+    },
+    completed: {
         shell: 'border-emerald-200 bg-gradient-to-br from-white via-emerald-50/60 to-lime-50/75 shadow-emerald-100/70',
         strip: 'from-emerald-400 via-lime-400 to-emerald-300',
         meta: 'border-emerald-100 bg-emerald-50/80',
         divider: 'border-emerald-100'
     },
-    {
-        shell: 'border-fuchsia-200 bg-gradient-to-br from-white via-fuchsia-50/60 to-rose-50/75 shadow-fuchsia-100/70',
-        strip: 'from-fuchsia-400 via-pink-400 to-rose-300',
-        meta: 'border-fuchsia-100 bg-fuchsia-50/80',
-        divider: 'border-fuchsia-100'
-    },
-    {
-        shell: 'border-amber-200 bg-gradient-to-br from-white via-amber-50/60 to-orange-50/75 shadow-amber-100/70',
-        strip: 'from-amber-400 via-orange-400 to-amber-300',
-        meta: 'border-amber-100 bg-amber-50/80',
-        divider: 'border-amber-100'
+    expired: {
+        shell: 'border-rose-200 bg-gradient-to-br from-white via-rose-50/60 to-red-50/75 shadow-rose-100/70',
+        strip: 'from-rose-400 via-red-400 to-rose-300',
+        meta: 'border-rose-100 bg-rose-50/80',
+        divider: 'border-rose-100'
     }
-];
-const getMobileJourneyCardTheme = (index = 0) => MOBILE_JOURNEY_CARD_THEMES[index % MOBILE_JOURNEY_CARD_THEMES.length];
+};
 const getTimelineTheme = (status = '') => {
     const key = String(status || '').toLowerCase();
     if (key === 'cancelled') {
@@ -160,6 +172,40 @@ const statusClass = (status) => {
     if (key === 'expired') return 'bg-fuchsia-200 text-rose-950 border border-fuchsia-300';
     if (key === 'cancelled') return 'bg-red-200 text-red-950 border border-red-300';
     return 'bg-amber-200 text-amber-950 border border-amber-300';
+};
+const getMobileJourneyLifecycleStatus = (journey = {}) => {
+    const backendStatus = String(journey?.status || '').toLowerCase();
+    if (backendStatus === 'recovered' || String(journey?.recovered_order_ref || '').trim()) return 'completed';
+    if (backendStatus === 'expired' || backendStatus === 'cancelled') return 'expired';
+    if (Number(journey?.last_attempt_no || 0) > 0) return 'attempted';
+    return 'new';
+};
+const getMobileJourneyStatusLabel = (journey = {}) => {
+    const key = getMobileJourneyLifecycleStatus(journey);
+    if (key === 'completed') return 'Completed';
+    if (key === 'attempted') return 'Attempted';
+    if (key === 'expired') return 'Expired';
+    return 'New';
+};
+const getMobileJourneyStatusBadgeClass = (journey = {}) => {
+    const key = getMobileJourneyLifecycleStatus(journey);
+    if (key === 'completed') return 'bg-lime-200 text-emerald-950 border border-lime-300';
+    if (key === 'attempted') return 'bg-amber-200 text-amber-950 border border-amber-300';
+    if (key === 'expired') return 'bg-red-200 text-red-950 border border-red-300';
+    return 'bg-sky-200 text-sky-950 border border-sky-300';
+};
+const getMobileJourneyFilterBadgeClass = (value = '', active = false) => {
+    if (!active) return 'border-gray-200 bg-white text-gray-600';
+    if (value === 'completed') return 'bg-lime-200 text-emerald-950 border border-lime-300';
+    if (value === 'attempted') return 'bg-amber-200 text-amber-950 border border-amber-300';
+    if (value === 'expired') return 'bg-red-200 text-red-950 border border-red-300';
+    if (value === 'new') return 'bg-sky-200 text-sky-950 border border-sky-300';
+    return 'bg-slate-200 text-slate-800 border border-slate-300';
+};
+const getMobileJourneyCardTheme = (journey = {}) => {
+    const key = getMobileJourneyLifecycleStatus(journey);
+    if (key === 'attempted' && Number(journey?.last_attempt_no || 0) >= 3) return MOBILE_JOURNEY_CARD_THEMES.attemptedStrong;
+    return MOBILE_JOURNEY_CARD_THEMES[key] || MOBILE_JOURNEY_CARD_THEMES.new;
 };
 const inr = (value) => `₹${Number(value || 0).toLocaleString()}`;
 const normalizeText = (value = '') => String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -374,6 +420,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     const [journeys, setJourneys] = useState([]);
     const [journeyTotal, setJourneyTotal] = useState(0);
     const [status, setStatus] = useState('all');
+    const [mobileStatusFilter, setMobileStatusFilter] = useState('new');
     const [sortBy, setSortBy] = useState('newest');
     const [search, setSearch] = useState('');
     const [searchInput, setSearchInput] = useState('');
@@ -487,7 +534,10 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
             { label: 'Recovered Value', value: inr(totals.recoveredValue || 0) }
         ]);
     }, [insights, sharedInsights]);
-    const mobileSummaryCards = useMemo(() => applyKpiThemeRotation(cards.slice(0, 2), 3), [cards]);
+    const mobileJourneys = useMemo(() => {
+        if (mobileStatusFilter === 'all') return journeys;
+        return journeys.filter((journey) => getMobileJourneyLifecycleStatus(journey) === mobileStatusFilter);
+    }, [journeys, mobileStatusFilter]);
 
     const totalPages = useMemo(
         () => isLatestJourneyWindow ? 1 : Math.max(1, Math.ceil(Number(journeyTotal || 0) / JOURNEY_PAGE_SIZE)),
@@ -1060,16 +1110,6 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 md:hidden">
-                {mobileSummaryCards.map((card) => (
-                    <div key={`mobile-${card.label}`} className={`emboss-card relative aspect-square overflow-hidden rounded-2xl border shadow-sm p-5 ${KPI_CARD_THEMES[card.theme || 'brown'].shell}`}>
-                        <ShoppingCart size={54} className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || 'brown'].iconGhost}`} />
-                        <p className={`text-xs uppercase tracking-widest font-semibold ${KPI_CARD_THEMES[card.theme || 'brown'].label}`}>{card.label}</p>
-                        <p className={`text-xl font-bold mt-1 ${KPI_CARD_THEMES[card.theme || 'brown'].value}`}>{card.value}</p>
-                    </div>
-                ))}
-            </div>
-
             <div className="hidden md:grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 {cards.map((card) => (
                     <div key={card.label} className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm p-5 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`}>
@@ -1107,17 +1147,6 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                     <div className="flex items-center justify-end gap-2 md:hidden">
                         <button
                             type="button"
-                            onClick={() => setIsMobileStatusModalOpen(true)}
-                            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
-                                status !== 'all' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-gray-200 bg-white text-gray-600'
-                            }`}
-                            title="Filter Status"
-                            aria-label="Filter Status"
-                        >
-                            <Filter size={18} />
-                        </button>
-                        <button
-                            type="button"
                             onClick={() => setIsMobileSortModalOpen(true)}
                             className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
                                 sortBy !== 'newest' ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-gray-200 bg-white text-gray-600'
@@ -1149,6 +1178,23 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                         >
                             <Search size={18} />
                         </button>
+                    </div>
+                    <div className="md:hidden w-full pb-1">
+                        <div className="flex flex-wrap gap-2">
+                            {mobileJourneyStatusOptions.map((option) => {
+                                const active = mobileStatusFilter === option.value;
+                                return (
+                                    <button
+                                        key={option.value}
+                                        type="button"
+                                        onClick={() => setMobileStatusFilter(option.value)}
+                                        className={`inline-flex max-w-full items-center justify-center rounded-full border px-3 py-2 text-[11px] font-semibold leading-none transition ${getMobileJourneyFilterBadgeClass(option.value, active)}`}
+                                    >
+                                        {option.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
                     </div>
                 </div>
 
@@ -1237,8 +1283,12 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                         </table>
                     </div>
                     <div className="md:hidden space-y-4 p-4">
-                        {journeys.map((journey, index) => {
-                            const theme = getMobileJourneyCardTheme(index);
+                        {mobileJourneys.length === 0 ? (
+                            <div className="py-10 text-center text-gray-400">
+                                No journeys match the selected mobile filter.
+                            </div>
+                        ) : mobileJourneys.map((journey) => {
+                            const theme = getMobileJourneyCardTheme(journey);
                             return (
                                 <div key={journey.id} className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${theme.shell}`}>
                                     <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${theme.strip}`} />
@@ -1250,7 +1300,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                             <p className="text-xs text-gray-400">{formatCustomerContacts(journey)}</p>
                                         </div>
                                         <div className="flex shrink-0 flex-col items-end gap-1.5">
-                                            <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${statusClass(journey.status)}`}>{journey.status}</span>
+                                            <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${getMobileJourneyStatusBadgeClass(journey)}`}>{getMobileJourneyStatusLabel(journey)}</span>
                                             {!!journey.recovered_order_ref && (
                                                 <p className="max-w-[110px] text-right text-[11px] text-emerald-700">Recovered by {journey.recovered_order_ref}</p>
                                             )}

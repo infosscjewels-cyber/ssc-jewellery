@@ -4,10 +4,12 @@ import { cartService } from '../services/cartService';
 import { useAuth } from './AuthContext';
 import { useSocket } from './SocketContext';
 import CartDrawer from '../components/CartDrawer';
+import PhoneCaptureModal from '../components/PhoneCaptureModal';
 import QuickAddModal from '../components/QuickAddModal';
 import { useToast } from './ToastContext';
 import { useWishlist } from './WishlistContext';
 import { playFacebookLikeSound } from '../utils/uiSound';
+import { authService } from '../services/authService';
 
 const defaultCartContext = {
     items: [],
@@ -157,7 +159,7 @@ const upsertLocalCartItem = (prev, snapshot, quantityDelta = 1, toast = null) =>
 };
 
 export const CartProvider = ({ children }) => {
-    const { user } = useAuth();
+    const { user, updateUser } = useAuth();
     const { socket } = useSocket();
     const toast = useToast();
     const { removeFromWishlist } = useWishlist();
@@ -166,6 +168,14 @@ export const CartProvider = ({ children }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
     const [quickAddProduct, setQuickAddProduct] = useState(null);
+    const [phoneCaptureState, setPhoneCaptureState] = useState({
+        modalKey: 0,
+        isOpen: false,
+        mobile: '',
+        error: '',
+        isSaving: false
+    });
+    const [pendingAddIntent, setPendingAddIntent] = useState(null);
 
     const hydrateFromServer = useCallback(async (mergeGuest = false) => {
         if (!user) return;
@@ -201,16 +211,16 @@ export const CartProvider = ({ children }) => {
         }
     }, [items, user]);
 
-    const addItem = async ({ product, variant, quantity = 1 }) => {
+    const executeAddItem = useCallback(async ({ product, variant, quantity = 1 }) => {
         if (!product) return;
         const snapshot = buildItemFromProduct(product, variant, quantity);
         if (String(snapshot.status || '').toLowerCase() !== 'active') {
             toast.error('This product is inactive and cannot be added to cart.');
-            return;
+            return { status: 'blocked' };
         }
         if (snapshot.isOutOfStock) {
             toast.warning('This product is currently out of stock.');
-            return;
+            return { status: 'blocked' };
         }
         if (user) {
             notifyCartItemAdded(product.id, variant?.id || '');
@@ -230,7 +240,28 @@ export const CartProvider = ({ children }) => {
             notifyCartItemAdded(product.id, variant?.id || '');
             playFacebookLikeSound();
         }
-    };
+        return { status: 'added' };
+    }, [removeFromWishlist, toast, user, items]);
+
+    const addItem = useCallback(async ({ product, variant, quantity = 1 }) => {
+        if (!product) return { status: 'blocked' };
+        const hasMissingMobile = Boolean(user && !String(user?.mobile || '').trim());
+        if (phoneCaptureState.isOpen) {
+            return { status: 'blocked' };
+        }
+        if (hasMissingMobile) {
+            setPendingAddIntent({ product, variant: variant || null, quantity });
+            setPhoneCaptureState({
+                modalKey: Date.now(),
+                isOpen: true,
+                mobile: '',
+                error: '',
+                isSaving: false
+            });
+            return { status: 'gated' };
+        }
+        return executeAddItem({ product, variant, quantity });
+    }, [executeAddItem, phoneCaptureState.isOpen, user]);
 
     const updateQuantity = async ({ productId, variantId = '', quantity }) => {
         if (user) {
@@ -305,8 +336,69 @@ export const CartProvider = ({ children }) => {
     const openQuickAdd = (product) => setQuickAddProduct(product);
     const closeQuickAdd = () => setQuickAddProduct(null);
     const handleQuickAddConfirm = async (variant) => {
-        await addItem({ product: quickAddProduct, variant, quantity: 1 });
+        const result = await addItem({ product: quickAddProduct, variant, quantity: 1 });
+        if (result?.status === 'gated') {
+            closeQuickAdd();
+        }
+        return result;
     };
+    const closePhoneCapture = useCallback(() => {
+        if (phoneCaptureState.isSaving) return;
+        setPhoneCaptureState((prev) => ({
+            ...prev,
+            isOpen: false,
+            error: '',
+            isSaving: false
+        }));
+        setPendingAddIntent(null);
+    }, [phoneCaptureState.isSaving]);
+
+    const handlePhoneCaptureSubmit = useCallback(async (mobile) => {
+        const activeIntent = pendingAddIntent;
+        if (!activeIntent) {
+            setPhoneCaptureState((prev) => ({
+                ...prev,
+                isOpen: false,
+                error: '',
+                isSaving: false
+            }));
+            return;
+        }
+
+        const latestMobile = String(user?.mobile || '').trim();
+        setPhoneCaptureState((prev) => ({ ...prev, error: '', isSaving: true }));
+
+        try {
+            if (!latestMobile) {
+                const profileRes = await authService.updateProfile({ mobile });
+                if (!profileRes?.user) {
+                    throw new Error(profileRes?.message || 'Failed to save phone number');
+                }
+                updateUser(profileRes.user);
+            }
+
+            setPhoneCaptureState({
+                modalKey: Date.now(),
+                isOpen: false,
+                mobile: '',
+                error: '',
+                isSaving: false
+            });
+            setPendingAddIntent(null);
+
+            try {
+                await executeAddItem(activeIntent);
+            } catch (error) {
+                toast.error(error?.message || 'Failed to add item to cart');
+            }
+        } catch (error) {
+            setPhoneCaptureState((prev) => ({
+                ...prev,
+                error: error?.message || 'Failed to save phone number',
+                isSaving: false
+            }));
+        }
+    }, [executeAddItem, pendingAddIntent, toast, updateUser, user?.mobile]);
 
     const isAdminRoute = location.pathname.startsWith('/admin');
     const isStaffUser = user && (user.role === 'admin' || user.role === 'staff');
@@ -506,7 +598,7 @@ export const CartProvider = ({ children }) => {
         removeItem,
         clearCart,
         openQuickAdd
-    }), [items, itemCount, subtotal, isOpen, isSyncing]);
+    }), [items, itemCount, subtotal, isOpen, isSyncing, addItem]);
 
     return (
         <CartContext.Provider value={value}>
@@ -516,6 +608,15 @@ export const CartProvider = ({ children }) => {
                 product={quickAddProduct}
                 onClose={closeQuickAdd}
                 onConfirm={handleQuickAddConfirm}
+            />
+            <PhoneCaptureModal
+                key={phoneCaptureState.modalKey}
+                isOpen={phoneCaptureState.isOpen}
+                initialValue={phoneCaptureState.mobile}
+                isSaving={phoneCaptureState.isSaving}
+                error={phoneCaptureState.error}
+                onClose={closePhoneCapture}
+                onSubmit={handlePhoneCaptureSubmit}
             />
         </CartContext.Provider>
     );
