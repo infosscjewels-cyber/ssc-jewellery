@@ -57,6 +57,34 @@ const normalizeSettlementSnapshot = (settlement = null) => {
     };
 };
 
+const isDuplicatePaymentClaimError = (error) => {
+    const message = String(error?.message || '').toLowerCase();
+    return message.includes('duplicate entry') && message.includes('uniq_payment_attempt_payment_id');
+};
+
+const attachAttemptToExistingPaidOrder = async ({ attempt = null, paymentId = '' } = {}) => {
+    const resolvedPaymentId = String(paymentId || '').trim();
+    if (!attempt?.id || !resolvedPaymentId) return null;
+
+    let existingOrder = await Order.getByRazorpayPaymentId(resolvedPaymentId);
+    if (!existingOrder) {
+        const ownerAttempt = await PaymentAttempt.getByRazorpayPaymentId(resolvedPaymentId);
+        if (ownerAttempt?.local_order_id) {
+            existingOrder = await Order.getById(ownerAttempt.local_order_id);
+        }
+    }
+    if (!existingOrder?.id) return null;
+
+    if (String(attempt.local_order_id || '') !== String(existingOrder.id)) {
+        await PaymentAttempt.linkToExistingOrder({
+            id: attempt.id,
+            localOrderId: existingOrder.id,
+            status: PAYMENT_STATUS.PAID
+        });
+    }
+    return existingOrder;
+};
+
 const ensureCapturedPaymentMatchesAttempt = async ({
     attempt,
     razorpayPaymentId = null,
@@ -134,11 +162,47 @@ const ensureCapturedPaymentMatchesAttempt = async ({
         throw buildError('Payment is not captured yet', 409, { reconciliationPending: true });
     }
 
-    await PaymentAttempt.markPaidUnverified({
-        id: attempt.id,
-        paymentId: resolvedPaymentId,
-        signature: razorpaySignature
+    const existingOrder = await attachAttemptToExistingPaidOrder({
+        attempt,
+        paymentId: resolvedPaymentId
     });
+    if (existingOrder?.id) {
+        const refreshedAttempt = await PaymentAttempt.getById(attempt.id);
+        return {
+            attempt: refreshedAttempt || attempt,
+            paymentDetails: resolvedPaymentDetails,
+            paymentId: resolvedPaymentId,
+            existingOrder,
+            reusedExistingOrder: true
+        };
+    }
+
+    try {
+        await PaymentAttempt.markPaidUnverified({
+            id: attempt.id,
+            paymentId: resolvedPaymentId,
+            signature: razorpaySignature
+        });
+    } catch (error) {
+        if (!isDuplicatePaymentClaimError(error)) {
+            throw error;
+        }
+        const duplicateOrder = await attachAttemptToExistingPaidOrder({
+            attempt,
+            paymentId: resolvedPaymentId
+        });
+        if (duplicateOrder?.id) {
+            const refreshedAttempt = await PaymentAttempt.getById(attempt.id);
+            return {
+                attempt: refreshedAttempt || attempt,
+                paymentDetails: resolvedPaymentDetails,
+                paymentId: resolvedPaymentId,
+                existingOrder: duplicateOrder,
+                reusedExistingOrder: true
+            };
+        }
+        throw error;
+    }
 
     const refreshedAttempt = await PaymentAttempt.getById(attempt.id);
     return {
@@ -263,6 +327,10 @@ const reconcilePaymentAttemptById = async ({ attemptId, source = 'scheduler' } =
             razorpaySignature: attempt.razorpay_signature || null,
             paymentDetails
         });
+
+        if (reconciled?.reusedExistingOrder && reconciled?.existingOrder?.id) {
+            return { ok: true, skipped: true, reason: 'already_materialized', order: reconciled.existingOrder };
+        }
 
         const order = await Order.createManualOrderFromAttempt({
             attempt: reconciled.attempt,

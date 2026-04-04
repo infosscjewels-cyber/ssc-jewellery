@@ -3212,7 +3212,7 @@ class Order {
                     SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
                     SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() AND scoped.status <> 'cancelled' THEN scoped.total ELSE 0 END) as today_revenue
                  FROM (
-                    SELECT o.total, o.status, o.created_at
+                    SELECT o.total, o.status, o.payment_status, o.created_at
                     FROM orders o
                     LEFT JOIN users u ON u.id = o.user_id
                     ${where}

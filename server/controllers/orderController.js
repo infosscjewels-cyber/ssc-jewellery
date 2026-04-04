@@ -254,12 +254,6 @@ const createOrderFromRecoveryPayment = async (req, {
         || attemptByLink?.attempt_no
         || 0
     ) || null;
-    const preferredOrderRef = String(
-        notes.orderRef
-        || notes.order_ref
-        || attemptByLink?.payload_json?.orderRef
-        || ''
-    ).trim() || null;
     const shippingFeeOverrideSubunits = Number(
         notes.shippingFeeSubunits
         || notes.shipping_fee_subunits
@@ -290,7 +284,6 @@ const createOrderFromRecoveryPayment = async (req, {
         },
         billingAddress,
         shippingAddress,
-        orderRef: preferredOrderRef,
         shippingFeeOverrideSubunits
     });
 
@@ -770,7 +763,7 @@ const verifyRazorpayPayment = async (req, res) => {
         lockedPaymentId = razorpayPaymentId;
         lockedSignature = razorpaySignature;
 
-        const { attempt: reconciledAttempt, paymentDetails } = await ensureCapturedPaymentMatchesAttempt({
+        const { attempt: reconciledAttempt, paymentDetails, reusedExistingOrder = false } = await ensureCapturedPaymentMatchesAttempt({
             attempt,
             razorpayPaymentId,
             razorpaySignature,
@@ -790,21 +783,24 @@ const verifyRazorpayPayment = async (req, res) => {
             await markRecoveredByOrder({ order, reason: 'order_paid_checkout' });
         } catch {}
 
-        const verifyMarked = await PaymentAttempt.markVerified({
-            id: attempt.id,
-            paymentId: razorpayPaymentId,
-            signature: razorpaySignature,
-            localOrderId: order.id
-        });
-        if (!verifyMarked) {
-            const latestAttempt = await PaymentAttempt.getById(attempt.id);
-            if (latestAttempt?.local_order_id) {
-                const existingOrder = await Order.getById(latestAttempt.local_order_id);
-                if (existingOrder) {
-                    return res.json({ order: existingOrder, verified: true });
+        const latestAfterMaterialization = await PaymentAttempt.getById(attempt.id);
+        if (!(latestAfterMaterialization?.local_order_id && String(latestAfterMaterialization.local_order_id) === String(order.id))) {
+            const verifyMarked = await PaymentAttempt.markVerified({
+                id: attempt.id,
+                paymentId: razorpayPaymentId,
+                signature: razorpaySignature,
+                localOrderId: order.id
+            });
+            if (!verifyMarked) {
+                const latestAttempt = await PaymentAttempt.getById(attempt.id);
+                if (latestAttempt?.local_order_id) {
+                    const existingOrder = await Order.getById(latestAttempt.local_order_id);
+                    if (existingOrder) {
+                        return res.json({ order: existingOrder, verified: true });
+                    }
                 }
+                return res.status(409).json({ message: 'Payment verification conflict. Please retry.' });
             }
-            return res.status(409).json({ message: 'Payment verification conflict. Please retry.' });
         }
         lockedAttemptId = null;
         lockedPaymentId = null;
@@ -814,7 +810,9 @@ const verifyRazorpayPayment = async (req, res) => {
         const finalOrder = hydratedOrder || order;
         const io = req.app.get('io');
         if (io) {
-            emitToOrderAudiences(io, finalOrder, 'order:create', { order: finalOrder });
+            if (!reusedExistingOrder) {
+                emitToOrderAudiences(io, finalOrder, 'order:create', { order: finalOrder });
+            }
             emitToOrderAudiences(io, finalOrder, 'order:update', {
                 orderId: finalOrder.id || order.id,
                 status: finalOrder.status || 'confirmed',
@@ -834,23 +832,25 @@ const verifyRazorpayPayment = async (req, res) => {
             emitToOrderAudiences(io, finalOrder, 'payment:update', paymentPayload);
             emitCouponChangedForOrder(req, finalOrder);
         }
-        notifyAdminsOfNewOrder(finalOrder, { source: 'checkout' });
+        if (!reusedExistingOrder) {
+            notifyAdminsOfNewOrder(finalOrder, { source: 'checkout' });
 
-        void triggerOrderLifecycleEmail({
-            order,
-            stage: 'confirmed',
-            includeInvoice: true
-        });
-        void triggerPaymentLifecycleCommunication({
-            order,
-            stage: PAYMENT_STATUS.PAID,
-            payment: {
-                paymentStatus: PAYMENT_STATUS.PAID,
-                paymentMethod: 'razorpay',
-                paymentReference: razorpayPaymentId,
-                razorpayOrderId: reconciledAttempt.razorpay_order_id
-            }
-        });
+            void triggerOrderLifecycleEmail({
+                order,
+                stage: 'confirmed',
+                includeInvoice: true
+            });
+            void triggerPaymentLifecycleCommunication({
+                order,
+                stage: PAYMENT_STATUS.PAID,
+                payment: {
+                    paymentStatus: PAYMENT_STATUS.PAID,
+                    paymentMethod: 'razorpay',
+                    paymentReference: razorpayPaymentId,
+                    razorpayOrderId: reconciledAttempt.razorpay_order_id
+                }
+            });
+        }
 
         return res.json({ order, verified: true });
     } catch (error) {
@@ -953,6 +953,17 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
     if (attempt.local_order_id) {
         const existingOrder = await Order.getById(attempt.local_order_id);
         if (existingOrder) return existingOrder;
+    }
+    if (razorpayPaymentId) {
+        const existingByPayment = await Order.getByRazorpayPaymentId(razorpayPaymentId);
+        if (existingByPayment?.id) {
+            await PaymentAttempt.linkToExistingOrder({
+                id: attempt.id,
+                localOrderId: existingByPayment.id,
+                status: PAYMENT_STATUS.PAID
+            }).catch(() => {});
+            return existingByPayment;
+        }
     }
 
     const order = await Order.createManualOrderFromAttempt({
@@ -1835,22 +1846,24 @@ const getMyPaymentAttemptStatus = async (req, res) => {
                         razorpayOrderId: reconciled.attempt.razorpay_order_id
                     }
                 });
-                notifyAdminsOfNewOrder(finalOrder, { source: 'checkout_status_poll' });
-                void triggerOrderLifecycleEmail({
-                    order: finalOrder,
-                    stage: 'confirmed',
-                    includeInvoice: true
-                });
-                void triggerPaymentLifecycleCommunication({
-                    order: finalOrder,
-                    stage: PAYMENT_STATUS.PAID,
-                    payment: {
-                        paymentStatus: PAYMENT_STATUS.PAID,
-                        paymentMethod: 'razorpay',
-                        paymentReference: reconciled.paymentId,
-                        razorpayOrderId: reconciled.attempt.razorpay_order_id
-                    }
-                });
+                if (!reconciled?.reusedExistingOrder) {
+                    notifyAdminsOfNewOrder(finalOrder, { source: 'checkout_status_poll' });
+                    void triggerOrderLifecycleEmail({
+                        order: finalOrder,
+                        stage: 'confirmed',
+                        includeInvoice: true
+                    });
+                    void triggerPaymentLifecycleCommunication({
+                        order: finalOrder,
+                        stage: PAYMENT_STATUS.PAID,
+                        payment: {
+                            paymentStatus: PAYMENT_STATUS.PAID,
+                            paymentMethod: 'razorpay',
+                            paymentReference: reconciled.paymentId,
+                            razorpayOrderId: reconciled.attempt.razorpay_order_id
+                        }
+                    });
+                }
             }
 
             return res.json(serializePaymentAttemptStatus({

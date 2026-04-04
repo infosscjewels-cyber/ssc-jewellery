@@ -113,6 +113,15 @@ class PaymentAttempt {
         return hydrateAttemptRow(rows[0]);
     }
 
+    static async getByRazorpayPaymentId(razorpayPaymentId) {
+        const [rows] = await db.execute(
+            'SELECT * FROM payment_attempts WHERE razorpay_payment_id = ? LIMIT 1',
+            [razorpayPaymentId]
+        );
+        if (!rows.length) return null;
+        return hydrateAttemptRow(rows[0]);
+    }
+
     static async getById(id) {
         const [rows] = await db.execute(
             'SELECT * FROM payment_attempts WHERE id = ? LIMIT 1',
@@ -242,6 +251,24 @@ class PaymentAttempt {
              WHERE id = ?
                AND local_order_id IS NULL`,
             [PAYMENT_STATUS.PAID, paymentId, signature, localOrderId, id]
+        );
+        return Number(result?.affectedRows || 0) > 0;
+    }
+
+    static async linkToExistingOrder({ id, localOrderId, status = PAYMENT_STATUS.PAID } = {}) {
+        const [result] = await db.execute(
+            `UPDATE payment_attempts
+             SET status = ?,
+                 local_order_id = ?,
+                 verify_started_at = NULL,
+                 finalized_at = COALESCE(finalized_at, CURRENT_TIMESTAMP),
+                 verified_at = COALESCE(verified_at, CURRENT_TIMESTAMP),
+                 failure_reason = NULL,
+                 last_gateway_error = NULL,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?
+               AND local_order_id IS NULL`,
+            [status, localOrderId, id]
         );
         return Number(result?.affectedRows || 0) > 0;
     }
