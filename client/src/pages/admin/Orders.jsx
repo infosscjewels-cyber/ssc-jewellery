@@ -1190,6 +1190,23 @@ export function Orders({
         if (!hasStart && !hasEnd) return;
         const nextStart = hasStart ? String(initialStartDate).trim() : '';
         const nextEnd = hasEnd ? String(initialEndDate).trim() : '';
+        const nextStartDate = toDateOnly(nextStart);
+        const nextEndDate = toDateOnly(nextEnd);
+        const span = (nextStartDate && nextEndDate) ? diffInDays(nextStartDate, nextEndDate) : 0;
+        if (nextStartDate && nextEndDate && span > MAX_RANGE_DAYS) {
+            setDraftQuickRange('latest_10');
+            setDraftStartDate('');
+            setDraftEndDate('');
+            setQuickRange('latest_10');
+            setStartDate('');
+            setEndDate('');
+            shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
+            if (page !== 1) {
+                setPage(1);
+            }
+            onInitialDateRangeApplied();
+            return;
+        }
         setDraftQuickRange('custom');
         setDraftStartDate(nextStart);
         setDraftEndDate(nextEnd);

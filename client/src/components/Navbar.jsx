@@ -8,6 +8,7 @@ import emptyIllustration from '../assets/closed.svg';
 import placeholderImg from '../assets/placeholder.jpg';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
+import { BUILD_VERSION } from '../generated/buildInfo.js';
 import { formatTierLabel } from '../utils/tierFormat';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import EmptyState from './EmptyState';
@@ -121,6 +122,7 @@ export default function Navbar() {
     const refreshTimerRef = useRef(null);
     const desktopSearchRef = useRef(null);
     const mobileSearchRef = useRef(null);
+    const mobileSearchInputRef = useRef(null);
     const searchDebounceRef = useRef(null);
     const searchAbortRef = useRef(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -129,6 +131,7 @@ export default function Navbar() {
     const [searchResults, setSearchResults] = useState([]);
     const [isSearchOpen, setIsSearchOpen] = useState(false);
     const [isSearchLoading, setIsSearchLoading] = useState(false);
+    const [shouldFocusMobileSearch, setShouldFocusMobileSearch] = useState(false);
     const subCategoriesEnabled = companyInfo?.subCategoriesEnabled === true;
     const [activeMegaCategory, setActiveMegaCategory] = useState('');
     const [mobileSelectedCategory, setMobileSelectedCategory] = useState('');
@@ -175,7 +178,17 @@ export default function Navbar() {
         setIsOpen(false);
         setMobileMenuView('main');
         setIsSearchOpen(false);
+        setShouldFocusMobileSearch(false);
     }, [location.pathname]);
+
+    useEffect(() => {
+        if (!isOpen || !shouldFocusMobileSearch) return;
+        const timer = setTimeout(() => {
+            mobileSearchInputRef.current?.focus();
+            setShouldFocusMobileSearch(false);
+        }, 80);
+        return () => clearTimeout(timer);
+    }, [isOpen, shouldFocusMobileSearch]);
 
     useEffect(() => {
         if (itemCount > prevCountRef.current) {
@@ -527,6 +540,13 @@ export default function Navbar() {
         setIsOpen(false);
         openCart();
     };
+    const handleMobileSearchClick = () => {
+        setIsUserMenuOpen(false);
+        setIsMegaOpen(false);
+        setMobileMenuView('main');
+        setIsOpen(true);
+        setShouldFocusMobileSearch(true);
+    };
 
     return (
         // [FIX] Dynamic Classes for Animation
@@ -828,9 +848,19 @@ export default function Navbar() {
                                 {tierLabel}
                             </span>
                         )}
+                        <button
+                            type="button"
+                            className="rounded-full border border-gray-200 bg-white p-2 text-primary shadow-sm transition-colors hover:border-accent/30 hover:bg-accent/5"
+                            onClick={handleMobileSearchClick}
+                            aria-label="Open search"
+                        >
+                            <Search size={18} />
+                        </button>
                         <button 
+                            type="button"
                             className="p-2 text-primary"
                             onClick={() => setIsOpen(!isOpen)}
+                            aria-label={isOpen ? 'Close menu' : 'Open menu'}
                         >
                             {isOpen ? <X size={28} /> : <Menu size={28} />}
                         </button>
@@ -846,6 +876,7 @@ export default function Navbar() {
                     <div className="relative text-left" ref={mobileSearchRef}>
                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                         <input
+                            ref={mobileSearchInputRef}
                             type="search"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
@@ -1139,6 +1170,9 @@ export default function Navbar() {
                             <User size={20} /> Login
                         </Link>
                     )}
+                    <div className="pt-3 text-center text-[10px] tracking-wide text-gray-300">
+                        Build {BUILD_VERSION}
+                    </div>
                 </div>
             </div>
         </nav>

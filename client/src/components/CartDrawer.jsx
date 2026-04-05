@@ -9,6 +9,7 @@ import cartIllustration from '../assets/cart.svg';
 import { useCartRecommendations } from '../hooks/useCartRecommendations';
 import { useWishlist } from '../context/WishlistContext';
 import { vibrateTap } from '../utils/haptics';
+import { BUILD_VERSION } from '../generated/buildInfo.js';
 import RazorpayAffordability from './RazorpayAffordability';
 import { computeShippingPreview } from '../utils/shippingPreview';
 import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
@@ -412,6 +413,7 @@ export default function CartDrawer() {
                             ? 'Add your contact and address during checkout.'
                             : 'Browsing, cart, wishlist, and order tracking stay available while ordering is paused.'}
                     </p>
+                    <p className="text-[10px] text-gray-300 text-center mt-1">Build {BUILD_VERSION}</p>
                 </div>
                 )}
             </div>

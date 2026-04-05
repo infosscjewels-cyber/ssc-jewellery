@@ -113,6 +113,24 @@ const formatShortRangeHint = (value) => {
     if (Number.isNaN(date.getTime())) return '';
     return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 };
+const isDashboardCustomRangeAllowed = (startDate = '', endDate = '') => {
+    const start = startDate ? new Date(`${startDate}T00:00:00`) : null;
+    const end = endDate ? new Date(`${endDate}T00:00:00`) : null;
+    if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return false;
+    const diff = Math.ceil((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+    return diff >= 1 && diff <= 90;
+};
+const buildLifetimeOrderTarget = ({ status = 'all', count = 0, oldestDate = '', endDate = '' } = {}) => {
+    const hasOrders = Number(count || 0) > 0;
+    const canUseCustom = hasOrders && isDashboardCustomRangeAllowed(oldestDate, endDate);
+    return {
+        tab: 'orders',
+        status,
+        quickRange: canUseCustom ? 'custom' : 'latest_10',
+        startDate: canUseCustom ? String(oldestDate || '') : '',
+        endDate: canUseCustom ? String(endDate || '') : ''
+    };
+};
 
 export default function DashboardInsights({ onRunAction = () => {} }) {
     const toast = useToast();
@@ -478,13 +496,12 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             label: 'New Orders',
             value: Number(newOrdersNav.count || 0).toLocaleString('en-IN'),
             icon: ShoppingBag,
-            target: {
-                tab: 'orders',
+            target: buildLifetimeOrderTarget({
                 status: 'confirmed',
-                quickRange: 'custom',
-                startDate: String(newOrdersNav.oldestDate || ''),
-                endDate: String(newOrdersNav.endDate || '')
-            },
+                count: newOrdersNav.count,
+                oldestDate: newOrdersNav.oldestDate,
+                endDate: newOrdersNav.endDate
+            }),
             widgetId: 'kpi_new_orders_lifetime',
             helper: Number(newOrdersNav.count || 0) > 0 && newOrdersNav.oldestDate
                 ? `Open since ${formatShortRangeHint(newOrdersNav.oldestDate)}`
@@ -494,13 +511,12 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             label: 'Pending Orders',
             value: Number(pendingOrdersNav.count || 0).toLocaleString('en-IN'),
             icon: AlertTriangle,
-            target: {
-                tab: 'orders',
+            target: buildLifetimeOrderTarget({
                 status: 'pending',
-                quickRange: 'custom',
-                startDate: String(pendingOrdersNav.oldestDate || ''),
-                endDate: String(pendingOrdersNav.endDate || '')
-            },
+                count: pendingOrdersNav.count,
+                oldestDate: pendingOrdersNav.oldestDate,
+                endDate: pendingOrdersNav.endDate
+            }),
             widgetId: 'kpi_pending_orders_lifetime',
             helper: Number(pendingOrdersNav.count || 0) > 0 && pendingOrdersNav.oldestDate
                 ? `Open since ${formatShortRangeHint(pendingOrdersNav.oldestDate)}`

@@ -4,6 +4,7 @@ import { Instagram, Youtube, Facebook, Mail, MapPin, MessageCircle, Home, Store,
 import { useAuth } from '../context/AuthContext';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
+import { BUILD_VERSION } from '../generated/buildInfo.js';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
 
@@ -288,7 +289,8 @@ export default function Footer() {
                 </div>
             </div>
             <div className="bg-black/30 text-center text-xs text-white/60 py-4">
-                © {new Date().getFullYear()} {company.displayName || 'SSC Jewellery'}. All rights reserved.
+                <div>© {new Date().getFullYear()} {company.displayName || 'SSC Jewellery'}. All rights reserved.</div>
+                <div className="mt-1 text-[10px] tracking-wide text-white/35">Build {BUILD_VERSION}</div>
             </div>
         </footer>
     );

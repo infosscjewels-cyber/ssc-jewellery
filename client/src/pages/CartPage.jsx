@@ -10,6 +10,7 @@ import cartIllustration from '../assets/cart.svg';
 import { useCartRecommendations } from '../hooks/useCartRecommendations';
 import { vibrateTap } from '../utils/haptics';
 import RazorpayAffordability from '../components/RazorpayAffordability';
+import { BUILD_VERSION } from '../generated/buildInfo.js';
 import { formatTierLabel } from '../utils/tierFormat';
 import { computeShippingPreview } from '../utils/shippingPreview';
 
@@ -451,6 +452,7 @@ export default function CartPage() {
                             <p className="text-[11px] text-gray-400 text-center mt-2">
                                 {storefrontOpen ? 'Checkout will collect your contact and address details before payment.' : 'You can keep items in cart and return when ordering reopens.'}
                             </p>
+                            <p className="text-[10px] text-gray-300 text-center mt-1">Build {BUILD_VERSION}</p>
                         </div>
                         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                             <h3 className="text-sm font-semibold text-gray-800">Need help?</h3>
@@ -458,6 +460,7 @@ export default function CartPage() {
                             <Link to="/contact" className="inline-flex items-center justify-center mt-4 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-primary hover:bg-primary/5">
                                 Contact support
                             </Link>
+                            <p className="mt-4 text-[10px] text-gray-300">Build {BUILD_VERSION}</p>
                         </div>
                     </div>
                     )}
