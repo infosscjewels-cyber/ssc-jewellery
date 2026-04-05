@@ -47,7 +47,11 @@ const WORKFLOW_TEMPLATES = {
 const EXPOSE_FULL_DEBUG = String(process.env.NODE_ENV || '').trim().toLowerCase() !== 'production';
 
 const toText = (value = '') => String(value == null ? '' : value).trim();
-const stripUnsafe = (value = '') => toText(value).replace(/[\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim();
+const stripUnsafe = (value = '') => toText(value)
+    .replace(/,/g, ' ')
+    .replace(/[\r\n\t]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 const normalizeTemplateName = (value = '') => toText(value).replace(/\s+/g, '_').toLowerCase();
 const setSearchParamIfPresent = (searchParams, key, value) => {
     const normalized = toText(value);

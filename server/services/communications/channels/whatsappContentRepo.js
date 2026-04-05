@@ -183,7 +183,8 @@ const buildAbandonedCartContent = (payload = {}) => {
     return {
         template: withOfferTemplate,
         params: [name, reminderMessage, discountCode, discountLabel, validUntil || 'Limited period'],
-        message: normalize(payload?.message || '') || `Hello ${name}, ${reminderMessage} Coupon: ${discountCode}. Discount: ${discountLabel}. Valid Until: ${validUntil || 'Limited period'}.`
+        message: normalize(payload?.message || '') || `Hello ${name}, ${reminderMessage} Coupon: ${discountCode}. Discount: ${discountLabel}. Valid Until: ${validUntil || 'Limited period'}.`,
+        headParam: name
     };
 };
 
