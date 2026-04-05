@@ -24,6 +24,21 @@ export default function Login() {
   const navigate = useNavigate(); // We can use navigate again now!
   const isAppleMobile = isAppleMobileDevice();
 
+  const redirectOtpUserToSignup = (rawIdentifier = '') => {
+    const value = String(rawIdentifier || '').trim();
+    if (!value) {
+      navigate('/register');
+      return;
+    }
+    const params = new URLSearchParams();
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      params.set('email', value.toLowerCase());
+    } else if (/^\d{10,12}$/.test(value.replace(/\D/g, ''))) {
+      params.set('mobile', value.replace(/\D/g, ''));
+    }
+    navigate(`/register${params.toString() ? `?${params.toString()}` : ''}`);
+  };
+
   // Auto-Redirect if already logged in (using Context state)
   useEffect(() => {
       if (user) {
@@ -97,6 +112,11 @@ export default function Login() {
     try {
         const res = await authService.sendOtp({ identifier: email, purpose: 'login' });
         if (!res?.ok) {
+          if (String(res?.message || '').toLowerCase() === 'no account found for that email or mobile number.') {
+            toast.info('No account found. Redirecting you to sign up.');
+            redirectOtpUserToSignup(email);
+            return;
+          }
           toast.error(res?.message || "Failed to send OTP");
           return;
         }
@@ -136,7 +156,13 @@ export default function Login() {
     try {
         const res = await authService.login(payload);
         processLoginSuccess(res);
-    } catch {
+    } catch (error) {
+        const message = String(error?.message || '').trim().toLowerCase();
+        if (method === 'otp' && (message === 'user not found' || message === 'no account found for that email or mobile number.')) {
+            toast.info("No account found. Redirecting you to sign up.");
+            redirectOtpUserToSignup(formData.otpIdentifier);
+            return;
+        }
         if (method === 'otp') setOtpStatus('invalid');
         toast.error("Connection Error");
         setIsLoading(false);

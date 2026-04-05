@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { authService } from '../services/authService';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Loader2, Check, X as XIcon, AlertCircle,Eye, EyeOff } from 'lucide-react';
 import { useToast } from '../context/ToastContext'; 
 import { BRAND_LOGO_URL } from '../utils/branding.js'; 
@@ -8,6 +8,7 @@ import { getStorefrontMobileValidationMessage, normalizeStorefrontMobileInput } 
 
 export default function Register() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const toast = useToast(); 
   
   const [formData, setFormData] = useState({
@@ -24,6 +25,17 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   // NEW: Specific state for "User Already Exists" error
   const [userExistsError, setUserExistsError] = useState(false);
+
+  useEffect(() => {
+    const prefillEmail = String(searchParams.get('email') || '').trim().toLowerCase();
+    const prefillMobile = String(searchParams.get('mobile') || '').replace(/\D/g, '').slice(0, 10);
+    if (!prefillEmail && !prefillMobile) return;
+    setFormData((prev) => ({
+      ...prev,
+      email: prev.email || prefillEmail,
+      mobile: prev.mobile || prefillMobile
+    }));
+  }, [searchParams]);
 
   useEffect(() => {
     let interval;
