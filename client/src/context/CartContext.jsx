@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { cartService } from '../services/cartService';
 import { useAuth } from './AuthContext';
@@ -23,7 +23,9 @@ const defaultCartContext = {
     updateQuantity: async () => {},
     removeItem: async () => {},
     clearCart: async () => {},
-    openQuickAdd: () => {}
+    openQuickAdd: () => {},
+    adoptServerCart: () => {},
+    skipNextLoginGuestMerge: () => {}
 };
 
 const CartContext = createContext(defaultCartContext);
@@ -176,6 +178,7 @@ export const CartProvider = ({ children }) => {
         isSaving: false
     });
     const [pendingAddIntent, setPendingAddIntent] = useState(null);
+    const skipNextLoginGuestMergeRef = useRef(false);
 
     const hydrateFromServer = useCallback(async (mergeGuest = false) => {
         if (!user) return;
@@ -199,7 +202,9 @@ export const CartProvider = ({ children }) => {
 
     useEffect(() => {
         if (user) {
-            hydrateFromServer(true);
+            const shouldMergeGuest = !skipNextLoginGuestMergeRef.current;
+            skipNextLoginGuestMergeRef.current = false;
+            hydrateFromServer(shouldMergeGuest);
         } else {
             setItems(loadGuestCart());
         }
@@ -332,6 +337,22 @@ export const CartProvider = ({ children }) => {
             setItems([]);
         }
     };
+
+    const adoptServerCart = useCallback((serverItems = []) => {
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+        } catch {
+            // ignore
+        }
+        const nextItems = Array.isArray(serverItems)
+            ? serverItems.map((item) => ({ ...item, key: buildKey(item.productId, item.variantId) }))
+            : [];
+        setItems(nextItems);
+    }, []);
+
+    const skipNextLoginGuestMerge = useCallback(() => {
+        skipNextLoginGuestMergeRef.current = true;
+    }, []);
 
     const openCart = () => setIsOpen(true);
     const closeCart = () => setIsOpen(false);
@@ -599,8 +620,10 @@ export const CartProvider = ({ children }) => {
         updateQuantity,
         removeItem,
         clearCart,
-        openQuickAdd
-    }), [items, itemCount, subtotal, isOpen, isSyncing, addItem]);
+        openQuickAdd,
+        adoptServerCart,
+        skipNextLoginGuestMerge
+    }), [items, itemCount, subtotal, isOpen, isSyncing, addItem, adoptServerCart, skipNextLoginGuestMerge]);
 
     return (
         <CartContext.Provider value={value}>

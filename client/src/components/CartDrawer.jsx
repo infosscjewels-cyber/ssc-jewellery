@@ -389,7 +389,7 @@ export default function CartDrawer() {
                     </div>
                     {storefrontOpen ? (
                         <Link
-                            to={user ? '/checkout' : '/login?redirect=%2Fcheckout'}
+                            to="/checkout"
                             className="w-full inline-flex items-center justify-center bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all"
                             onClick={closeCart}
                         >
@@ -409,7 +409,7 @@ export default function CartDrawer() {
                     )}
                     <p className="text-[10px] text-gray-400 text-center mt-2">
                         {storefrontOpen
-                            ? 'Checkout requires login. We will prompt you later.'
+                            ? 'Add your contact and address during checkout.'
                             : 'Browsing, cart, wishlist, and order tracking stay available while ordering is paused.'}
                     </p>
                 </div>

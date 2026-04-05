@@ -17,7 +17,7 @@ const FloatingWhatsApp = () => {
             href={href}
             target="_blank"
             rel="noreferrer"
-            className="fixed right-6 z-50 p-3 rounded-full bg-[#25D366] text-white shadow-lg transition-all hover:scale-105 hover:bg-[#20BA5A] bottom-24 md:bottom-20"
+            className="fixed right-6 z-50 p-3 rounded-full bg-[#25D366] text-white shadow-lg transition-all hover:scale-105 hover:bg-[#20BA5A] bottom-28 md:bottom-20"
             aria-label="Chat on WhatsApp"
         >
             <svg viewBox="0 0 32 32" className="w-5 h-5 fill-current" aria-hidden="true">

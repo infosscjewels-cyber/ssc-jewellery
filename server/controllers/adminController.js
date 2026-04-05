@@ -373,7 +373,7 @@ const getDashboardInsightsPayload = async (query = {}) => {
         );
     }
 
-    const [[overviewRows], [attemptRows], [funnelRows], [trendRows], [productRows], [noSalesRows], [topCustomerRows], [activeCustomerRows], [repeatCustomerRows], [couponRows], [channelRows], [newReturningRevenueRows], [operatorRows], [paymentGatewayRows], [paymentModeRows]] = await Promise.all([
+    const [[overviewRows], [attemptRows], [funnelRows], [trendRows], [productRows], [noSalesRows], [topCustomerRows], [activeCustomerRows], [repeatCustomerRows], [couponRows], [channelRows], [newReturningRevenueRows], [operatorRows], [paymentGatewayRows], [paymentModeRows], [lifetimeOrderKpiRows]] = await Promise.all([
         useDailyAggregate
             ? db.execute(
                 `SELECT
@@ -613,6 +613,14 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 END
              ORDER BY orders DESC`,
             ordersScopeParams
+        ),
+        db.execute(
+            `SELECT
+                SUM(CASE WHEN o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) < 24 THEN 1 ELSE 0 END) AS lifetime_new_orders,
+                MIN(CASE WHEN o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) < 24 THEN DATE(o.created_at) ELSE NULL END) AS oldest_new_order_date,
+                SUM(CASE WHEN o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) >= 24) THEN 1 ELSE 0 END) AS lifetime_pending_orders,
+                MIN(CASE WHEN o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) >= 24) THEN DATE(o.created_at) ELSE NULL END) AS oldest_pending_order_date
+             FROM orders o`
         )
     ]);
 
@@ -678,6 +686,24 @@ const getDashboardInsightsPayload = async (query = {}) => {
     }
 
     const base = overviewRows?.[0] || {};
+    const lifetimeOrderKpiBase = lifetimeOrderKpiRows?.[0] || {};
+    const todayDate = formatDateOnlyUTC(new Date());
+    const normalizeLifetimeDate = (value) => {
+        const formatted = formatDateOnlyUTC(value);
+        return formatted || todayDate;
+    };
+    const lifetimeOrderKpis = {
+        newOrders: {
+            count: Number(lifetimeOrderKpiBase.lifetime_new_orders || 0),
+            oldestDate: normalizeLifetimeDate(lifetimeOrderKpiBase.oldest_new_order_date),
+            endDate: todayDate
+        },
+        pendingOrders: {
+            count: Number(lifetimeOrderKpiBase.lifetime_pending_orders || 0),
+            oldestDate: normalizeLifetimeDate(lifetimeOrderKpiBase.oldest_pending_order_date),
+            endDate: todayDate
+        }
+    };
     const attemptedPayments = Number(attemptRows?.[0]?.attempted_payments || 0);
     const paidOrders = Number(base.paid_orders || 0);
     const netSales = Number(base.net_sales || 0);
@@ -885,6 +911,7 @@ const getDashboardInsightsPayload = async (query = {}) => {
             }))
         },
         actions: actions.slice(0, 8),
+        navigationKpis: lifetimeOrderKpis,
         lastUpdatedAt: new Date().toISOString()
     };
 };

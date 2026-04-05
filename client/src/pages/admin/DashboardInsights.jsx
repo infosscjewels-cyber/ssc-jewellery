@@ -18,7 +18,7 @@ const QUICK_RANGES = [
     { value: 'custom', label: 'Custom Range' }
 ];
 const DAILY_TREND_PAGE_SIZE = 6;
-const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
+const KPI_THEME_SEQUENCE = ['green', 'red', 'sky', 'brown', 'pink'];
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const KPI_CARD_THEMES = {
@@ -106,6 +106,12 @@ const formatPrettyDate = (value) => {
     const month = date.toLocaleString('en-IN', { month: 'short' });
     const year = date.getFullYear();
     return `${day} ${month} ${year}`;
+};
+const formatShortRangeHint = (value) => {
+    if (!value) return '';
+    const date = value instanceof Date ? value : new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
 export default function DashboardInsights({ onRunAction = () => {} }) {
@@ -464,21 +470,55 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     );
     const abandonedTotals = abandonedInsights?.totals || {};
     const comparison = overview?.comparison || null;
-
-    const cards = advancedAnalyticsEnabled
-        ? [
-            { label: 'Final Sales', value: formatCurrency(overview.netSales), icon: IndianRupee, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_net_sales', helper: comparison ? `Vs comparison: ${Number(comparison.netSales || 0) > 0 ? '+' : ''}${Number(comparison.netSales || 0).toFixed(1)}%` : '' },
-            { label: 'Total Sales', value: formatCurrency(overview.grossSales), icon: TrendingUp, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_gross_sales' },
-            { label: 'Orders', value: Number(overview.totalOrders || 0).toLocaleString('en-IN'), icon: ShoppingBag, target: { tab: 'orders', status: statusFilter || 'all' }, widgetId: 'kpi_orders', helper: comparison ? `Vs comparison: ${Number(comparison.totalOrders || 0) > 0 ? '+' : ''}${Number(comparison.totalOrders || 0).toFixed(1)}%` : '' },
-            { label: 'Average Order Value', value: formatCurrency(overview.averageOrderValue), icon: Activity, target: { tab: 'orders', status: 'all', sortBy: 'amount_high' }, widgetId: 'kpi_aov' },
-            { label: 'Cancelled', value: Number(overview.cancelledOrders || 0).toLocaleString('en-IN'), icon: AlertTriangle, target: { tab: 'orders', status: 'cancelled' }, widgetId: 'kpi_cancelled_orders' },
-            { label: 'Repeat Rate', value: `${Number(overview.repeatRate || 0).toFixed(1)}%`, icon: Users, target: { tab: 'customers' }, widgetId: 'kpi_repeat_rate' }
-        ]
-        : [
-            { label: 'Orders', value: Number(overview.totalOrders || 0).toLocaleString('en-IN'), icon: ShoppingBag, target: { tab: 'orders', status: statusFilter || 'all' }, widgetId: 'kpi_orders', helper: `${Number(funnel.paid || 0).toLocaleString('en-IN')} paid orders` },
-            { label: 'Abandoned Carts', value: Number(abandonedTotals.totalJourneys || 0).toLocaleString('en-IN'), icon: Route, target: { tab: 'abandoned' }, widgetId: 'kpi_abandoned_carts', helper: `${Number(abandonedTotals.activeJourneys || 0).toLocaleString('en-IN')} active recovery journeys` }
-        ];
+    const navigationKpis = data?.navigationKpis || {};
+    const newOrdersNav = navigationKpis?.newOrders || {};
+    const pendingOrdersNav = navigationKpis?.pendingOrders || {};
+    const cards = useMemo(() => ([
+        {
+            label: 'New Orders',
+            value: Number(newOrdersNav.count || 0).toLocaleString('en-IN'),
+            icon: ShoppingBag,
+            target: {
+                tab: 'orders',
+                status: 'confirmed',
+                quickRange: 'custom',
+                startDate: String(newOrdersNav.oldestDate || ''),
+                endDate: String(newOrdersNav.endDate || '')
+            },
+            widgetId: 'kpi_new_orders_lifetime',
+            helper: Number(newOrdersNav.count || 0) > 0 && newOrdersNav.oldestDate
+                ? `Open since ${formatShortRangeHint(newOrdersNav.oldestDate)}`
+                : 'No currently new orders'
+        },
+        {
+            label: 'Pending Orders',
+            value: Number(pendingOrdersNav.count || 0).toLocaleString('en-IN'),
+            icon: AlertTriangle,
+            target: {
+                tab: 'orders',
+                status: 'pending',
+                quickRange: 'custom',
+                startDate: String(pendingOrdersNav.oldestDate || ''),
+                endDate: String(pendingOrdersNav.endDate || '')
+            },
+            widgetId: 'kpi_pending_orders_lifetime',
+            helper: Number(pendingOrdersNav.count || 0) > 0 && pendingOrdersNav.oldestDate
+                ? `Open since ${formatShortRangeHint(pendingOrdersNav.oldestDate)}`
+                : 'No pending orders right now'
+        },
+        {
+            label: 'Abandoned Carts',
+            value: Number(abandonedTotals.totalJourneys || 0).toLocaleString('en-IN'),
+            icon: Route,
+            target: { tab: 'abandoned' },
+            widgetId: 'kpi_abandoned_carts_period',
+            helper: `${Number(abandonedTotals.activeJourneys || 0).toLocaleString('en-IN')} active recovery journeys`
+        }
+    ]), [abandonedTotals.activeJourneys, abandonedTotals.totalJourneys, newOrdersNav.count, newOrdersNav.endDate, newOrdersNav.oldestDate, pendingOrdersNav.count, pendingOrdersNav.endDate, pendingOrdersNav.oldestDate]);
     const themedCards = useMemo(() => applyKpiThemeRotation(cards), [cards]);
+    const mobilePrimaryCards = themedCards.slice(0, 2);
+    const mobileAbandonedCard = themedCards[2] || null;
+    const MobileAbandonedIcon = mobileAbandonedCard?.icon || Route;
     const refreshGoals = async () => {
         const goalData = await adminService.getDashboardGoals();
         const rows = Array.isArray(goalData?.goals) ? goalData.goals : [];
@@ -599,13 +639,15 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         }
     };
     const handleOpenCard = (card) => {
+        const target = card.target || { tab: 'orders' };
+        const resolvedQuickRange = target.quickRange || quickRange;
         onRunAction({
             id: `card_${String(card.widgetId || card.label).toLowerCase()}`,
             target: {
-                ...(card.target || { tab: 'orders' }),
-                quickRange,
-                startDate: quickRange === 'custom' ? startDate : '',
-                endDate: quickRange === 'custom' ? endDate : ''
+                ...target,
+                quickRange: resolvedQuickRange,
+                startDate: target.startDate != null ? target.startDate : (resolvedQuickRange === 'custom' ? startDate : ''),
+                endDate: target.endDate != null ? target.endDate : (resolvedQuickRange === 'custom' ? endDate : '')
             }
         });
         trackEvent('kpi_clicked', { widgetId: card.widgetId || card.label, meta: { quickRange, statusFilter, sourceChannel } });
@@ -742,38 +784,73 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                 </div>
             ) : (
                 <>
-                    <div className={`grid gap-4 ${advancedAnalyticsEnabled ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3' : 'grid-cols-2'}`}>
+                    <div className="md:hidden grid grid-cols-2 gap-3">
+                        <div className="grid aspect-square grid-rows-2 gap-3">
+                            {mobilePrimaryCards.map((card) => (
+                                <button
+                                    key={card.label}
+                                    type="button"
+                                    onClick={() => handleOpenCard(card)}
+                                    className={`group relative overflow-hidden rounded-2xl border p-3 shadow-sm flex h-full min-h-0 items-start justify-between text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
+                                >
+                                    <div>
+                                        <p className={`text-[10px] uppercase tracking-[0.16em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
+                                            {card.label === 'New Orders' ? 'New Orders' : 'Pending Orders'}
+                                        </p>
+                                        <p className={`mt-2 text-3xl font-semibold ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
+                                        <p className={`mt-2 pr-1 text-[10px] leading-4 ${KPI_CARD_THEMES[card.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext}`}>
+                                            {card.helper || 'Tap to inspect detailed records'}
+                                        </p>
+                                    </div>
+                                    <div className="flex h-full flex-col items-end justify-between">
+                                        <ArrowRight size={18} className={KPI_CARD_THEMES[card.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
+                                        <card.icon size={30} className={`mt-6 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                        {mobileAbandonedCard && (
+                            <button
+                                type="button"
+                                onClick={() => handleOpenCard(mobileAbandonedCard)}
+                                className={`group relative overflow-hidden rounded-2xl border p-3 shadow-sm flex aspect-square items-start justify-between text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
+                            >
+                                <div>
+                                    <p className={`text-[10px] uppercase tracking-[0.16em] ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
+                                        Abandoned Carts
+                                    </p>
+                                    <p className={`mt-2 text-3xl font-semibold ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{mobileAbandonedCard.value}</p>
+                                    <p className={`mt-2 pr-1 text-[10px] leading-4 ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext}`}>
+                                        {mobileAbandonedCard.helper || 'Tap to inspect detailed records'}
+                                    </p>
+                                </div>
+                                <div className="flex h-full flex-col items-end justify-between">
+                                    <ArrowRight size={18} className={KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
+                                    <MobileAbandonedIcon size={34} className={`mt-6 opacity-90 ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
+                                </div>
+                            </button>
+                        )}
+                    </div>
+                    <div className="hidden md:grid md:grid-cols-2 xl:grid-cols-3 gap-4">
                         {themedCards.map((card) => (
                             <button
                                 key={card.label}
                                 type="button"
                                 onClick={() => handleOpenCard(card)}
-                                className={`group relative overflow-hidden rounded-2xl border p-5 shadow-sm flex items-start justify-between text-left transition-transform hover:-translate-y-0.5 ${advancedAnalyticsEnabled ? 'min-h-[152px]' : 'aspect-square md:aspect-auto md:min-h-[152px]'} ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
+                                className={`group relative overflow-hidden rounded-2xl border p-5 shadow-sm flex min-h-[184px] items-start justify-between text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
                             >
                                 <div>
-                                    <p className={`text-xs uppercase tracking-[0.2em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
-                                        {card.widgetId === 'kpi_orders' ? (
-                                            <>
-                                                <span className="sm:hidden">New Orders</span>
-                                                <span className="hidden sm:inline">{card.label}</span>
-                                            </>
-                                        ) : card.label}
+                                    <p className={`text-xs uppercase tracking-[0.18em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
+                                        {card.label}
                                     </p>
                                     <p className={`text-3xl font-semibold mt-2 ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
-                                    {card.helper && (
-                                        <p className={`text-xs mt-2 ${KPI_CARD_THEMES[card.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext}`}>
-                                            {card.helper}
-                                        </p>
-                                    )}
-                                    {!card.helper && (
-                                        <p className={`text-xs mt-2 ${KPI_CARD_THEMES[card.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext}`}>
-                                            Tap to inspect detailed records
-                                        </p>
-                                    )}
+                                    <p className={`mt-2 pr-2 text-xs leading-4 ${KPI_CARD_THEMES[card.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext}`}>
+                                        {card.helper || 'Tap to inspect detailed records'}
+                                    </p>
                                 </div>
                                 <div className="flex flex-col items-end justify-between h-full">
                                     <ArrowRight size={22} className={KPI_CARD_THEMES[card.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
-                                    <card.icon size={54} className={`mt-10 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
+                                    <card.icon size={44} className={`mt-10 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
                                 </div>
                             </button>
                         ))}

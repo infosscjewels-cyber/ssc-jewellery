@@ -7,6 +7,13 @@ const API_URL = import.meta.env.PROD
 
 const getAuthHeader = () => getAuthHeaders({ includeJsonContentType: true });
 const getWithRetry = (url, options = {}) => fetchWithRetry(url, options);
+const createApiError = (payload = {}, fallbackMessage = 'Server Error', status = 500) => {
+    const error = new Error(payload?.message || fallbackMessage);
+    error.status = status;
+    error.code = payload?.code || null;
+    error.details = payload || {};
+    return error;
+};
 
 const handleResponse = async (res) => {
     const parseJsonSafely = async () => {
@@ -19,7 +26,7 @@ const handleResponse = async (res) => {
         if (shouldTreatAsExpiredSession(res.status, err.message || res.statusText)) {
             dispatchSessionExpired(err.message || 'Session expired. Please login again.');
         }
-        throw new Error(err.message || res.statusText || 'Server Error');
+        throw createApiError(err, res.statusText || 'Server Error', res.status);
     }
     return parseJsonSafely();
 };
@@ -35,7 +42,7 @@ const handleBlobResponse = async (res) => {
         if (shouldTreatAsExpiredSession(res.status, err.message || res.statusText)) {
             dispatchSessionExpired(err.message || 'Session expired. Please login again.');
         }
-        throw new Error(err.message || res.statusText || 'Download failed');
+        throw createApiError(err, res.statusText || 'Download failed', res.status);
     }
     return res.blob();
 };
@@ -241,26 +248,34 @@ const matchesAdminSearch = (order, query = {}) => {
 };
 
 const matchesAdminStatus = (order, query = {}) => {
-    const status = String(query.status || 'all').toLowerCase();
-    if (status === 'all') return true;
+    const requestedStatuses = String(query.status || 'all')
+        .split(',')
+        .map((entry) => String(entry || '').trim().toLowerCase())
+        .filter(Boolean);
+    const normalizedStatuses = [...new Set(requestedStatuses)];
+    if (normalizedStatuses.length === 0 || normalizedStatuses.includes('all')) return true;
     const createdTs = new Date(order?.created_at || order?.createdAt || 0).getTime();
     const ageHours = Number.isFinite(createdTs) && createdTs > 0
         ? (Date.now() - createdTs) / (1000 * 60 * 60)
         : null;
-    const isOverdueConfirmed = String(order?.status || '').toLowerCase() === 'confirmed'
+    const normalizedOrderStatus = String(order?.status || '').toLowerCase();
+    const normalizedPaymentStatus = String(order?.payment_status || '').toLowerCase();
+    const isOverdueConfirmed = normalizedOrderStatus === 'confirmed'
         && Number.isFinite(ageHours)
         && ageHours >= 24;
-    if (status === 'failed') {
-        return String(order?.status || '').toLowerCase() === 'failed'
-            || String(order?.payment_status || '').toLowerCase() === 'failed';
-    }
-    if (status === 'pending') {
-        return String(order?.status || '').toLowerCase() === 'pending' || isOverdueConfirmed;
-    }
-    if (status === 'confirmed') {
-        return String(order?.status || '').toLowerCase() === 'confirmed' && !isOverdueConfirmed;
-    }
-    return String(order?.status || '').toLowerCase() === status;
+    const matchesSingleStatus = (status) => {
+        if (status === 'failed') {
+            return normalizedOrderStatus === 'failed' || normalizedPaymentStatus === 'failed';
+        }
+        if (status === 'pending') {
+            return normalizedOrderStatus === 'pending' || isOverdueConfirmed;
+        }
+        if (status === 'confirmed') {
+            return normalizedOrderStatus === 'confirmed' && !isOverdueConfirmed;
+        }
+        return normalizedOrderStatus === status;
+    };
+    return normalizedStatuses.some(matchesSingleStatus);
 };
 
 const matchesAdminSourceChannel = (order, query = {}) => {
@@ -434,6 +449,17 @@ export const orderService = {
         });
         return handleResponse(res);
     },
+    getPublicCheckoutSummary: async ({ shippingAddress, couponCode, items = [] } = {}) => {
+        const payload = { shippingAddress, items };
+        const normalizedCoupon = String(couponCode ?? '').trim().toUpperCase();
+        if (normalizedCoupon) payload.couponCode = normalizedCoupon;
+        const res = await fetch(`${API_URL}/summary/public`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload)
+        });
+        return handleResponse(res);
+    },
     createRazorpayOrder: async ({ billingAddress, shippingAddress, notes, couponCode } = {}) => {
         const payload = { billingAddress, shippingAddress, notes };
         const normalizedCoupon = String(couponCode ?? '').trim().toUpperCase();
@@ -445,6 +471,25 @@ export const orderService = {
         });
         return handleResponse(res);
     },
+    createPublicRazorpayOrder: async ({ guest, billingAddress, shippingAddress, notes, couponCode, items = [] } = {}) => {
+        const payload = { guest, billingAddress, shippingAddress, notes, items };
+        const normalizedCoupon = String(couponCode ?? '').trim().toUpperCase();
+        if (normalizedCoupon) payload.couponCode = normalizedCoupon;
+        const res = await fetch(`${API_URL}/razorpay/order/public`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload)
+        });
+        return handleResponse(res);
+    },
+    startCheckoutAccountVerification: async ({ email, mobile } = {}) => {
+        const res = await fetch(`${API_URL}/checkout/account-verification/start`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify({ email, mobile })
+        });
+        return handleResponse(res);
+    },
     validateRecoveryCoupon: async ({ code, shippingAddress } = {}) => {
         const res = await fetch(`${API_URL}/coupon/validate`, {
             method: 'POST',
@@ -453,11 +498,27 @@ export const orderService = {
         });
         return handleResponse(res);
     },
+    validatePublicRecoveryCoupon: async ({ code, shippingAddress, items = [] } = {}) => {
+        const res = await fetch(`${API_URL}/coupon/validate/public`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify({ code, shippingAddress, items })
+        });
+        return handleResponse(res);
+    },
     getAvailableCoupons: async ({ shippingAddress = null } = {}) => {
         const res = await fetch(`${API_URL}/coupons/available`, {
             method: 'POST',
             headers: getAuthHeader(),
             body: JSON.stringify({ shippingAddress })
+        });
+        return handleResponse(res);
+    },
+    getPublicAvailableCoupons: async ({ items = [] } = {}) => {
+        const res = await fetch(`${API_URL}/coupons/available/public`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify({ items })
         });
         return handleResponse(res);
     },

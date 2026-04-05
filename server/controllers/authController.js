@@ -331,22 +331,14 @@ exports.sendOtp = async (req, res) => {
             const lookupIdentifier = purpose === 'login' ? identifier : (identifier || mobile);
             if (!lookupIdentifier) {
                 return res.status(400).json({
-                    message: purpose === 'password_reset'
-                        ? 'Enter your registered email or mobile number.'
-                        : 'Enter a valid registered email.'
+                    message: 'Enter your registered email or mobile number.'
                 });
-            }
-
-            if (purpose === 'login' && !isEmail(lookupIdentifier)) {
-                return res.status(400).json({ message: 'Enter a valid registered email.' });
             }
 
             user = await resolveUserByIdentifier(lookupIdentifier);
             if (!user) {
                 return res.status(400).json({
-                    message: purpose === 'password_reset'
-                        ? 'No account found for that email or mobile number.'
-                        : 'Email not registered'
+                    message: 'No account found for that email or mobile number.'
                 });
             }
 
@@ -557,7 +549,7 @@ exports.login = async (req, res) => {
         } 
         else if (type === 'otp') {
             const otpIdentifier = String(safeIdentifier || safeMobile || '').trim().toLowerCase();
-            if (!otpIdentifier) return res.status(400).json({ message: 'Email is required' });
+            if (!otpIdentifier) return res.status(400).json({ message: 'Registered email or mobile is required' });
             user = isEmail(otpIdentifier)
                 ? await User.findByEmail(otpIdentifier)
                 : await User.findByMobile(otpIdentifier);
@@ -565,10 +557,12 @@ exports.login = async (req, res) => {
             if (rejectIfInactiveUser(user, res)) return;
 
             const emailIdentity = String(user.email || '').trim().toLowerCase();
-            if (!emailIdentity || !isEmail(emailIdentity)) {
-                return res.status(400).json({ message: 'No email is registered for this account' });
+            const mobileIdentity = String(user.whatsapp || user.mobile || '').trim();
+            const otpIdentity = emailIdentity && isEmail(emailIdentity) ? emailIdentity : mobileIdentity;
+            if (!otpIdentity) {
+                return res.status(400).json({ message: 'No active email or mobile is registered for this account' });
             }
-            const otpStorageKey = OtpService.buildStorageKey(emailIdentity, 'login');
+            const otpStorageKey = OtpService.buildStorageKey(otpIdentity, 'login');
             const isValidOtp = await OtpService.verifyOtp(otpStorageKey, sanitize(otp));
             if (!isValidOtp) return res.status(400).json({ message: 'Invalid OTP' });
         }

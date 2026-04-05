@@ -605,12 +605,12 @@ const computeTaxForItems = async ({
 const normalizeManualSelections = (items = []) => {
     const out = new Map();
     for (const row of (Array.isArray(items) ? items : [])) {
-        const productId = Number(row?.productId || row?.product_id || 0);
+        const productId = String(row?.productId || row?.product_id || '').trim();
         const rawVariantId = row?.variantId ?? row?.variant_id ?? '';
-        const variantId = rawVariantId === '' || rawVariantId == null ? null : Number(rawVariantId);
+        const variantId = rawVariantId === '' || rawVariantId == null ? null : String(rawVariantId).trim();
         const quantity = Math.max(0, Number(row?.quantity || 0));
-        if (!Number.isFinite(productId) || productId <= 0 || quantity <= 0) continue;
-        if (variantId != null && (!Number.isFinite(variantId) || variantId <= 0)) continue;
+        if (!productId || quantity <= 0) continue;
+        if (variantId != null && !variantId) continue;
         const key = `${productId}:${variantId || ''}`;
         if (!out.has(key)) {
             out.set(key, { productId, variantId, quantity: 0 });
@@ -742,21 +742,38 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
 
 const MAX_FETCH_RANGE_DAYS = 90;
 
-const buildAdminStatusClause = ({ status = 'all', alias = 'o', params = [] } = {}) => {
+const buildSingleAdminStatusCondition = ({ status = 'all', alias = 'o', params = [] } = {}) => {
     const requestedStatus = String(status || '').trim().toLowerCase();
     const normalizedStatus = requestedStatus === 'shipped' ? 'completed' : requestedStatus;
     if (!normalizedStatus || normalizedStatus === 'all') return '';
     if (normalizedStatus === 'pending') {
-        return ` AND (${alias}.status = 'pending' OR (${alias}.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, ${alias}.created_at, UTC_TIMESTAMP()) >= 24))`;
+        return `(${alias}.status = 'pending' OR (${alias}.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, ${alias}.created_at, NOW()) >= 24))`;
     }
     if (normalizedStatus === 'confirmed') {
-        return ` AND (${alias}.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, ${alias}.created_at, UTC_TIMESTAMP()) < 24)`;
+        return `(${alias}.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, ${alias}.created_at, NOW()) < 24)`;
     }
     if (normalizedStatus === 'failed') {
-        return ` AND (${alias}.status = 'failed' OR LOWER(COALESCE(${alias}.payment_status, '')) = 'failed')`;
+        return `(${alias}.status = 'failed' OR LOWER(COALESCE(${alias}.payment_status, '')) = 'failed')`;
     }
     params.push(normalizedStatus);
-    return ` AND ${alias}.status = ?`;
+    return `${alias}.status = ?`;
+};
+
+const buildAdminStatusClause = ({ status = 'all', alias = 'o', params = [] } = {}) => {
+    const requestedStatuses = String(status || '')
+        .split(',')
+        .map((entry) => String(entry || '').trim().toLowerCase())
+        .filter(Boolean);
+    const normalizedStatuses = [...new Set(
+        requestedStatuses.map((entry) => (entry === 'shipped' ? 'completed' : entry))
+    )];
+    if (normalizedStatuses.length === 0 || normalizedStatuses.includes('all')) return '';
+    const conditions = normalizedStatuses
+        .map((entry) => buildSingleAdminStatusCondition({ status: entry, alias, params }))
+        .filter(Boolean);
+    if (conditions.length === 0) return '';
+    if (conditions.length === 1) return ` AND ${conditions[0]}`;
+    return ` AND (${conditions.join(' OR ')})`;
 };
 
 const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days', sourceChannel = 'all', includeStatus = true } = {}) => {
@@ -3207,8 +3224,8 @@ class Order {
                 `SELECT
                     COUNT(*) as total_orders,
                     SUM(CASE WHEN scoped.status <> 'cancelled' THEN scoped.total ELSE 0 END) as total_revenue,
-                    SUM(CASE WHEN scoped.status = 'pending' OR (scoped.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, scoped.created_at, UTC_TIMESTAMP()) >= 24) THEN 1 ELSE 0 END) as pending_orders,
-                    SUM(CASE WHEN scoped.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, scoped.created_at, UTC_TIMESTAMP()) < 24 THEN 1 ELSE 0 END) as confirmed_orders,
+                    SUM(CASE WHEN scoped.status = 'pending' OR (scoped.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, scoped.created_at, NOW()) >= 24) THEN 1 ELSE 0 END) as pending_orders,
+                    SUM(CASE WHEN scoped.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, scoped.created_at, NOW()) < 24 THEN 1 ELSE 0 END) as confirmed_orders,
                     SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
                     SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() AND scoped.status <> 'cancelled' THEN scoped.total ELSE 0 END) as today_revenue
                  FROM (
@@ -3227,8 +3244,8 @@ class Order {
                 `SELECT
                     COUNT(*) as total_orders,
                     SUM(CASE WHEN o.status <> 'cancelled' THEN o.total ELSE 0 END) as total_revenue,
-                    SUM(CASE WHEN o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) >= 24) THEN 1 ELSE 0 END) as pending_orders,
-                    SUM(CASE WHEN o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, UTC_TIMESTAMP()) < 24 THEN 1 ELSE 0 END) as confirmed_orders,
+                    SUM(CASE WHEN o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) >= 24) THEN 1 ELSE 0 END) as pending_orders,
+                    SUM(CASE WHEN o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) < 24 THEN 1 ELSE 0 END) as confirmed_orders,
                     SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
                     SUM(CASE WHEN DATE(o.created_at) = CURDATE() AND o.status <> 'cancelled' THEN o.total ELSE 0 END) as today_revenue
                  FROM orders o

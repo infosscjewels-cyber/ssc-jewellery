@@ -37,6 +37,15 @@ const TRUST_ITEMS = [
     }
 ];
 
+const PAYMENT_LOGOS = [
+    { name: 'Visa', src: '/payment-logos/visa.png' },
+    { name: 'Mastercard', src: '/payment-logos/mastercard.png' },
+    { name: 'American Express', src: '/payment-logos/amex.png' },
+    { name: 'RuPay', src: '/payment-logos/rupay.png' },
+    { name: 'Google Pay', src: '/payment-logos/google-pay.png' },
+    { name: 'Paytm', src: '/payment-logos/paytm.png' }
+];
+
 export default function Footer() {
     const { user } = useAuth();
     const { categories, refreshCategories } = usePublicCategories();
@@ -96,7 +105,7 @@ export default function Footer() {
     const hasSocial = Boolean(company.instagramUrl || company.youtubeUrl || company.facebookUrl || whatsappLink);
 
     return (
-        <footer className="bg-primary text-white mt-0">
+        <footer className="bg-primary text-white mt-0 pb-24 md:pb-0">
             <div className="container mx-auto px-4 py-12">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
                     <div className="space-y-4">
@@ -137,6 +146,15 @@ export default function Footer() {
                                     <span className="text-white/40">WhatsApp not set</span>
                                 )}
                             </div>
+                            {Boolean(String(company.gstNumber || '').trim()) && (
+                                <div className="flex items-center gap-2">
+                                    <FileText size={16} className="text-accent shrink-0" />
+                                    <span>
+                                        GSTIN:{' '}
+                                        <span className="font-semibold text-white/80">{String(company.gstNumber || '').trim()}</span>
+                                    </span>
+                                </div>
+                            )}
                         </div>
                         {hasSocial && (
                             <div className="flex items-center gap-3">
@@ -247,14 +265,26 @@ export default function Footer() {
                             );
                         })}
                     </div>
-                    {Boolean(String(company.gstNumber || '').trim()) && (
-                        <div className="md:col-span-4 flex items-center gap-2">
-                            <FileText size={16} className="text-accent" />
-                            <span className="text-white/60">
-                                GSTIN: <span className="font-semibold text-white/80">{String(company.gstNumber || '').trim()}</span>
-                            </span>
-                        </div>
-                    )}
+                </div>
+            </div>
+            <div className="border-t border-white/10 bg-white py-5">
+                <div className="container mx-auto px-4">
+                    <div className="flex flex-wrap items-center justify-center gap-4 md:gap-5">
+                        {PAYMENT_LOGOS.map((logo) => (
+                            <div
+                                key={logo.name}
+                                className="flex h-14 min-w-[88px] items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 shadow-sm"
+                            >
+                                <img
+                                    src={logo.src}
+                                    alt={logo.name}
+                                    className="h-10 w-auto max-w-[84px] object-contain"
+                                    loading="lazy"
+                                    decoding="async"
+                                />
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
             <div className="bg-black/30 text-center text-xs text-white/60 py-4">

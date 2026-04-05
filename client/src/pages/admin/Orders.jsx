@@ -88,6 +88,7 @@ const MANUAL_PAYMENT_OPTIONS = [
     { value: 'net_banking', label: 'Net Banking' },
     { value: 'manual', label: 'Manual' }
 ];
+const MOBILE_ORDERS_MEDIA_QUERY = '(max-width: 767px)';
 const EMPTY_ADDRESS = { line1: '', city: '', state: '', zip: '' };
 const EMPTY_MANUAL_ITEM = { productId: '', variantId: '', quantity: 1 };
 const normalizeOrderStatus = (status) => {
@@ -98,6 +99,7 @@ const normalizeOrderStatus = (status) => {
 const formatStatusLabel = (status) => {
     const normalized = normalizeOrderStatus(status);
     if (!normalized) return 'Pending';
+    if (normalized === 'confirmed') return 'New';
     return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
 };
 const getOrderStatusBadgeClasses = (status) => {
@@ -522,12 +524,17 @@ export function Orders({
     const [sourceChannel, setSourceChannel] = useState('all');
     const startDateInputRef = useRef(null);
     const endDateInputRef = useRef(null);
+    const shouldResetDashboardRangeOnNextStatusChangeRef = useRef(false);
     const fetchSeqRef = useRef(0);
     const ordersFailureToastCooldownRef = useRef(0);
     const [sortBy, setSortBy] = useState('newest');
     const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
     const [isMobileSortOpen, setIsMobileSortOpen] = useState(false);
     const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+    const [isMobileViewport, setIsMobileViewport] = useState(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+        return window.matchMedia(MOBILE_ORDERS_MEDIA_QUERY).matches;
+    });
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [selectedOrder, setSelectedOrder] = useState(null);
@@ -601,6 +608,13 @@ export function Orders({
     const [isCreatingManualOrder, setIsCreatingManualOrder] = useState(false);
     const [manualCreateAttempted, setManualCreateAttempted] = useState(false);
     const [manualCartTouched, setManualCartTouched] = useState(false);
+    const normalizeStatusSelection = useCallback((value) => {
+        const normalized = String(value || 'all').trim().toLowerCase() || 'all';
+        return normalized;
+    }, []);
+    const requestedStatusFilter = useMemo(() => {
+        return normalizeStatusSelection(statusFilter);
+    }, [normalizeStatusSelection, statusFilter]);
     const customerFetchSeqRef = useRef(0);
     const productFetchSeqRef = useRef(0);
     const {
@@ -619,6 +633,32 @@ export function Orders({
         sourceChannel,
         status: statusFilter
     }), [endDate, quickRange, search, sourceChannel, startDate, statusFilter]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+        const media = window.matchMedia(MOBILE_ORDERS_MEDIA_QUERY);
+        const handleChange = (event) => {
+            setIsMobileViewport(Boolean(event.matches));
+        };
+        setIsMobileViewport(media.matches);
+        if (typeof media.addEventListener === 'function') {
+            media.addEventListener('change', handleChange);
+            return () => media.removeEventListener('change', handleChange);
+        }
+        media.addListener(handleChange);
+        return () => media.removeListener(handleChange);
+    }, []);
+
+    useEffect(() => {
+        const normalizedStatus = normalizeStatusSelection(statusFilter);
+        const normalizedDraft = normalizeStatusSelection(draftStatusFilter);
+        if (normalizedStatus !== statusFilter) {
+            setStatusFilter(normalizedStatus);
+        }
+        if (normalizedDraft !== draftStatusFilter) {
+            setDraftStatusFilter(normalizedDraft);
+        }
+    }, [draftStatusFilter, normalizeStatusSelection, statusFilter]);
     const metricsKey = toOrderMetricsKey(metricsQuery);
     const sharedMetrics = orderMetricsByKey[metricsKey]?.metrics || null;
     const getPaymentMethodLabel = (order) => {
@@ -1008,7 +1048,7 @@ export function Orders({
         try {
             const listParams = {
                 page,
-                status: statusFilter,
+                status: requestedStatusFilter,
                 search,
                 startDate,
                 endDate,
@@ -1044,7 +1084,7 @@ export function Orders({
                 setIsLoading(false);
             }
         }
-    }, [endDate, metricsQuery, page, quickRange, search, setOrderMetricsSnapshot, sortBy, sourceChannel, startDate, statusFilter, toast]);
+    }, [endDate, metricsQuery, page, quickRange, requestedStatusFilter, search, setOrderMetricsSnapshot, sortBy, sourceChannel, startDate, toast]);
 
     useEffect(() => {
         registerOrderMetricsQuery(metricsQuery);
@@ -1116,7 +1156,7 @@ export function Orders({
     }, [search, searchInput]);
 
     useEffect(() => {
-        const next = String(initialStatusFilter || '').trim().toLowerCase();
+        const next = normalizeStatusSelection(initialStatusFilter);
         if (!next || next === 'all') return;
         setDraftStatusFilter(next);
         if (statusFilter !== next) {
@@ -1126,7 +1166,7 @@ export function Orders({
             setPage(1);
         }
         onInitialStatusApplied(next);
-    }, [initialStatusFilter, onInitialStatusApplied, page, statusFilter]);
+    }, [initialStatusFilter, normalizeStatusSelection, onInitialStatusApplied, page, statusFilter]);
 
     useEffect(() => {
         const nextRange = String(initialQuickRange || '').trim().toLowerCase();
@@ -1134,6 +1174,9 @@ export function Orders({
         setDraftQuickRange(nextRange);
         if (quickRange !== nextRange) {
             setQuickRange(nextRange);
+        }
+        if (nextRange === 'custom') {
+            shouldResetDashboardRangeOnNextStatusChangeRef.current = true;
         }
         if (page !== 1) {
             setPage(1);
@@ -1153,6 +1196,7 @@ export function Orders({
         setQuickRange('custom');
         setStartDate(nextStart);
         setEndDate(nextEnd);
+        shouldResetDashboardRangeOnNextStatusChangeRef.current = true;
         if (page !== 1) {
             setPage(1);
         }
@@ -1180,9 +1224,19 @@ export function Orders({
     }, [initialSourceChannel, onInitialSourceChannelApplied, page]);
 
     const handleStatusFilterChange = (nextStatus) => {
-        setDraftStatusFilter(nextStatus);
-        if (statusFilter !== nextStatus) {
-            setStatusFilter(nextStatus);
+        const normalizedStatus = normalizeStatusSelection(nextStatus);
+        setDraftStatusFilter(normalizedStatus);
+        if (shouldResetDashboardRangeOnNextStatusChangeRef.current && quickRange === 'custom') {
+            setDraftQuickRange('latest_10');
+            setDraftStartDate('');
+            setDraftEndDate('');
+            setQuickRange('latest_10');
+            setStartDate('');
+            setEndDate('');
+            shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
+        }
+        if (statusFilter !== normalizedStatus) {
+            setStatusFilter(normalizedStatus);
             setPage(1);
         }
     };
@@ -1201,16 +1255,17 @@ export function Orders({
             }
         }
         const hasChanges = (
-            statusFilter !== draftStatusFilter ||
+            statusFilter !== normalizeStatusSelection(draftStatusFilter) ||
             quickRange !== nextQuickRange ||
             startDate !== nextStartDate ||
             endDate !== nextEndDate
         );
 
-        setStatusFilter(draftStatusFilter);
+        setStatusFilter(normalizeStatusSelection(draftStatusFilter));
         setQuickRange(nextQuickRange);
         setStartDate(nextStartDate);
         setEndDate(nextEndDate);
+        shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
         if (closeAfter) {
             setIsFilterModalOpen(false);
         }
@@ -1240,7 +1295,7 @@ export function Orders({
                 const data = await orderService.getAdminOrders({
                     page: currentPage,
                     limit: batchLimit,
-                    status: statusFilter,
+                    status: requestedStatusFilter,
                     search,
                     startDate,
                     endDate,
@@ -2183,16 +2238,18 @@ export function Orders({
     const effectiveMetrics = sharedMetrics || metrics;
     const dynamicStatusLabel = useMemo(() => {
         const value = String(statusFilter || '').trim().toLowerCase();
-        if (!value || value === 'all' || value === 'pending' || value === 'confirmed') return 'Confirmed';
+        if (!value || value === 'all' || value === 'confirmed') return 'New';
+        if (value === 'pending') return 'Pending';
         return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
     }, [statusFilter]);
     const dynamicStatusValue = useMemo(() => {
         const value = String(statusFilter || '').trim().toLowerCase();
-        if (!value || value === 'all' || value === 'pending' || value === 'confirmed') {
+        if (!value || value === 'all' || value === 'confirmed') {
             return effectiveMetrics?.confirmedOrders || 0;
         }
+        if (value === 'pending') return effectiveMetrics?.pendingOrders || 0;
         return selectedStatusCount;
-    }, [effectiveMetrics?.confirmedOrders, selectedStatusCount, statusFilter]);
+    }, [effectiveMetrics?.confirmedOrders, effectiveMetrics?.pendingOrders, selectedStatusCount, statusFilter]);
     const cards = useMemo(() => applyKpiThemeRotation([
         {
             label: 'Total Orders',
@@ -2230,12 +2287,19 @@ export function Orders({
                 : 'No paired printer yet. You can pair via Bluetooth or USB.')
             : printerSupport.reason);
     const mobileStatusChips = [
-        { value: 'confirmed', label: 'Confirmed' },
+        { value: 'confirmed', label: 'New' },
         { value: 'pending', label: 'Pending' },
         { value: 'completed', label: 'Completed' },
-        { value: 'failed', label: 'Failed' },
+        { value: 'cancelled', label: 'Cancelled' },
         { value: 'all', label: 'All' }
     ];
+    const selectedPeriodText = useMemo(() => {
+        if (quickRange === 'custom' && startDate && endDate) {
+            return `${formatRangeDate(startDate)} - ${formatRangeDate(endDate)}`;
+        }
+        const option = QUICK_RANGES.find((entry) => entry.value === quickRange);
+        return option?.label || '';
+    }, [endDate, quickRange, startDate]);
     const sortOptions = [
         { value: 'newest', label: 'Newest First' },
         { value: 'oldest', label: 'Oldest First' },
@@ -2253,6 +2317,9 @@ export function Orders({
                             <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Orders</h1>
                         </div>
                         <p className="text-gray-500 text-sm mt-1">Track sales, payments, and order status.</p>
+                        {selectedPeriodText && (
+                            <p className="mt-1 text-xs text-gray-400">Selected period: {selectedPeriodText}</p>
+                        )}
                     </div>
                 </div>
                 <div className="hidden md:block w-full">
@@ -2487,8 +2554,8 @@ export function Orders({
             )}
 
             <div className="hidden md:grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-                {cards.map((card) => (
-                    <div key={card.label} className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm p-5 flex items-center gap-4 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`}>
+                {cards.map((card, index) => (
+                    <div key={`${card.label}-${index}`} className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm p-5 flex items-center gap-4 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`}>
                         <card.icon size={56} className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || 'sky'].iconGhost}`} />
                         <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${KPI_CARD_THEMES[card.theme || 'sky'].iconChip}`}>
                             <card.icon size={20} />
@@ -2547,19 +2614,15 @@ export function Orders({
                             />
                         </div>
                     )}
-                    <div className="grid grid-cols-5 gap-1.5">
+                    <div className="grid grid-cols-5 gap-1">
                         {mobileStatusChips.map((chip) => {
                             const active = statusFilter === chip.value;
                             return (
                                 <button
                                     key={chip.value}
                                     type="button"
-                                    onClick={() => {
-                                        setDraftStatusFilter(chip.value);
-                                        setStatusFilter(chip.value);
-                                        setPage(1);
-                                    }}
-                                    className={`min-w-0 rounded-full border px-1.5 py-2 text-[10px] font-semibold leading-none tracking-tight transition ${
+                                    onClick={() => handleStatusFilterChange(chip.value)}
+                                    className={`min-w-0 rounded-full border px-1 py-1.5 text-[9px] font-semibold leading-none tracking-tight transition ${
                                         active ? getOrderStatusBadgeClasses(chip.value) : 'border-gray-200 bg-white text-gray-600'
                                     }`}
                                 >
@@ -2579,7 +2642,7 @@ export function Orders({
                                 className="w-full md:w-auto pl-9 pr-7 py-2 bg-white rounded-lg border border-gray-200 text-sm focus:border-accent outline-none appearance-none cursor-pointer"
                             >
                                 <option value="all">All Status</option>
-                                <option value="confirmed">Confirmed</option>
+                                <option value="confirmed">New</option>
                                 <option value="pending">Pending</option>
                                 <option value="completed">Completed</option>
                                 <option value="cancelled">Cancelled</option>

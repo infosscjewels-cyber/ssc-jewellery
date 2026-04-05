@@ -438,7 +438,7 @@ export default function CartPage() {
                             <RazorpayAffordability amountRupees={cartTotal} className="mt-4" />
                             {storefrontOpen ? (
                                 <Link
-                                    to={user ? '/checkout' : '/login?redirect=%2Fcheckout'}
+                                    to="/checkout"
                                     className="mt-6 w-full inline-flex items-center justify-center bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all"
                                 >
                                     Continue to Checkout
@@ -449,7 +449,7 @@ export default function CartPage() {
                                 </div>
                             )}
                             <p className="text-[11px] text-gray-400 text-center mt-2">
-                                {storefrontOpen ? 'Checkout requires login. We’ll guide you to sign in if needed.' : 'You can keep items in cart and return when ordering reopens.'}
+                                {storefrontOpen ? 'Checkout will collect your contact and address details before payment.' : 'You can keep items in cart and return when ordering reopens.'}
                             </p>
                         </div>
                         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">

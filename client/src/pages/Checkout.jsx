@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AlertCircle, CheckCircle2, ChevronRight, CreditCard, Download, Edit3, Home, Mail, Phone, ShoppingBag, Sparkles, Ticket, TrendingUp, UserRound } from 'lucide-react';
@@ -6,7 +6,9 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
 import { authService } from '../services/authService';
+import { cartService } from '../services/cartService';
 import { orderService } from '../services/orderService';
+import { wishlistService } from '../services/wishlistService';
 import { useShipping } from '../context/ShippingContext';
 import { useSocket } from '../context/SocketContext';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
@@ -18,6 +20,7 @@ import waitIllustration from '../assets/wait.svg';
 import { burstConfetti, playCue } from '../utils/celebration';
 import RazorpayAffordability from '../components/RazorpayAffordability';
 import CheckoutFlowHeader from '../components/CheckoutFlowHeader';
+import CheckoutAccountVerificationModal from '../components/CheckoutAccountVerificationModal';
 import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpendKey } from '../utils/tierFormat';
 import { formatMissingProfileFields } from '../utils/membershipUnlock';
 import { getGstDisplayDetails } from '../utils/gst';
@@ -27,12 +30,13 @@ import { computeShippingPreview } from '../utils/shippingPreview';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import { getAllowedShippingStates, isAllowedShippingState, isValidIndianPincode, lookupStateByPincode, normalizePincodeInput, resolveAllowedStateName } from '../utils/addressValidation';
 import { billingAddressEnabled } from '../utils/billingAddressConfig';
-import { isValidStorefrontMobile, normalizeStorefrontMobileInput } from '../utils/mobileValidation';
+import { getStorefrontMobileValidationMessage, isValidStorefrontMobile, normalizeStorefrontMobileInput } from '../utils/mobileValidation';
 import StorefrontClosed from './StorefrontClosed';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
 const RAZORPAY_SCRIPT_ID = 'razorpay-checkout-js';
 const RAZORPAY_SCRIPT_SRC = 'https://checkout.razorpay.com/v1/checkout.js';
+const buildCheckoutCartKey = (productId = '', variantId = '') => `${String(productId || '').trim()}::${String(variantId || '').trim()}`;
 
 const ensureRazorpayScript = () => {
     if (typeof window === 'undefined') return Promise.resolve(false);
@@ -126,8 +130,8 @@ const EXTRA_DISCOUNT_BY_TIER = {
 };
 
 export default function Checkout() {
-    const { user, updateUser } = useAuth();
-    const { items, subtotal, itemCount, clearCart } = useCart();
+    const { user, login, updateUser } = useAuth();
+    const { items, subtotal, itemCount, clearCart, adoptServerCart, skipNextLoginGuestMerge } = useCart();
     const { zones } = useShipping();
     const { socket } = useSocket();
     const { companyInfo } = usePublicCompanyInfo();
@@ -151,10 +155,19 @@ export default function Checkout() {
     const [isDownloadingOrderInvoice, setIsDownloadingOrderInvoice] = useState(false);
     const [activeAttemptId, setActiveAttemptId] = useState(null);
     const [pricingSyncTick, setPricingSyncTick] = useState(0);
+    const [guestCheckoutConflict, setGuestCheckoutConflict] = useState('');
+    const [guestConflictHints, setGuestConflictHints] = useState({ email: '', mobile: '' });
+    const [guestRequiresAccountVerification, setGuestRequiresAccountVerification] = useState(false);
+    const [isAccountVerificationOpen, setIsAccountVerificationOpen] = useState(false);
+    const [resumeCheckoutAfterVerification, setResumeCheckoutAfterVerification] = useState(false);
+    const [postOtpCheckoutSync, setPostOtpCheckoutSync] = useState(null);
+    const [isPreparingVerifiedCheckout, setIsPreparingVerifiedCheckout] = useState(false);
     const orderCelebratedRef = useRef(false);
     const autoCouponAttemptsRef = useRef(new Set());
     const lastTierSeenRef = useRef(String(user?.loyaltyTier || 'regular').toLowerCase());
     const loyaltyHydratedRef = useRef(false);
+    const preserveCheckoutAddressOnLoginRef = useRef(false);
+    const checkoutAddressSnapshotRef = useRef({ address: { ...emptyAddress }, billingAddress: { ...emptyAddress } });
     const [form, setForm] = useState({
         name: '',
         email: '',
@@ -171,11 +184,25 @@ export default function Checkout() {
         () => (hasCompleteAddress(form.address) ? form.address : null),
         [form.address]
     );
+    const availableStates = useMemo(() => getAllowedShippingStates(zones), [zones]);
+    const pricingPreviewAddress = useMemo(() => {
+        const state = resolveAllowedStateName(availableStates, form.address?.state) || '';
+        return state ? { state } : null;
+    }, [availableStates, form.address?.state]);
     const shippingZip = form.address.zip;
     const billingZip = billingAddressEnabled ? form.billingAddress.zip : form.address.zip;
     const storefrontOpen = companyInfo?.storefrontOpen !== false;
     const subCategoriesEnabled = companyInfo?.subCategoriesEnabled === true;
-    const availableStates = useMemo(() => getAllowedShippingStates(zones), [zones]);
+    const isGuestCheckout = !user;
+    const checkoutItemsPayload = useMemo(
+        () => items.map((item) => ({
+            productId: item.productId,
+            variantId: item.variantId || '',
+            quantity: Number(item.quantity || 0)
+        })),
+        [items]
+    );
+    const formInputsDisabled = Boolean(user && !editing);
 
     const pollPaymentAttemptUntilResolved = useCallback(async (attemptId, { maxAttempts = 8 } = {}) => {
         const safeAttemptId = Number(attemptId);
@@ -193,14 +220,18 @@ export default function Checkout() {
 
     const refreshAvailableCoupons = useCallback(async () => {
         const cartSubtotal = Number(subtotal || 0);
-        if (!user || itemCount <= 0 || cartSubtotal <= 0) {
+        if (itemCount <= 0 || cartSubtotal <= 0) {
             setAvailableCoupons([]);
             return;
         }
         try {
-            const res = await orderService.getAvailableCoupons({
-                shippingAddress: liveCouponShippingAddress
-            });
+            const res = user
+                ? await orderService.getAvailableCoupons({
+                    shippingAddress: liveCouponShippingAddress
+                })
+                : await orderService.getPublicAvailableCoupons({
+                    items: checkoutItemsPayload
+                });
             const nextCoupons = Array.isArray(res?.coupons) ? res.coupons : [];
             setAvailableCoupons(nextCoupons);
             if (appliedCoupon?.code && !nextCoupons.some((entry) => String(entry.code || '').toUpperCase() === String(appliedCoupon.code || '').toUpperCase())) {
@@ -220,29 +251,125 @@ export default function Checkout() {
         } catch {
             setAvailableCoupons([]);
         }
-    }, [user, itemCount, subtotal, appliedCoupon?.code, toast, liveCouponShippingAddress]);
+    }, [user, itemCount, subtotal, appliedCoupon?.code, toast, liveCouponShippingAddress, checkoutItemsPayload]);
+
+    const syncValidatedAccountCheckoutCart = useCallback(async (guestItemsSnapshot = []) => {
+        const guestSelections = (Array.isArray(guestItemsSnapshot) ? guestItemsSnapshot : [])
+            .map((item) => ({
+                productId: String(item?.productId || '').trim(),
+                variantId: String(item?.variantId || '').trim(),
+                quantity: Number(item?.quantity || 0)
+            }))
+            .filter((item) => item.productId && item.quantity > 0);
+
+        const existingCart = await cartService.getCart();
+        const existingItems = Array.isArray(existingCart?.items) ? existingCart.items : [];
+        const guestKeys = new Set(guestSelections.map((item) => buildCheckoutCartKey(item.productId, item.variantId)));
+        const serverOnlyItems = existingItems.filter((item) => !guestKeys.has(buildCheckoutCartKey(item?.productId, item?.variantId)));
+
+        if (serverOnlyItems.length > 0) {
+            await Promise.all(
+                serverOnlyItems.map((item) => wishlistService.addItem(item.productId, item.variantId || '').catch(() => null))
+            );
+        }
+
+        await cartService.clearCart();
+        if (guestSelections.length === 0) {
+            adoptServerCart([]);
+            return { movedToWishlistCount: serverOnlyItems.length };
+        }
+
+        const replacedCart = await cartService.bulkAdd(guestSelections);
+        const nextItems = Array.isArray(replacedCart?.items) ? replacedCart.items : [];
+        adoptServerCart(nextItems);
+        return { movedToWishlistCount: serverOnlyItems.length, items: nextItems };
+    }, [adoptServerCart]);
+
+    const applyBestCouponForValidatedCheckout = useCallback(async () => {
+        const couponRes = await orderService.getAvailableCoupons({
+            shippingAddress: hasCompleteAddress(form.address) ? form.address : null
+        });
+        const candidates = (Array.isArray(couponRes?.coupons) ? couponRes.coupons : []).filter((entry) => getCouponEligibility(entry).isEligible);
+
+        let bestCoupon = null;
+        let bestDiscount = -1;
+        let bestSummary = null;
+
+        for (const entry of candidates) {
+            const code = String(entry?.code || '').trim().toUpperCase();
+            if (!code) continue;
+            const summaryRes = await orderService.getCheckoutSummary({
+                shippingAddress: form.address,
+                couponCode: code
+            });
+            const summary = summaryRes?.summary || null;
+            const discountValue = Number(summary?.couponDiscountTotal || 0);
+            if (discountValue > bestDiscount) {
+                bestDiscount = discountValue;
+                bestCoupon = entry;
+                bestSummary = summary;
+            }
+        }
+
+        if (bestCoupon && bestSummary) {
+            setAppliedCoupon({
+                ...bestCoupon,
+                code: String(bestCoupon.code || '').trim().toUpperCase(),
+                discountTotal: bestDiscount
+            });
+            setCoupon(String(bestCoupon.code || '').trim().toUpperCase());
+            setCheckoutSummary(bestSummary);
+            return { coupon: bestCoupon, summary: bestSummary };
+        }
+
+        setAppliedCoupon(null);
+        setCoupon('');
+        const summaryRes = await orderService.getCheckoutSummary({
+            shippingAddress: form.address,
+            couponCode: null
+        });
+        if (summaryRes?.summary) {
+            setCheckoutSummary(summaryRes.summary);
+        }
+        return { coupon: null, summary: summaryRes?.summary || null };
+    }, [form.address]);
 
     useEffect(() => {
+        setEditing(!user);
         if (!user) return;
         lastTierSeenRef.current = String(user?.loyaltyTier || 'regular').toLowerCase();
         loyaltyHydratedRef.current = false;
-        setForm({
-            name: user.name || '',
-            email: user.email || '',
-            mobile: user.mobile || '',
-            address: {
-                ...emptyAddress,
-                ...(user.address || {}),
-                state: resolveAllowedStateName(availableStates, user?.address?.state) || ''
-            },
-            billingAddress: {
-                ...emptyAddress,
-                ...(billingAddressEnabled ? (user.billingAddress || user.address || {}) : (user.address || {})),
-                state: resolveAllowedStateName(
-                    availableStates,
-                    billingAddressEnabled ? (user?.billingAddress?.state || user?.address?.state) : user?.address?.state
-                ) || ''
-            }
+        setForm((prev) => {
+            const preserveCurrentAddresses = preserveCheckoutAddressOnLoginRef.current;
+            preserveCheckoutAddressOnLoginRef.current = false;
+            return {
+                name: user.name || prev.name || '',
+                email: user.email || prev.email || '',
+                mobile: user.mobile || prev.mobile || '',
+                address: preserveCurrentAddresses
+                    ? {
+                        ...checkoutAddressSnapshotRef.current.address,
+                        state: resolveAllowedStateName(availableStates, checkoutAddressSnapshotRef.current?.address?.state) || ''
+                    }
+                    : {
+                        ...emptyAddress,
+                        ...(user.address || {}),
+                        state: resolveAllowedStateName(availableStates, user?.address?.state) || ''
+                    },
+                billingAddress: preserveCurrentAddresses
+                    ? {
+                        ...checkoutAddressSnapshotRef.current.billingAddress,
+                        state: resolveAllowedStateName(availableStates, checkoutAddressSnapshotRef.current?.billingAddress?.state) || ''
+                    }
+                    : {
+                        ...emptyAddress,
+                        ...(billingAddressEnabled ? (user.billingAddress || user.address || {}) : (user.address || {})),
+                        state: resolveAllowedStateName(
+                            availableStates,
+                            billingAddressEnabled ? (user?.billingAddress?.state || user?.address?.state) : user?.address?.state
+                        ) || ''
+                    }
+            };
         });
     }, [user, availableStates]);
 
@@ -293,8 +420,12 @@ export default function Checkout() {
     }, [availableStates, billingZip, shippingZip]);
 
     useEffect(() => {
-        if (!user || !couponFromQuery) return;
+        if (!couponFromQuery) return;
         if (itemCount <= 0) {
+            setIsApplyingCoupon(false);
+            return;
+        }
+        if (!user && !hasCompleteAddress(form.address)) {
             setIsApplyingCoupon(false);
             return;
         }
@@ -310,10 +441,17 @@ export default function Checkout() {
         autoCouponAttemptsRef.current.add(couponFromQuery);
 
         setIsApplyingCoupon(true);
-        orderService.validateRecoveryCoupon({
-            code: couponFromQuery,
-            shippingAddress: liveCouponShippingAddress
-        }).then((data) => {
+        const validateRequest = user
+            ? orderService.validateRecoveryCoupon({
+                code: couponFromQuery,
+                shippingAddress: liveCouponShippingAddress
+            })
+            : orderService.validatePublicRecoveryCoupon({
+                code: couponFromQuery,
+                shippingAddress: form.address,
+                items: checkoutItemsPayload
+            });
+        validateRequest.then((data) => {
             setCoupon(couponFromQuery);
             setAppliedCoupon({
                 code: couponFromQuery,
@@ -327,7 +465,7 @@ export default function Checkout() {
         }).finally(() => {
             setIsApplyingCoupon(false);
         });
-    }, [user, couponFromQuery, appliedCoupon?.code, toast, itemCount, liveCouponShippingAddress]);
+    }, [user, couponFromQuery, appliedCoupon?.code, toast, itemCount, liveCouponShippingAddress, form.address, checkoutItemsPayload]);
 
     const applyLoyaltyStatus = useCallback((status) => {
         setLoyaltyStatus(status || null);
@@ -377,7 +515,7 @@ export default function Checkout() {
     }, [user, applyLoyaltyStatus]);
 
     useEffect(() => {
-        if (!user || itemCount <= 0) {
+        if (itemCount <= 0) {
             setCheckoutSummary(null);
             return;
         }
@@ -385,23 +523,31 @@ export default function Checkout() {
         const timer = setTimeout(async () => {
             setIsSummaryLoading(true);
             const [summaryResult, loyaltyResult] = await Promise.allSettled([
-                orderService.getCheckoutSummary({
-                    shippingAddress: hasCompleteAddress(form.address) ? form.address : null,
-                    couponCode: appliedCoupon?.code || null
-                }),
-                authService.getLoyaltyStatus()
+                user
+                    ? orderService.getCheckoutSummary({
+                        shippingAddress: pricingPreviewAddress,
+                        couponCode: appliedCoupon?.code || null
+                    })
+                    : orderService.getPublicCheckoutSummary({
+                        shippingAddress: pricingPreviewAddress,
+                        couponCode: appliedCoupon?.code || null,
+                        items: checkoutItemsPayload
+                    }),
+                user ? authService.getLoyaltyStatus() : Promise.resolve({ status: null })
             ]);
 
             if (cancelled) return;
 
             if (summaryResult.status === 'fulfilled') {
-                setCheckoutSummary(summaryResult.value?.summary || null);
-            } else {
-                setCheckoutSummary(null);
+                startTransition(() => {
+                    setCheckoutSummary(summaryResult.value?.summary || null);
+                });
             }
 
-            if (loyaltyResult.status === 'fulfilled' && loyaltyResult.value?.status) {
-                applyLoyaltyStatus(loyaltyResult.value.status);
+            if (user && loyaltyResult.status === 'fulfilled' && loyaltyResult.value?.status) {
+                startTransition(() => {
+                    applyLoyaltyStatus(loyaltyResult.value.status);
+                });
             }
 
             if (!cancelled) {
@@ -412,7 +558,7 @@ export default function Checkout() {
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [user, items, subtotal, itemCount, form.address, appliedCoupon?.code, applyLoyaltyStatus, pricingSyncTick]);
+    }, [user, items, subtotal, itemCount, pricingPreviewAddress, appliedCoupon?.code, applyLoyaltyStatus, pricingSyncTick, checkoutItemsPayload]);
 
     useEffect(() => {
         refreshAvailableCoupons();
@@ -476,6 +622,10 @@ export default function Checkout() {
         if (name === 'mobile') {
             nextValue = normalizeStorefrontMobileInput(value);
         }
+        setGuestCheckoutConflict('');
+        setGuestConflictHints({ email: '', mobile: '' });
+        setGuestRequiresAccountVerification(false);
+        setIsAccountVerificationOpen(false);
         setForm((prev) => ({ ...prev, [name]: nextValue }));
     };
 
@@ -487,6 +637,10 @@ export default function Checkout() {
         if (field === 'state') {
             nextValue = resolveAllowedStateName(availableStates, value);
         }
+        setGuestCheckoutConflict('');
+        setGuestConflictHints({ email: '', mobile: '' });
+        setGuestRequiresAccountVerification(false);
+        setIsAccountVerificationOpen(false);
         setForm((prev) => ({
             ...prev,
             [section]: { ...prev[section], [field]: nextValue }
@@ -494,6 +648,7 @@ export default function Checkout() {
     }, [availableStates]);
 
     const handleSave = async () => {
+        if (!user) return;
         if (isSaving) return;
         setIsSaving(true);
         try {
@@ -521,6 +676,7 @@ export default function Checkout() {
     const handleApplyCoupon = () => {
         const code = String(coupon || '').trim().toUpperCase();
         if (!code) return toast.error('Enter a coupon code');
+        if (!user && !hasCompleteAddress(form.address)) return toast.error('Please complete shipping address before applying coupon');
         const knownCoupon = availableCoupons.find((entry) => String(entry.code || '').toUpperCase() === code);
         if (knownCoupon) {
             const eligibility = getCouponEligibility(knownCoupon);
@@ -529,10 +685,17 @@ export default function Checkout() {
             }
         }
         setIsApplyingCoupon(true);
-        orderService.validateRecoveryCoupon({
-            code,
-            shippingAddress: hasCompleteAddress(form.address) ? form.address : null
-        }).then((data) => {
+        const request = user
+            ? orderService.validateRecoveryCoupon({
+                code,
+                shippingAddress: hasCompleteAddress(form.address) ? form.address : null
+            })
+            : orderService.validatePublicRecoveryCoupon({
+                code,
+                shippingAddress: form.address,
+                items: checkoutItemsPayload
+            });
+        request.then((data) => {
             setCoupon(code);
             setAppliedCoupon({
                 code,
@@ -555,6 +718,10 @@ export default function Checkout() {
 
     const handleApplyAvailableCoupon = (code) => {
         const normalizedCode = String(code || '').toUpperCase();
+        if (!user && !hasCompleteAddress(form.address)) {
+            toast.error('Please complete shipping address before applying coupon');
+            return;
+        }
         const selectedCoupon = availableCoupons.find((entry) => String(entry.code || '').toUpperCase() === normalizedCode);
         if (selectedCoupon) {
             const eligibility = getCouponEligibility(selectedCoupon);
@@ -567,10 +734,17 @@ export default function Checkout() {
         setCoupon(normalizedCode);
         if (appliedCoupon?.code === normalizedCode) return;
         setIsApplyingCoupon(true);
-        orderService.validateRecoveryCoupon({
-            code: normalizedCode,
-            shippingAddress: hasCompleteAddress(form.address) ? form.address : null
-        }).then((data) => {
+        const request = user
+            ? orderService.validateRecoveryCoupon({
+                code: normalizedCode,
+                shippingAddress: hasCompleteAddress(form.address) ? form.address : null
+            })
+            : orderService.validatePublicRecoveryCoupon({
+                code: normalizedCode,
+                shippingAddress: form.address,
+                items: checkoutItemsPayload
+            });
+        request.then((data) => {
             setAppliedCoupon({
                 code: normalizedCode,
                 discountTotal: Number(data?.discountTotal || 0),
@@ -697,7 +871,10 @@ export default function Checkout() {
         () => Number(checkoutSummary?.roundOffAmount ?? 0),
         [checkoutSummary?.roundOffAmount]
     );
-    const showTaxComponents = taxTotal > 0;
+    const checkoutTaxHint = useMemo(() => {
+        if (taxTotal <= 0) return '';
+        return `Includes ₹${Number(taxTotal || 0).toLocaleString('en-IN')} tax`;
+    }, [taxTotal]);
     const taxByItemKey = useMemo(() => {
         const out = new Map();
         const summaryItems = Array.isArray(checkoutSummary?.items) ? checkoutSummary.items : [];
@@ -768,16 +945,25 @@ export default function Checkout() {
         return Math.max(0, gross - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0));
     }, [checkoutSummary?.total, subtotal, shippingFee, taxTotal, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount, taxPriceMode]);
     const isMobileMissingOnProfile = !String(user?.mobile || '').trim();
-    const hasMobileForPayment = Boolean(String(form.mobile || '').trim());
+    const hasValidMobileForPayment = isValidStorefrontMobile(form.mobile);
     const effectiveBillingAddress = billingAddressEnabled ? form.billingAddress : form.address;
     const isAddressReadyForPayment = hasCompleteAddress(form.address) && hasCompleteAddress(effectiveBillingAddress);
     const hasUnavailableItems = useMemo(() => hasUnavailableCheckoutItems(lineItems), [lineItems]);
-    const isReadyForPayment = isAddressReadyForPayment && (!isMobileMissingOnProfile || hasMobileForPayment) && !hasUnavailableItems;
+    const isReadyForPayment = isAddressReadyForPayment && (!isMobileMissingOnProfile || hasValidMobileForPayment) && !hasUnavailableItems;
+    const emailValidationMessage = useMemo(() => {
+        const value = String(form.email || '').trim();
+        if (!value) return '';
+        return isValidEmailInput(value) ? '' : 'Enter a valid email';
+    }, [form.email]);
+    const mobileValidationMessage = useMemo(
+        () => getStorefrontMobileValidationMessage(form.mobile),
+        [form.mobile]
+    );
     const fieldErrors = useMemo(() => {
         const errors = {};
         if (!String(form.name || '').trim()) errors.name = 'Name is required';
         if (!isValidEmailInput(form.email)) errors.email = 'Enter a valid email';
-        if (!isValidMobileInput(form.mobile)) errors.mobile = 'Enter a valid mobile number';
+        if (mobileValidationMessage) errors.mobile = mobileValidationMessage;
 
         ['address', ...(billingAddressEnabled ? ['billingAddress'] : [])].forEach((section) => {
             const prefix = section === 'address' ? 'shipping' : 'billing';
@@ -789,7 +975,7 @@ export default function Checkout() {
             if (!isValidZipInput(source.zip)) errors[`${prefix}Zip`] = 'Enter a valid 6-digit PIN code';
         });
         return errors;
-    }, [availableStates, form]);
+    }, [availableStates, form, mobileValidationMessage]);
     const hasFormValidationErrors = Object.keys(fieldErrors).length > 0;
     const selectedCouponForInput = useMemo(
         () => availableCoupons.find((entry) => String(entry.code || '').toUpperCase() === String(coupon || '').trim().toUpperCase()) || null,
@@ -809,6 +995,83 @@ export default function Checkout() {
         });
         return Array.from(byCode.values());
     }, [availableCoupons]);
+    useEffect(() => {
+        if (user && isAccountVerificationOpen) {
+            setIsAccountVerificationOpen(false);
+        }
+    }, [user, isAccountVerificationOpen]);
+
+    useEffect(() => {
+        if (!postOtpCheckoutSync || !user) return;
+        let cancelled = false;
+
+        const continueCheckout = async () => {
+            try {
+                const preservedShippingAddress = {
+                    ...checkoutAddressSnapshotRef.current.address,
+                    state: resolveAllowedStateName(availableStates, checkoutAddressSnapshotRef.current?.address?.state) || ''
+                };
+                const preservedBillingAddress = billingAddressEnabled
+                    ? {
+                        ...checkoutAddressSnapshotRef.current.billingAddress,
+                        state: resolveAllowedStateName(availableStates, checkoutAddressSnapshotRef.current?.billingAddress?.state) || ''
+                    }
+                    : preservedShippingAddress;
+
+                if (hasCompleteAddress(preservedShippingAddress) && hasCompleteAddress(preservedBillingAddress)) {
+                    const profileRes = await authService.updateProfile({
+                        name: form.name,
+                        email: form.email,
+                        mobile: form.mobile,
+                        address: preservedShippingAddress,
+                        billingAddress: preservedBillingAddress
+                    });
+                    if (!cancelled && profileRes?.user) {
+                        updateUser(profileRes.user);
+                    }
+                }
+                if (cancelled) return;
+                const syncResult = await syncValidatedAccountCheckoutCart(postOtpCheckoutSync.guestItems || []);
+                if (cancelled) return;
+                const couponResult = await applyBestCouponForValidatedCheckout();
+                if (cancelled) return;
+                if (Number(syncResult?.movedToWishlistCount || 0) > 0) {
+                    toast.info(`${Number(syncResult.movedToWishlistCount)} existing account cart item(s) were moved to wishlist. Continuing with your checkout cart.`);
+                }
+                if (couponResult?.coupon?.code) {
+                    toast.success(`Best coupon applied: ${String(couponResult.coupon.code).trim().toUpperCase()}`);
+                }
+                setPostOtpCheckoutSync(null);
+                setResumeCheckoutAfterVerification(true);
+                window.setTimeout(() => {
+                    void handlePayNow();
+                }, 250);
+            } catch (error) {
+                if (cancelled) return;
+                setPostOtpCheckoutSync(null);
+                setIsPreparingVerifiedCheckout(false);
+                toast.error(error?.message || 'Unable to prepare checkout after account verification');
+            }
+        };
+
+        void continueCheckout();
+        return () => {
+            cancelled = true;
+        };
+    }, [applyBestCouponForValidatedCheckout, availableStates, billingAddressEnabled, form.email, form.mobile, form.name, postOtpCheckoutSync, syncValidatedAccountCheckoutCart, toast, updateUser, user]);
+
+    useEffect(() => {
+        if (!resumeCheckoutAfterVerification || !user) return;
+        const effectiveCurrentBillingAddress = billingAddressEnabled ? form.billingAddress : form.address;
+        if (lineItems.length === 0) return;
+        if (!hasCompleteAddress(form.address) || !hasCompleteAddress(effectiveCurrentBillingAddress)) return;
+        if (hasFormValidationErrors || hasUnavailableItems || isPlacingOrder) return;
+        setResumeCheckoutAfterVerification(false);
+        const timer = window.setTimeout(() => {
+            void handlePayNow();
+        }, 150);
+        return () => window.clearTimeout(timer);
+    }, [resumeCheckoutAfterVerification, user, form.address, form.billingAddress, hasFormValidationErrors, hasUnavailableItems, isPlacingOrder, lineItems.length]);
 
     const handlePayNow = async () => {
         setAttemptedPay(true);
@@ -816,19 +1079,22 @@ export default function Checkout() {
         if (isPlacingOrder) return;
         if (hasUnavailableItems) return toast.error('Some items are unavailable. Please review your cart before payment.');
         if (hasFormValidationErrors) return toast.error('Please correct highlighted fields before payment');
-        if (isMobileMissingOnProfile && !hasMobileForPayment) return toast.error('Please add mobile number before payment');
+        if (isMobileMissingOnProfile && !hasValidMobileForPayment) return toast.error(mobileValidationMessage || 'Please enter a valid mobile number before payment');
         if (!hasCompleteAddress(form.address)) return toast.error('Please complete shipping address before payment');
         if (billingAddressEnabled && !hasCompleteAddress(form.billingAddress)) return toast.error('Please complete billing address before payment');
         setIsPlacingOrder(true);
         let currentAttemptId = null;
         try {
-            const profileNeedsAddressSync = (
+            setGuestCheckoutConflict('');
+            setGuestConflictHints({ email: '', mobile: '' });
+            setGuestRequiresAccountVerification(false);
+            const profileNeedsAddressSync = user && (
                 !hasCompleteAddress(user?.address)
                 || (billingAddressEnabled && !hasCompleteAddress(user?.billingAddress))
-                || (isMobileMissingOnProfile && hasMobileForPayment)
+                || (isMobileMissingOnProfile && hasValidMobileForPayment)
             );
             const checkoutHasAddress = hasCompleteAddress(form.address) && hasCompleteAddress(effectiveBillingAddress);
-            if (profileNeedsAddressSync && checkoutHasAddress && (!isMobileMissingOnProfile || hasMobileForPayment)) {
+            if (profileNeedsAddressSync && checkoutHasAddress && (!isMobileMissingOnProfile || hasValidMobileForPayment)) {
                 const profileRes = await authService.updateProfile({
                     name: form.name,
                     email: form.email,
@@ -842,11 +1108,16 @@ export default function Checkout() {
                 }
             }
 
-            // Hard preflight: refuse payment flow if server summary cannot be computed.
-            const preflight = await orderService.getCheckoutSummary({
-                shippingAddress: form.address,
-                couponCode: appliedCoupon?.code || null
-            });
+            const preflight = user
+                ? await orderService.getCheckoutSummary({
+                    shippingAddress: form.address,
+                    couponCode: appliedCoupon?.code || null
+                })
+                : await orderService.getPublicCheckoutSummary({
+                    shippingAddress: hasCompleteAddress(form.address) ? form.address : null,
+                    couponCode: appliedCoupon?.code || null,
+                    items: checkoutItemsPayload
+                });
             if (!preflight?.summary || preflight.summary.total == null) {
                 throw new Error('Unable to validate order summary on server. Please retry.');
             }
@@ -857,16 +1128,35 @@ export default function Checkout() {
                 throw new Error('Unable to load Razorpay checkout');
             }
 
-            const init = await orderService.createRazorpayOrder({
-                billingAddress: effectiveBillingAddress,
-                shippingAddress: form.address,
-                couponCode: appliedCoupon?.code || null,
-                notes: {
-                    source: 'web_checkout'
-                }
-            });
+            const init = user
+                ? await orderService.createRazorpayOrder({
+                    billingAddress: effectiveBillingAddress,
+                    shippingAddress: form.address,
+                    couponCode: appliedCoupon?.code || null,
+                    notes: {
+                        source: 'web_checkout'
+                    }
+                })
+                : await orderService.createPublicRazorpayOrder({
+                    guest: {
+                        name: form.name,
+                        email: form.email,
+                        mobile: form.mobile
+                    },
+                    billingAddress: effectiveBillingAddress,
+                    shippingAddress: form.address,
+                    couponCode: appliedCoupon?.code || null,
+                    notes: {
+                        source: 'web_checkout'
+                    },
+                    items: checkoutItemsPayload
+                });
             if (!init?.order?.id || !init?.keyId) {
                 throw new Error(init?.message || 'Failed to initialize payment');
+            }
+            if (!user && init?.token && init?.user) {
+                adoptServerCart(init?.cart?.items || []);
+                login(init.token, init.user);
             }
             setPendingPaymentAmount(Number(init?.order?.amount || 0) / 100);
             setActiveAttemptId(init?.attempt?.id || null);
@@ -960,11 +1250,36 @@ export default function Checkout() {
                     reject(new Error(message));
                 });
 
+                setIsPreparingVerifiedCheckout(false);
                 rzp.open();
             });
             void paidOrder;
         } catch (error) {
+            setIsPreparingVerifiedCheckout(false);
             setIsPaymentAwaitingConfirmation(false);
+            if (!user && String(error?.code || '').toUpperCase() === 'CHECKOUT_IDENTITY_CONFLICT') {
+                const conflictDetails = error?.details?.conflicts || {};
+                const nextHints = {
+                    email: conflictDetails?.email?.hint
+                        ? `Enter registered E-mail id ${conflictDetails.email.hint}`
+                        : '',
+                    mobile: conflictDetails?.mobile?.hint
+                        ? `Enter registered phone number ${conflictDetails.mobile.hint}`
+                        : ''
+                };
+                setGuestRequiresAccountVerification(false);
+                setIsAccountVerificationOpen(false);
+                setGuestConflictHints(nextHints);
+                setGuestCheckoutConflict('');
+                return;
+            }
+            if (!user && (Number(error?.status || 0) === 409 || String(error?.code || '').toUpperCase() === 'ACCOUNT_EXISTS')) {
+                setGuestRequiresAccountVerification(true);
+                setGuestCheckoutConflict(error?.message || 'We found your existing account. Verify with OTP to continue securely.');
+                setGuestConflictHints({ email: '', mobile: '' });
+                setIsAccountVerificationOpen(true);
+                return;
+            }
             const message = normalizePaymentFailureReason(error?.message || 'Failed to complete payment');
             toast.error(message);
             const params = new URLSearchParams();
@@ -977,7 +1292,6 @@ export default function Checkout() {
         }
     };
 
-    if (!user) return null;
     if (!storefrontOpen) return <StorefrontClosed />;
     const tier = String(loyaltyStatus?.tier || checkoutSummary?.loyaltyTier || user?.loyaltyTier || 'regular').toLowerCase();
     const membershipEligibility = loyaltyStatus?.eligibility || null;
@@ -1048,68 +1362,71 @@ export default function Checkout() {
                         <>
                         <div className="flex flex-col gap-6 h-full">
                             <div className={`rounded-2xl p-5 bg-gradient-to-r ${tierTheme.card} shadow-lg`}>
-                                {!loyaltyStatus && isSummaryLoading ? (
-                                    <div className="text-white/90 text-sm">Loading membership benefits...</div>
-                                ) : (
-                                    <>
-                                        <div className="flex items-start justify-between gap-4">
-                                            <div>
-                                                <p className={`text-xs uppercase tracking-[0.24em] font-semibold ${tierTheme.caption}`}>Membership</p>
-                                                <p className={`text-xl font-semibold mt-1 ${tierTheme.title}`}>{getMembershipLabel(tierLabel)}</p>
-                                                <p className={`text-sm mt-2 ${tierTheme.body}`}>
-                                                    {membershipMessage}
-                                                </p>
-                                                <p className={`text-xs mt-2 ${tierTheme.caption}`}>
-                                                    Spent: ₹{currentSpend.toLocaleString('en-IN')}
-                                                </p>
-                                                <p className={`text-xs mt-1 ${tierTheme.caption}`}>
-                                                    {nextTierLabel ? `Need ₹${neededToNext.toLocaleString('en-IN')} more for ${getMembershipLabel(nextTierLabel)}` : 'You are at the highest tier.'}
-                                                </p>
-                                            </div>
-                                            <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.tag}`}>
-                                                <Sparkles size={14} /> {isMembershipEligible ? 'Extra member pricing' : 'Profile completion required'}
+                                <div className="flex items-start justify-between gap-4">
+                                    <div>
+                                        <p className={`text-xs uppercase tracking-[0.24em] font-semibold ${tierTheme.caption}`}>Membership</p>
+                                        <p className={`text-xl font-semibold mt-1 ${tierTheme.title}`}>{getMembershipLabel(tierLabel)}</p>
+                                        <p className={`text-sm mt-2 ${tierTheme.body}`}>
+                                            {membershipMessage}
+                                        </p>
+                                        <p className={`text-xs mt-2 ${tierTheme.caption}`}>
+                                            Spent: ₹{currentSpend.toLocaleString('en-IN')}
+                                        </p>
+                                        <p className={`text-xs mt-1 ${tierTheme.caption}`}>
+                                            {nextTierLabel ? `Need ₹${neededToNext.toLocaleString('en-IN')} more for ${getMembershipLabel(nextTierLabel)}` : 'You are at the highest tier.'}
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-col items-end gap-2">
+                                        <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.tag}`}>
+                                            <Sparkles size={14} /> {isMembershipEligible ? 'Extra member pricing' : 'Profile completion required'}
+                                        </span>
+                                        {isSummaryLoading && !isPreparingVerifiedCheckout && (
+                                            <span className="text-[11px] text-white/80">
+                                                Updating pricing...
                                             </span>
-                                        </div>
-                                        {!isMembershipEligible && (
-                                            <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-amber-900">
-                                                <p className="text-xs font-semibold !mb-0">
-                                                    Membership benefits are locked until profile reaches 100% completion ({profileCompletionPct}% now).
-                                                </p>
-                                                {membershipUnlockState.items.length > 0 && (
-                                                    <div className="mt-2">
-                                                        <p className="text-[11px] font-semibold !mb-0">{membershipUnlockState.title}</p>
-                                                        <ul className="mt-1 space-y-1 text-[11px]">
-                                                            {membershipUnlockState.items.map((field) => (
-                                                                <li key={field}>- {field}</li>
-                                                            ))}
-                                                        </ul>
-                                                    </div>
-                                                )}
+                                        )}
+                                    </div>
+                                </div>
+                                {!isMembershipEligible && (
+                                    <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-amber-900">
+                                        <p className="text-xs font-semibold !mb-0">
+                                            Membership benefits are locked until profile reaches 100% completion ({profileCompletionPct}% now).
+                                        </p>
+                                        {membershipUnlockState.items.length > 0 && (
+                                            <div className="mt-2">
+                                                <p className="text-[11px] font-semibold !mb-0">{membershipUnlockState.title}</p>
+                                                <ul className="mt-1 space-y-1 text-[11px]">
+                                                    {membershipUnlockState.items.map((field) => (
+                                                        <li key={field}>- {field}</li>
+                                                    ))}
+                                                </ul>
                                             </div>
                                         )}
-                                        <div className="mt-4">
-                                            <div className={`h-2 rounded-full overflow-hidden ${tierTheme.track}`}>
-                                                <div className={`h-full rounded-full ${tierTheme.fill}`} style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
-                                            </div>
-                                            <div className={`mt-2 flex items-center justify-between text-xs ${tierTheme.caption}`}>
-                                                <span>{progressPct}% to next tier</span>
-                                                <span>{nextTierLabel ? `Next: ${getMembershipLabel(nextTierLabel)}` : 'Highest tier reached'}</span>
-                                            </div>
-                                        </div>
-                                    </>
+                                    </div>
                                 )}
+                                <div className="mt-4">
+                                    <div className={`h-2 rounded-full overflow-hidden ${tierTheme.track}`}>
+                                        <div className={`h-full rounded-full ${tierTheme.fill}`} style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
+                                    </div>
+                                    <div className={`mt-2 flex items-center justify-between text-xs ${tierTheme.caption}`}>
+                                        <span>{progressPct}% to next tier</span>
+                                        <span>{nextTierLabel ? `Next: ${getMembershipLabel(nextTierLabel)}` : 'Highest tier reached'}</span>
+                                    </div>
+                                </div>
                             </div>
                             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                                 <div className="flex items-center justify-between gap-4">
                                     <div>
                                         <h2 className="text-lg font-semibold text-gray-800">Contact & Delivery</h2>
-                                        <p className="text-sm text-gray-500">Update your billing and shipping addresses.</p>
+                                        <p className="text-sm text-gray-500">
+                                            {user ? 'Update your billing and shipping addresses.' : 'Enter your contact, shipping, and billing details to continue securely.'}
+                                        </p>
                                     </div>
-                                    {!editing ? (
+                                    {user && !editing ? (
                                         <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">
                                             <Edit3 size={16} /> Edit
                                         </button>
-                                    ) : (
+                                    ) : user ? (
                                         <div className="flex items-center gap-2">
                                             <button type="button" onClick={() => setEditing(false)} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-500 hover:bg-gray-50">
                                                 Cancel
@@ -1118,8 +1435,23 @@ export default function Checkout() {
                                                 {isSaving ? 'Saving...' : 'Save'}
                                             </button>
                                         </div>
-                                    )}
+                                    ) : null}
                                 </div>
+                                {!user && guestRequiresAccountVerification && guestCheckoutConflict && !isAccountVerificationOpen && (
+                                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                        <p className="font-semibold">Existing account found</p>
+                                        <p className="mt-1">{guestCheckoutConflict}</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setIsAccountVerificationOpen(true);
+                                            }}
+                                            className="mt-2 inline-flex text-sm font-semibold text-primary underline underline-offset-4"
+                                        >
+                                            Verify with OTP and continue checkout
+                                        </button>
+                                    </div>
+                                )}
 
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
                                     <div className="space-y-2">
@@ -1129,7 +1461,7 @@ export default function Checkout() {
                                                 name="name"
                                                 value={form.name}
                                                 onChange={handleFieldChange}
-                                                disabled={!editing}
+                                                disabled={formInputsDisabled}
                                                 className={`input-field pl-10 disabled:bg-gray-50 ${attemptedPay && fieldErrors.name ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
                                             <UserRound size={16} className="absolute left-3 top-3.5 text-gray-400" />
@@ -1143,12 +1475,14 @@ export default function Checkout() {
                                                 name="email"
                                                 value={form.email}
                                                 onChange={handleFieldChange}
-                                                disabled={!editing}
-                                                className={`input-field pl-10 disabled:bg-gray-50 ${attemptedPay && fieldErrors.email ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                disabled={formInputsDisabled}
+                                                className={`input-field pl-10 disabled:bg-gray-50 ${(emailValidationMessage && String(form.email || '').trim()) || (attemptedPay && fieldErrors.email) || guestConflictHints.email ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
                                             <Mail size={16} className="absolute left-3 top-3.5 text-gray-400" />
                                         </div>
-                                        {attemptedPay && fieldErrors.email && <p className="text-[11px] text-red-600">{fieldErrors.email}</p>}
+                                        {((emailValidationMessage && String(form.email || '').trim()) || (attemptedPay && fieldErrors.email) || guestConflictHints.email) && (
+                                            <p className="text-[11px] text-red-600">{guestConflictHints.email || emailValidationMessage || fieldErrors.email}</p>
+                                        )}
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Phone</label>
@@ -1157,15 +1491,19 @@ export default function Checkout() {
                                                 name="mobile"
                                                 type="tel"
                                                 inputMode="numeric"
+                                                autoComplete="tel"
                                                 maxLength={10}
                                                 value={form.mobile}
                                                 onChange={handleFieldChange}
-                                                disabled={!editing}
-                                                className={`input-field pl-10 disabled:bg-gray-50 ${attemptedPay && fieldErrors.mobile ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                disabled={formInputsDisabled}
+                                                placeholder="9876543210"
+                                                className={`input-field pl-10 disabled:bg-gray-50 ${(mobileValidationMessage && String(form.mobile || '').trim()) || (attemptedPay && fieldErrors.mobile) || guestConflictHints.mobile ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
                                             <Phone size={16} className="absolute left-3 top-3.5 text-gray-400" />
                                         </div>
-                                        {attemptedPay && fieldErrors.mobile && <p className="text-[11px] text-red-600">{fieldErrors.mobile}</p>}
+                                        {((attemptedPay && fieldErrors.mobile) || guestConflictHints.mobile) && (
+                                            <p className="text-[11px] text-red-600">{guestConflictHints.mobile || fieldErrors.mobile}</p>
+                                        )}
                                     </div>
                                 </div>
 
@@ -1179,7 +1517,7 @@ export default function Checkout() {
                                                 <input
                                                     value={form.billingAddress.line1}
                                                     onChange={(e) => handleAddressChange('billingAddress', 'line1', e.target.value)}
-                                                    disabled={!editing}
+                                                    disabled={formInputsDisabled}
                                                     placeholder="Street Address"
                                                     className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingLine1 ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 />
@@ -1187,14 +1525,14 @@ export default function Checkout() {
                                                     <input
                                                         value={form.billingAddress.city}
                                                         onChange={(e) => handleAddressChange('billingAddress', 'city', e.target.value)}
-                                                        disabled={!editing}
+                                                        disabled={formInputsDisabled}
                                                         placeholder="City"
                                                         className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingCity ? 'border-red-400 bg-red-50/30' : ''}`}
                                                     />
                                                     <select
                                                         value={resolveAllowedStateName(availableStates, form.billingAddress.state) || ''}
                                                         onChange={(e) => handleAddressChange('billingAddress', 'state', e.target.value)}
-                                                        disabled={!editing || availableStates.length === 0}
+                                                        disabled={formInputsDisabled || availableStates.length === 0}
                                                         className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingState ? 'border-red-400 bg-red-50/30' : ''}`}
                                                     >
                                                         <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
@@ -1206,7 +1544,7 @@ export default function Checkout() {
                                                 <input
                                                     value={form.billingAddress.zip}
                                                     onChange={(e) => handleAddressChange('billingAddress', 'zip', e.target.value)}
-                                                    disabled={!editing}
+                                                    disabled={formInputsDisabled}
                                                     placeholder="PIN code"
                                                     className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingZip ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 />
@@ -1224,7 +1562,7 @@ export default function Checkout() {
                                             <input
                                                 value={form.address.line1}
                                                 onChange={(e) => handleAddressChange('address', 'line1', e.target.value)}
-                                                disabled={!editing}
+                                                disabled={formInputsDisabled}
                                                 placeholder="Street Address"
                                                 className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingLine1 ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
@@ -1232,14 +1570,14 @@ export default function Checkout() {
                                                 <input
                                                     value={form.address.city}
                                                     onChange={(e) => handleAddressChange('address', 'city', e.target.value)}
-                                                    disabled={!editing}
+                                                    disabled={formInputsDisabled}
                                                     placeholder="City"
                                                     className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingCity ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 />
                                                 <select
                                                     value={resolveAllowedStateName(availableStates, form.address.state) || ''}
                                                     onChange={(e) => handleAddressChange('address', 'state', e.target.value)}
-                                                    disabled={!editing || availableStates.length === 0}
+                                                    disabled={formInputsDisabled || availableStates.length === 0}
                                                     className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingState ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 >
                                                     <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
@@ -1251,7 +1589,7 @@ export default function Checkout() {
                                             <input
                                                 value={form.address.zip}
                                                 onChange={(e) => handleAddressChange('address', 'zip', e.target.value)}
-                                                disabled={!editing}
+                                                disabled={formInputsDisabled}
                                                 placeholder="PIN code"
                                                 className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingZip ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
@@ -1373,13 +1711,6 @@ export default function Checkout() {
                                             const displayLineTotal = taxPriceMode === 'inclusive' && itemTax
                                                 ? Number(itemTax.lineTotalBase || item.lineTotal || 0)
                                                 : Number(item.lineTotal || 0);
-                                            const itemGst = itemTax
-                                                ? getGstDisplayDetails({
-                                                    taxAmount: Number(itemTax.taxAmount || 0),
-                                                    taxRatePercent: Number(itemTax.taxRatePercent || 0),
-                                                    taxLabel: itemTax.taxCode || itemTax.taxName || ''
-                                                })
-                                                : null;
                                             const lowStockCopy = item.isLowStock
                                                 ? `Only ${Number(item.availableQuantity || 0)} left. Complete payment soon.`
                                                 : '';
@@ -1407,12 +1738,6 @@ export default function Checkout() {
                                                         <p className="text-xs text-gray-400 mt-1">
                                                             ₹{displayUnitPrice.toLocaleString()} x {item.quantity}
                                                         </p>
-                                                        {taxRateSummary.hasMultipleRates && itemTax && Number(itemTax.taxAmount || 0) > 0 && itemGst && (
-                                                            <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
-                                                                {itemGst.title}: {itemGst.totalAmountLabel}
-                                                                <span className="block text-[10px] text-gray-400">{itemGst.splitRateLabel}; {itemGst.splitAmountLabel}</span>
-                                                            </p>
-                                                        )}
                                                     </div>
                                                     <div className="text-right">
                                                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
@@ -1427,9 +1752,6 @@ export default function Checkout() {
                                                             )}
                                                         </div>
                                                         <p className="text-xs text-gray-400 mt-1">₹{displayLineTotal.toLocaleString()}</p>
-                                                        {taxPriceMode === 'inclusive' && itemTax && Number(itemTax.taxAmount || 0) > 0 && (
-                                                            <p className="text-[10px] text-gray-400 mt-1">Gross incl. GST: ₹{Number(itemTax.lineTotalGross || item.lineTotal || 0).toLocaleString()}</p>
-                                                        )}
                                                     </div>
                                                 </div>
                                             );
@@ -1444,7 +1766,7 @@ export default function Checkout() {
                                 )}
 
                                 <div className="border-t border-gray-100 mt-6 pt-4 space-y-2 text-sm">
-                                    {isSummaryLoading && (
+                                    {isSummaryLoading && !isPreparingVerifiedCheckout && (
                                         <div className="text-[11px] text-gray-500 flex items-center gap-1">
                                             <TrendingUp size={12} /> Refreshing member pricing...
                                         </div>
@@ -1509,24 +1831,20 @@ export default function Checkout() {
                                         <span>{taxPriceMode === 'inclusive' ? 'Value After Discounts' : 'Taxable Value After Discounts'}</span>
                                         <span className="font-semibold text-gray-800">₹{summaryValueAfterDiscounts.toLocaleString()}</span>
                                     </div>
-                                    {showTaxComponents && (
-                                        <div className="flex items-start justify-between text-gray-500">
-                                            <span>
-                                                {taxPriceMode === 'inclusive' ? 'GST Breakdown' : 'GST'}
-                                                <span className="block text-[11px] text-gray-400">{getGstDisplayDetails({ taxAmount: Number(taxTotal || 0) }).splitAmountLabel}</span>
-                                            </span>
-                                            <span className="font-semibold text-gray-800">₹{Number(taxTotal || 0).toLocaleString()}</span>
-                                        </div>
-                                    )}
                                     {roundOffAmount !== 0 && (
                                         <div className="flex items-center justify-between text-gray-500">
                                             <span>Round Off</span>
                                             <span className="font-semibold text-gray-800">₹{roundOffAmount.toLocaleString()}</span>
                                         </div>
                                     )}
-                                    <div className="flex items-center justify-between text-gray-800 text-base font-semibold pt-3">
+                                    <div className="flex items-start justify-between text-gray-800 text-base font-semibold pt-3">
                                         <span>Total</span>
-                                        <span>₹{grandTotal.toLocaleString()}</span>
+                                        <div className="text-right">
+                                            <span>₹{grandTotal.toLocaleString()}</span>
+                                            {checkoutTaxHint && (
+                                                <p className="mt-1 text-[11px] font-normal text-gray-400">{checkoutTaxHint}</p>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                                 <RazorpayAffordability amountRupees={grandTotal} className="mt-4" />
@@ -1539,7 +1857,7 @@ export default function Checkout() {
                                 >
                                     <CreditCard size={18} /> {isPlacingOrder ? 'Processing...' : 'Pay Now'}
                                 </button>
-                                {isMobileMissingOnProfile && !hasMobileForPayment && (
+                                {isMobileMissingOnProfile && !hasValidMobileForPayment && (
                                     <p className="text-[11px] text-amber-700 text-center mt-2">
                                         Mobile number is required to continue payment.
                                     </p>
@@ -1625,6 +1943,19 @@ export default function Checkout() {
                     </div>
                 </div>
                 ,
+                document.body
+            )}
+
+            {isPreparingVerifiedCheckout && !isPaymentAwaitingConfirmation && !orderResult && createPortal(
+                <div className="fixed inset-0 z-[84] flex items-center justify-center bg-black/45 backdrop-blur-sm px-4">
+                    <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 text-center border border-gray-100">
+                        <img src={waitIllustration} alt="Preparing payment" className="w-32 h-32 mx-auto" />
+                        <h3 className="mt-3 text-xl font-serif text-primary">Preparing payment...</h3>
+                        <p className="mt-2 text-sm text-gray-600">
+                            We&apos;re securing your account, syncing your checkout cart, and preparing the best available pricing before Razorpay opens.
+                        </p>
+                    </div>
+                </div>,
                 document.body
             )}
 
@@ -1831,6 +2162,40 @@ export default function Checkout() {
                 ,
                 document.body
             )}
+            <CheckoutAccountVerificationModal
+                isOpen={isAccountVerificationOpen}
+                checkoutEmail={form.email}
+                checkoutMobile={form.mobile}
+                onClose={() => setIsAccountVerificationOpen(false)}
+                onSuccess={async (res, resolution = {}) => {
+                    const guestCheckoutItemsSnapshot = items.map((item) => ({
+                        productId: item.productId,
+                        variantId: item.variantId || '',
+                        quantity: Number(item.quantity || 0)
+                    }));
+                    checkoutAddressSnapshotRef.current = {
+                        address: { ...form.address },
+                        billingAddress: { ...(billingAddressEnabled ? form.billingAddress : form.address) }
+                    };
+                    preserveCheckoutAddressOnLoginRef.current = true;
+                    skipNextLoginGuestMerge();
+                    login(res.token, res.user);
+                    setGuestCheckoutConflict('');
+                    setIsAccountVerificationOpen(false);
+                    setResumeCheckoutAfterVerification(false);
+                    setIsPreparingVerifiedCheckout(true);
+                    setPostOtpCheckoutSync({ guestItems: guestCheckoutItemsSnapshot });
+                    setForm((prev) => ({
+                        ...prev,
+                        name: res?.user?.name || prev.name,
+                        email: resolution?.resolvedEmail || res?.user?.email || prev.email,
+                        mobile: resolution?.resolvedMobile || res?.user?.mobile || prev.mobile,
+                        address: { ...checkoutAddressSnapshotRef.current.address },
+                        billingAddress: { ...checkoutAddressSnapshotRef.current.billingAddress }
+                    }));
+                    toast.success('Account verified. Continuing to payment...');
+                }}
+            />
         </div>
     );
 }
