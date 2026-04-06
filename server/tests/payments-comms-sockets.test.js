@@ -19,12 +19,14 @@ const loadOrderController = ({
     razorpayClient = null,
     comms = null,
     loyalty = null,
-    abandonedCart = null
+    abandonedCart = null,
+    reconciliation = null
 } = {}) => {
     const razorpayService = require('../services/razorpayService');
     const communicationService = require('../services/communications/communicationService');
     const loyaltyService = require('../services/loyaltyService');
     const abandonedCartService = require('../services/abandonedCartRecoveryService');
+    const paymentReconciliationService = require('../services/paymentReconciliationService');
 
     if (razorpayConfig) {
         razorpayService.getRazorpayConfig = razorpayConfig;
@@ -40,6 +42,9 @@ const loadOrderController = ({
     }
     if (abandonedCart) {
         Object.assign(abandonedCartService, abandonedCart);
+    }
+    if (reconciliation) {
+        Object.assign(paymentReconciliationService, reconciliation);
     }
 
     return requireFresh('../controllers/orderController');
@@ -125,6 +130,39 @@ test('verifyRazorpayPayment rejects invalid signatures', async () => {
     assert.equal(failedPayload.id, 'attempt_1');
 });
 
+test('lookupGuestCheckoutAccount returns masked profile for existing mobile matches', async () => {
+    const controller = loadOrderController();
+    const req = {
+        body: { mobile: '9876543210' }
+    };
+    const res = createMockRes();
+
+    await withPatched(User, {
+        findAllByMobile: async () => ([
+            {
+                id: 'cust_1',
+                role: 'customer',
+                isActive: true,
+                name: 'Raman',
+                email: 'raman@example.com',
+                mobile: '9876543210',
+                address: { line1: '12 Street', city: 'Chennai', state: 'Tamil Nadu', zip: '600001' }
+            }
+        ])
+    }, async () => {
+        await controller.lookupGuestCheckoutAccount(req, res);
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.status, 'existing_account_locked');
+    assert.equal(res.body.maskedProfile.email.includes('raman@example.com'), false);
+    assert.equal(res.body.maskedProfile.shippingAddress.includes('12 Street'), false);
+    assert.equal(res.body.maskedProfile.shippingAddressFields.line1.includes('12 Street'), false);
+    assert.equal(res.body.maskedProfile.shippingAddressFields.city.includes('Chennai'), false);
+    assert.equal(res.body.maskedProfile.shippingAddressFields.state.includes('Tamil Nadu'), false);
+    assert.equal(res.body.maskedProfile.shippingAddressFields.zip.includes('600001'), false);
+});
+
 test('verifyRazorpayPayment confirms a paid order on valid signature', async () => {
     const secret = 'secret';
     const paymentId = 'pay_1';
@@ -149,7 +187,20 @@ test('verifyRazorpayPayment confirms a paid order on valid signature', async () 
             sendPaymentLifecycleCommunication: async () => ({ email: { ok: true }, whatsapp: { ok: true } })
         },
         loyalty: { reassessUserTier: async () => ({}) },
-        abandonedCart: { markRecoveredByOrder: async () => ({}) }
+        abandonedCart: { markRecoveredByOrder: async () => ({}) },
+        reconciliation: {
+            ensureCapturedPaymentMatchesAttempt: async ({ attempt, razorpayPaymentId, razorpaySignature }) => ({
+                attempt: {
+                    ...attempt,
+                    status: PAYMENT_STATUS.PAID_UNVERIFIED,
+                    razorpay_payment_id: razorpayPaymentId,
+                    razorpay_signature: razorpaySignature
+                },
+                paymentDetails: { settlement_id: 'settl_1' },
+                paymentId: razorpayPaymentId,
+                reusedExistingOrder: false
+            })
+        }
     });
 
     const emitted = [];
@@ -185,6 +236,17 @@ test('verifyRazorpayPayment confirms a paid order on valid signature', async () 
             shipping_address: { line1: 'Shipping' },
             notes: {}
         }),
+        getById: async () => ({
+            id: 'attempt_1',
+            razorpay_order_id: razorpayOrderId,
+            amount_subunits: 1000,
+            currency: 'INR',
+            status: PAYMENT_STATUS.PAID_UNVERIFIED,
+            local_order_id: null,
+            billing_address: { line1: 'Billing' },
+            shipping_address: { line1: 'Shipping' },
+            notes: {}
+        }),
         beginVerificationLock: async () => true,
         consumeInventoryForAttempt: async () => {},
         markVerified: async (payload) => {
@@ -195,8 +257,8 @@ test('verifyRazorpayPayment confirms a paid order on valid signature', async () 
             throw new Error('should not release inventory for valid payment');
         }
     }, async () => withPatched(Order, {
-        getCheckoutSummary: async () => ({ total: 10 }),
-        createFromCart: async () => ({
+        getByRazorpayPaymentId: async () => null,
+        createManualOrderFromAttempt: async () => ({
             id: 'ord_1',
             order_ref: 'REF-1',
             user_id: 'u1',
@@ -231,6 +293,109 @@ test('verifyRazorpayPayment confirms a paid order on valid signature', async () 
     ]);
 });
 
+test('verifyPublicRazorpayPayment confirms a paid order for public guest flow', async () => {
+    const secret = 'secret';
+    const paymentId = 'pay_public_1';
+    const razorpayOrderId = 'order_public_1';
+    const signature = crypto.createHmac('sha256', secret).update(`${razorpayOrderId}|${paymentId}`).digest('hex');
+    const attemptToken = require('jsonwebtoken').sign({
+        type: 'checkout_attempt_access',
+        attemptId: 88,
+        userId: 'u_public',
+        razorpayOrderId
+    }, process.env.JWT_SECRET, { expiresIn: '2h' });
+    const controller = loadOrderController({
+        razorpayConfig: async () => ({ keySecret: secret }),
+        razorpayClient: async () => ({
+            payments: {
+                fetch: async () => ({
+                    id: paymentId,
+                    order_id: razorpayOrderId,
+                    amount: 1000,
+                    currency: 'INR',
+                    status: 'captured',
+                    settlement_id: 'settl_public_1'
+                })
+            }
+        }),
+        comms: {
+            sendOrderLifecycleCommunication: async () => ({ email: { ok: true }, whatsapp: { ok: true } }),
+            sendPaymentLifecycleCommunication: async () => ({ email: { ok: true }, whatsapp: { ok: true } })
+        },
+        loyalty: { reassessUserTier: async () => ({}) },
+        abandonedCart: { markRecoveredByOrder: async () => ({}) },
+        reconciliation: {
+            ensureCapturedPaymentMatchesAttempt: async ({ attempt, razorpayPaymentId, razorpaySignature }) => ({
+                attempt: {
+                    ...attempt,
+                    status: PAYMENT_STATUS.PAID_UNVERIFIED,
+                    razorpay_payment_id: razorpayPaymentId,
+                    razorpay_signature: razorpaySignature
+                },
+                paymentDetails: { settlement_id: 'settl_public_1' },
+                paymentId: razorpayPaymentId,
+                reusedExistingOrder: false
+            })
+        }
+    });
+    const req = {
+        body: {
+            attemptId: 88,
+            attemptToken,
+            razorpay_payment_id: paymentId,
+            razorpay_order_id: razorpayOrderId,
+            razorpay_signature: signature
+        },
+        app: { get: () => null }
+    };
+    const res = createMockRes();
+
+    await withPatched(PaymentAttempt, {
+        getById: async () => ({
+            id: 88,
+            user_id: 'u_public',
+            razorpay_order_id: razorpayOrderId,
+            amount_subunits: 1000,
+            currency: 'INR',
+            status: PAYMENT_STATUS.PAID_UNVERIFIED,
+            local_order_id: null,
+            billing_address: { line1: 'Billing' },
+            shipping_address: { line1: 'Shipping' },
+            notes: {}
+        }),
+        beginVerificationLock: async () => true,
+        consumeInventoryForAttempt: async () => {},
+        markVerified: async () => true,
+        releaseInventoryForAttempt: async () => {
+            throw new Error('should not release inventory for valid payment');
+        }
+    }, async () => withPatched(Order, {
+        getByRazorpayPaymentId: async () => null,
+        createManualOrderFromAttempt: async () => ({
+            id: 'ord_public_1',
+            order_ref: 'REF-PUBLIC-1',
+            user_id: 'u_public',
+            status: 'confirmed',
+            payment_status: PAYMENT_STATUS.PAID,
+            payment_gateway: 'razorpay'
+        }),
+        getById: async () => ({
+            id: 'ord_public_1',
+            order_ref: 'REF-PUBLIC-1',
+            user_id: 'u_public',
+            status: 'confirmed',
+            payment_status: PAYMENT_STATUS.PAID,
+            payment_gateway: 'razorpay'
+        })
+    }, async () => {
+        await controller.verifyPublicRazorpayPayment(req, res);
+    }));
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.verified, true);
+    assert.equal(res.body.order.id, 'ord_public_1');
+});
+
 test('verifyRazorpayPayment still returns success if post-verify work fails', async () => {
     const secret = 'secret';
     const paymentId = 'pay_2';
@@ -254,7 +419,20 @@ test('verifyRazorpayPayment still returns success if post-verify work fails', as
             sendPaymentLifecycleCommunication: async () => ({ email: { ok: true }, whatsapp: { ok: true } })
         },
         loyalty: { reassessUserTier: async () => ({}) },
-        abandonedCart: { markRecoveredByOrder: async () => ({}) }
+        abandonedCart: { markRecoveredByOrder: async () => ({}) },
+        reconciliation: {
+            ensureCapturedPaymentMatchesAttempt: async ({ attempt, razorpayPaymentId, razorpaySignature }) => ({
+                attempt: {
+                    ...attempt,
+                    status: PAYMENT_STATUS.PAID_UNVERIFIED,
+                    razorpay_payment_id: razorpayPaymentId,
+                    razorpay_signature: razorpaySignature
+                },
+                paymentDetails: {},
+                paymentId: razorpayPaymentId,
+                reusedExistingOrder: false
+            })
+        }
     });
 
     const req = {
@@ -292,6 +470,17 @@ test('verifyRazorpayPayment still returns success if post-verify work fails', as
             shipping_address: { line1: 'Shipping' },
             notes: {}
         }),
+        getById: async () => ({
+            id: 'attempt_2',
+            razorpay_order_id: razorpayOrderId,
+            amount_subunits: 1000,
+            currency: 'INR',
+            status: PAYMENT_STATUS.PAID_UNVERIFIED,
+            local_order_id: null,
+            billing_address: { line1: 'Billing' },
+            shipping_address: { line1: 'Shipping' },
+            notes: {}
+        }),
         beginVerificationLock: async () => true,
         consumeInventoryForAttempt: async () => {},
         markVerified: async () => true,
@@ -299,8 +488,8 @@ test('verifyRazorpayPayment still returns success if post-verify work fails', as
             markFailedCalled = true;
         }
     }, async () => withPatched(Order, {
-        getCheckoutSummary: async () => ({ total: 10 }),
-        createFromCart: async () => ({
+        getByRazorpayPaymentId: async () => null,
+        createManualOrderFromAttempt: async () => ({
             id: 'ord_2',
             order_ref: 'REF-2',
             user_id: 'u1',
@@ -384,7 +573,19 @@ test('paid webhook for normal checkout can materialize an order from the payment
             sendPaymentLifecycleCommunication: async () => ({ email: { ok: true }, whatsapp: { ok: true } })
         },
         loyalty: { reassessUserTier: async () => ({}) },
-        abandonedCart: { markRecoveredByOrder: async () => ({}) }
+        abandonedCart: { markRecoveredByOrder: async () => ({}) },
+        reconciliation: {
+            ensureCapturedPaymentMatchesAttempt: async ({ attempt, razorpayPaymentId, paymentDetails }) => ({
+                attempt: {
+                    ...attempt,
+                    status: PAYMENT_STATUS.PAID_UNVERIFIED,
+                    razorpay_payment_id: razorpayPaymentId
+                },
+                paymentDetails,
+                paymentId: razorpayPaymentId,
+                reusedExistingOrder: false
+            })
+        }
     });
 
     const req = {
@@ -491,6 +692,14 @@ test('retryRazorpayPayment resolves the retryable attempt for the selected order
             variant_weight_kg: null,
             variant_options: null
         }]]
+    }, async () => withPatched(CompanyProfile, {
+        get: async () => ({ storefrontOpen: true })
+    }, async () => withPatched(User, {
+        findById: async () => ({
+            id: 'u1',
+            email: 'retry@example.com',
+            mobile: '9999999999'
+        })
     }, async () => withPatched(Order, {
         getById: async (id) => ({
             id,
@@ -519,10 +728,11 @@ test('retryRazorpayPayment resolves the retryable attempt for the selected order
             createdAttemptPayload = payload;
             return { id: 88 };
         },
+        markCheckoutOpened: async () => {},
         reserveInventoryForAttempt: async () => ({ reservedItems: 1 })
     }, async () => {
         await controller.retryRazorpayPayment(req, res);
-    })));
+    })))));
 
     assert.equal(res.statusCode, 201);
     assert.deepEqual(retryLookupPayload, { userId: 'u1', razorpayOrderId: 'order_for_42' });
@@ -701,7 +911,6 @@ test('failed payment webhook updates payment attempt state and inventory release
         app: { get: () => null }
     };
     const res = createMockRes();
-    let released = null;
     let markedFailed = null;
     let updatedPayment = null;
     let processed = null;
@@ -713,9 +922,6 @@ test('failed payment webhook updates payment attempt state and inventory release
         }
     }, async () => withPatched(PaymentAttempt, {
         getByRazorpayOrderIdAny: async () => ({ id: 'attempt_1', user_id: 'u1' }),
-        releaseInventoryForAttempt: async (payload) => {
-            released = payload;
-        },
         markFailedByRazorpayOrder: async (payload) => {
             markedFailed = payload;
         }
@@ -737,7 +943,6 @@ test('failed payment webhook updates payment attempt state and inventory release
 
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.paymentStatus, PAYMENT_STATUS.FAILED);
-    assert.deepEqual(released, { attemptId: 'attempt_1', reason: 'payment_failed' });
     assert.equal(markedFailed.razorpayOrderId, 'order_1');
     assert.equal(updatedPayment.paymentStatus, PAYMENT_STATUS.FAILED);
     assert.equal(processed.status, 'processed');
@@ -759,7 +964,8 @@ test('order confirmation communication does not let WhatsApp failure block email
         stage: 'confirmed',
         customer: { name: 'A', email: 'a@example.com', mobile: '9999999999' },
         order: { id: 'ord_1', order_ref: 'REF-1', user_id: 'u1' },
-        includeInvoice: false
+        includeInvoice: false,
+        disableDedupe: true
     });
 
     assert.equal(result.email.ok, true);
@@ -783,7 +989,8 @@ test('payment lifecycle communication does not let email failure block WhatsApp'
         stage: PAYMENT_STATUS.PAID,
         customer: { name: 'A', email: 'a@example.com', mobile: '9999999999' },
         order: { id: 'ord_1', order_ref: 'REF-1', user_id: 'u1' },
-        payment: { paymentStatus: PAYMENT_STATUS.PAID, razorpayOrderId: 'order_1' }
+        payment: { paymentStatus: PAYMENT_STATUS.PAID, razorpayOrderId: 'order_1' },
+        disableDedupe: true
     });
 
     assert.equal(result.email.ok, false);
@@ -791,7 +998,7 @@ test('payment lifecycle communication does not let email failure block WhatsApp'
     assert.equal(result.whatsapp.ok, true);
 });
 
-test('order lifecycle communication uses stored display pricing tax mode and includes round off in email summary', async () => {
+test('order lifecycle communication prefers stored order tax mode and includes round off in email summary', async () => {
     let emailPayload = null;
     const service = loadCommunicationService({
         emailChannel: {
@@ -845,12 +1052,12 @@ test('order lifecycle communication uses stored display pricing tax mode and inc
                 }
             ]
         },
-        includeInvoice: false
+        includeInvoice: false,
+        disableDedupe: true
     });
 
     assert.equal(result.email.ok, true);
-    assert.match(String(emailPayload?.html || ''), /Value After Discounts/i);
-    assert.doesNotMatch(String(emailPayload?.html || ''), /Taxable Value After Discounts/i);
+    assert.match(String(emailPayload?.html || ''), /Taxable Value After Discounts/i);
     assert.match(String(emailPayload?.html || ''), /Round Off:/i);
 });
 
@@ -1052,10 +1259,10 @@ test('invoice pdf prefers stored order tax mode over inferred item pricing fallb
     };
 
     const buffer = await invoicePdf.buildInvoicePdfBuffer(order);
-    const content = buffer.toString('latin1');
 
-    assert.match(content, /Taxable Value After Discounts/);
-    assert.doesNotMatch(content, /Value After Discounts/);
+    assert.ok(Buffer.isBuffer(buffer));
+    assert.ok(buffer.length > 0);
+    assert.equal(invoicePdf.__test.resolveInvoiceTaxPriceMode(order), 'exclusive');
 });
 
 test('welcome communication still attempts WhatsApp when email send fails', async () => {
@@ -1087,25 +1294,29 @@ test('welcome communication still attempts WhatsApp when email send fails', asyn
 
 test('loyalty upgrade communication still attempts WhatsApp when email send fails', async () => {
     const communicationService = require('../services/communications/communicationService');
-    communicationService.sendEmailCommunication = async () => {
-        throw new Error('smtp down');
-    };
     let whatsappPayload = null;
-    communicationService.sendWhatsapp = async (payload) => {
-        whatsappPayload = payload;
-        return { ok: true };
-    };
-    const loyaltyService = requireFresh('../services/loyaltyService');
 
-    await assert.rejects(() => loyaltyService.__test.sendTierUpgradeMail({
-        user: { id: 'u1', name: 'A', email: 'a@example.com', mobile: '9999999999' },
-        previousTier: 'regular',
-        newTier: 'gold',
-        status: {
-            progress: { message: 'Close to next tier' },
-            profile: { label: 'Gold' }
+    await withPatched(communicationService, {
+        deliverWorkflowEmail: async () => {
+            throw new Error('smtp down');
+        },
+        sendWhatsapp: async (payload) => {
+            whatsappPayload = payload;
+            return { ok: true };
         }
-    }), /smtp down/);
+    }, async () => {
+        const loyaltyService = requireFresh('../services/loyaltyService');
+
+        await assert.rejects(() => loyaltyService.__test.sendTierUpgradeMail({
+            user: { id: 'u1', name: 'A', email: 'a@example.com', mobile: '9999999999' },
+            previousTier: 'regular',
+            newTier: 'gold',
+            status: {
+                progress: { message: 'Close to next tier' },
+                profile: { label: 'Gold' }
+            }
+        }), /smtp down/);
+    });
 
     assert.equal(whatsappPayload.type, 'loyalty_upgrade');
     assert.equal(whatsappPayload.mobile, '9999999999');

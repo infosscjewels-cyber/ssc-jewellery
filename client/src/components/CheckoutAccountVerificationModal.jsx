@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, Mail, ShieldCheck, X } from 'lucide-react';
 import { authService } from '../services/authService';
-import { orderService } from '../services/orderService';
 import { useToast } from '../context/ToastContext';
 
 const maskEmail = (value = '') => {
@@ -22,8 +21,8 @@ const maskMobile = (value = '') => {
 
 export default function CheckoutAccountVerificationModal({
     isOpen,
-    checkoutEmail = '',
     checkoutMobile = '',
+    maskedProfile = null,
     onClose,
     onSuccess
 }) {
@@ -31,13 +30,10 @@ export default function CheckoutAccountVerificationModal({
     const [otp, setOtp] = useState('');
     const [otpSent, setOtpSent] = useState(false);
     const [timer, setTimer] = useState(0);
-    const [isPreparing, setIsPreparing] = useState(false);
     const [isSendingOtp, setIsSendingOtp] = useState(false);
     const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
-    const [resolverError, setResolverError] = useState('');
+    const [deliveryError, setDeliveryError] = useState('');
     const [otpError, setOtpError] = useState('');
-    const [resolution, setResolution] = useState(null);
-    const [resolverAttempted, setResolverAttempted] = useState(false);
     const [autoSendAttempted, setAutoSendAttempted] = useState(false);
     const modalActiveRef = useRef(false);
     const verificationCompletedRef = useRef(false);
@@ -52,15 +48,12 @@ export default function CheckoutAccountVerificationModal({
         setOtp('');
         setOtpSent(false);
         setTimer(0);
-        setIsPreparing(false);
         setIsSendingOtp(false);
         setIsVerifyingOtp(false);
-        setResolverError('');
+        setDeliveryError('');
         setOtpError('');
-        setResolution(null);
-        setResolverAttempted(false);
         setAutoSendAttempted(false);
-    }, [checkoutEmail, checkoutMobile, isOpen]);
+    }, [checkoutMobile, isOpen]);
 
     useEffect(() => {
         if (timer <= 0) return undefined;
@@ -71,45 +64,22 @@ export default function CheckoutAccountVerificationModal({
     }, [timer]);
 
     const resolvedIdentifier = useMemo(
-        () => String(resolution?.identifier || '').trim(),
-        [resolution?.identifier]
+        () => String(checkoutMobile || '').replace(/\D/g, '').trim(),
+        [checkoutMobile]
     );
     const resolvedEmail = useMemo(
-        () => String(resolution?.user?.email || '').trim().toLowerCase(),
-        [resolution?.user?.email]
+        () => String(maskedProfile?.email || '').trim().toLowerCase(),
+        [maskedProfile?.email]
     );
     const resolvedMobile = useMemo(
-        () => String(resolution?.user?.mobile || resolution?.user?.whatsapp || '').replace(/\D/g, '').trim(),
-        [resolution?.user?.mobile, resolution?.user?.whatsapp]
+        () => String(maskedProfile?.mobile || checkoutMobile || '').replace(/\D/g, '').trim(),
+        [maskedProfile?.mobile, checkoutMobile]
     );
     const canVerifyOtp = Boolean(resolvedIdentifier) && String(otp || '').trim().length === 6 && !isVerifyingOtp;
 
-    const startVerification = useCallback(async () => {
-        if (!isOpen) return;
-        setIsPreparing(true);
-        setResolverAttempted(true);
-        setResolverError('');
-        setOtpError('');
-        try {
-            const res = await orderService.startCheckoutAccountVerification({
-                email: checkoutEmail,
-                mobile: checkoutMobile
-            });
-            if (!res?.accountExists || !res?.identifier) {
-                setResolverError('No existing account was found for these checkout details.');
-                return;
-            }
-            setResolution(res);
-        } catch (error) {
-            setResolverError(error?.message || 'Unable to verify the existing account for checkout.');
-        } finally {
-            setIsPreparing(false);
-        }
-    }, [checkoutEmail, checkoutMobile, isOpen]);
-
     const handleSendOtp = useCallback(async () => {
         if (!resolvedIdentifier || timer > 0) return;
-        setResolverError('');
+        setDeliveryError('');
         setOtpError('');
         setOtpSent(true);
         setTimer(30);
@@ -119,7 +89,7 @@ export default function CheckoutAccountVerificationModal({
             if (!res?.ok) {
                 setOtpSent(false);
                 setTimer(0);
-                setResolverError(res?.message || 'Failed to send OTP');
+                setDeliveryError(res?.message || 'Failed to send OTP');
                 return;
             }
             if (!modalActiveRef.current || verificationCompletedRef.current) {
@@ -141,29 +111,23 @@ export default function CheckoutAccountVerificationModal({
         } catch (error) {
             setOtpSent(false);
             setTimer(0);
-            setResolverError(error?.message || 'Failed to send OTP');
+            setDeliveryError(error?.message || 'Failed to send OTP');
         } finally {
             setIsSendingOtp(false);
         }
     }, [resolvedIdentifier, timer, toast]);
 
     useEffect(() => {
-        if (!isOpen || resolution || isPreparing || resolverAttempted) return;
-        void startVerification();
-    }, [isOpen, resolution, isPreparing, resolverAttempted, startVerification]);
-
-    useEffect(() => {
-        if (!isOpen || !resolution || autoSendAttempted || otpSent || isSendingOtp) return;
+        if (!isOpen || autoSendAttempted || otpSent || isSendingOtp || !resolvedIdentifier) return;
         setAutoSendAttempted(true);
         void handleSendOtp();
-    }, [autoSendAttempted, handleSendOtp, isOpen, isSendingOtp, otpSent, resolution]);
+    }, [autoSendAttempted, handleSendOtp, isOpen, isSendingOtp, otpSent, resolvedIdentifier]);
 
     if (!isOpen) return null;
 
     const handleVerify = async (event) => {
         event.preventDefault();
         if (!canVerifyOtp) return;
-        setResolverError('');
         setOtpError('');
         setIsVerifyingOtp(true);
         try {
@@ -179,10 +143,10 @@ export default function CheckoutAccountVerificationModal({
             verificationCompletedRef.current = true;
             await onSuccess?.(res, {
                 identifier: resolvedIdentifier,
-                resolutionType: resolution?.resolutionType || '',
-                resolvedEmail,
-                resolvedMobile,
-                hasExistingCart: Boolean(resolution?.hasExistingCart)
+                resolutionType: 'mobile_match',
+                resolvedEmail: String(res?.user?.email || '').trim().toLowerCase(),
+                resolvedMobile: String(res?.user?.mobile || checkoutMobile || '').replace(/\D/g, '').trim(),
+                hasExistingCart: false
             });
         } catch (error) {
             setOtpError(error?.message || 'OTP verification failed');
@@ -202,7 +166,6 @@ export default function CheckoutAccountVerificationModal({
                     <button
                         type="button"
                         onClick={onClose}
-                        disabled={isPreparing || isSendingOtp || isVerifyingOtp}
                         className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50"
                         aria-label="Close account verification modal"
                     >
@@ -219,14 +182,12 @@ export default function CheckoutAccountVerificationModal({
                             </span>
                             <input
                                 readOnly
-                                value={resolvedEmail || String(checkoutEmail || '').trim().toLowerCase()}
+                                value={resolvedEmail || 'Not saved on this account'}
                                 className="input-field pl-10 bg-gray-50 text-gray-700"
                             />
                         </div>
-                        {isPreparing ? (
-                            <p className="mt-2 text-xs text-gray-500">Checking the existing account...</p>
-                        ) : resolverError ? (
-                            <p className="mt-2 text-xs text-red-600">{resolverError}</p>
+                        {deliveryError ? (
+                            <p className="mt-2 text-xs text-red-600">{deliveryError}</p>
                         ) : otpSent ? (
                             <p className="mt-2 text-xs text-emerald-700">
                                 OTP sent to {maskEmail(resolvedEmail)}{resolvedMobile ? ` and ${maskMobile(resolvedMobile)}` : ''}.
@@ -236,7 +197,7 @@ export default function CheckoutAccountVerificationModal({
                         )}
                     </div>
 
-                    {(otpSent || isPreparing) && (
+                    {otpSent && (
                         <div>
                             <label className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">OTP</label>
                             <div className="relative mt-2">
@@ -249,7 +210,7 @@ export default function CheckoutAccountVerificationModal({
                                     value={otp}
                                     onChange={(event) => setOtp(String(event.target.value || '').replace(/\D/g, '').slice(0, 6))}
                                     placeholder="Enter 6-digit OTP"
-                                    disabled={isPreparing}
+                                    disabled={false}
                                     className={`input-field pl-10 ${otpError ? 'border-red-400 bg-red-50/30' : ''}`}
                                 />
                             </div>
@@ -265,7 +226,7 @@ export default function CheckoutAccountVerificationModal({
                         <button
                             type="button"
                             onClick={onClose}
-                            disabled={isPreparing || isSendingOtp || isVerifyingOtp}
+                            disabled={isVerifyingOtp}
                             className="flex-1 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             Cancel
@@ -291,16 +252,16 @@ export default function CheckoutAccountVerificationModal({
                             >
                                 <span className="inline-flex items-center justify-center gap-2">
                                     <Loader2 size={16} className="animate-spin" />
-                                    {isPreparing ? 'Checking account...' : 'Sending OTP...'}
+                                    Sending OTP...
                                 </span>
                             </button>
                         )}
                     </div>
-                    {(otpSent || resolverError) && (
+                    {(otpSent || deliveryError) && (
                         <button
                             type="button"
                             onClick={handleSendOtp}
-                            disabled={!resolvedIdentifier || timer > 0 || isSendingOtp || isPreparing}
+                            disabled={!resolvedIdentifier || timer > 0 || isSendingOtp}
                             className="w-full text-sm font-semibold text-primary underline underline-offset-4 disabled:cursor-not-allowed disabled:text-gray-400"
                         >
                             {timer > 0 ? `Resend OTP in ${timer}s` : 'Resend OTP'}

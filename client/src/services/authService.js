@@ -86,6 +86,14 @@ export const authService = {
     });
     return handleResponse(res);
   },
+  validateProfileMobile: async (mobile) => {
+    const res = await fetch(`${API_URL}/profile/validate-mobile`, {
+      method: 'POST',
+      headers: authService.getAuthHeader(),
+      body: JSON.stringify({ mobile })
+    });
+    return handleResponse(res);
+  },
   updateProfile: async (payload) => {
     const res = await fetch(`${API_URL}/profile`, {
       method: 'PUT',

@@ -13,6 +13,15 @@ import { BUILD_VERSION } from '../generated/buildInfo.js';
 import RazorpayAffordability from './RazorpayAffordability';
 import { computeShippingPreview } from '../utils/shippingPreview';
 import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
+import { formatTierLabel } from '../utils/tierFormat';
+
+const EXTRA_DISCOUNT_BY_TIER = {
+    regular: 0,
+    bronze: 1,
+    silver: 2,
+    gold: 3,
+    platinum: 5
+};
 
 export default function CartDrawer() {
     const { isOpen, closeCart, items, itemCount, subtotal, updateQuantity, removeItem, isSyncing, addItem, openQuickAdd } = useCart();
@@ -58,9 +67,20 @@ export default function CartDrawer() {
     const shippingHelperMessage = shippingPreview?.isTentative
         ? 'Estimated using the default delivery zone. Final shipping updates at checkout.'
         : 'Shipping may change if the delivery address changes at checkout.';
+    const loyaltyTier = String(user?.loyaltyTier || 'regular').toLowerCase();
+    const memberDiscountPct = Number(user?.loyaltyProfile?.extraDiscountPct ?? EXTRA_DISCOUNT_BY_TIER[loyaltyTier] ?? 0);
+    const memberShippingDiscountPct = Number(user?.loyaltyProfile?.shippingDiscountPct ?? 0);
+    const estimatedMemberDiscount = useMemo(
+        () => Math.max(0, Number(((Number(subtotal || 0) * memberDiscountPct) / 100).toFixed(2))),
+        [subtotal, memberDiscountPct]
+    );
+    const estimatedMemberShippingBenefit = useMemo(() => {
+        const shippingFee = Number(shippingPreview?.fee || 0);
+        return Math.max(0, Number(((shippingFee * memberShippingDiscountPct) / 100).toFixed(2)));
+    }, [shippingPreview?.fee, memberShippingDiscountPct]);
     const cartTotal = useMemo(
-        () => Number(subtotal || 0) + Number(shippingPreview?.fee || 0),
-        [subtotal, shippingPreview?.fee]
+        () => Math.max(0, Number(subtotal || 0) + Number(shippingPreview?.fee || 0) - estimatedMemberDiscount - estimatedMemberShippingBenefit),
+        [subtotal, shippingPreview?.fee, estimatedMemberDiscount, estimatedMemberShippingBenefit]
     );
     const canRenderDrawerWidget = !['/cart', '/checkout'].includes(String(location.pathname || '').toLowerCase());
     const storefrontOpen = companyInfo?.storefrontOpen !== false;
@@ -351,6 +371,18 @@ export default function CartDrawer() {
                             <span className="font-bold text-gray-800">₹{Number(shippingPreview.fee || 0).toLocaleString()}</span>
                         )}
                     </div>
+                    {estimatedMemberDiscount > 0 && (
+                        <div className="flex items-center justify-between text-sm text-blue-700 mb-3">
+                            <span>Estimated Member Discount ({formatTierLabel(loyaltyTier)})</span>
+                            <span className="font-bold">- ₹{estimatedMemberDiscount.toLocaleString()}</span>
+                        </div>
+                    )}
+                    {estimatedMemberShippingBenefit > 0 && (
+                        <div className="flex items-center justify-between text-sm text-blue-700 mb-3">
+                            <span>Estimated Member Shipping Benefit</span>
+                            <span className="font-bold">- ₹{estimatedMemberShippingBenefit.toLocaleString()}</span>
+                        </div>
+                    )}
                     {freeProgress && !isShippingUnavailable && (
                         <div className={`overflow-hidden transition-all duration-300 ease-out ${shouldShowProgress ? 'max-h-40 opacity-100 mb-4' : 'max-h-0 opacity-0 mb-0'}`}>
                             <div className="flex items-center justify-between text-xs text-gray-500">

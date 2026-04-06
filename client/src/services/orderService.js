@@ -52,8 +52,29 @@ let adminOrderDetailCache = {};
 const ADMIN_CACHE_TTL = 60 * 1000;
 const MY_ORDERS_CACHE_TTL = 5 * 60 * 1000;
 const MY_ORDERS_STORAGE_KEY = 'my_orders_cache_v1';
+const PUBLIC_ATTEMPT_STORAGE_KEY = 'public_checkout_attempts_v1';
 const MAX_FETCH_RANGE_DAYS = 90;
 let myOrdersCache = {};
+
+const readPublicAttemptCache = () => {
+    if (typeof window === 'undefined') return {};
+    try {
+        const raw = window.sessionStorage.getItem(PUBLIC_ATTEMPT_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+};
+
+const writePublicAttemptCache = (cache = {}) => {
+    if (typeof window === 'undefined') return;
+    try {
+        window.sessionStorage.setItem(PUBLIC_ATTEMPT_STORAGE_KEY, JSON.stringify(cache || {}));
+    } catch {
+        // ignore storage errors
+    }
+};
 
 const getCurrentUserId = () => {
     try {
@@ -438,6 +459,35 @@ const removeAdminEntityFromCache = ({ id, entityType = 'order' } = {}) => {
 };
 
 export const orderService = {
+    rememberPublicAttemptAccess: ({ attemptId, attemptToken } = {}) => {
+        const safeAttemptId = Number(attemptId || 0);
+        const safeToken = String(attemptToken || '').trim();
+        if (!Number.isFinite(safeAttemptId) || safeAttemptId <= 0 || !safeToken) return;
+        const cache = readPublicAttemptCache();
+        cache[String(safeAttemptId)] = safeToken;
+        writePublicAttemptCache(cache);
+    },
+    getStoredPublicAttemptAccess: (attemptId) => {
+        const safeAttemptId = Number(attemptId || 0);
+        if (!Number.isFinite(safeAttemptId) || safeAttemptId <= 0) return '';
+        const cache = readPublicAttemptCache();
+        return String(cache[String(safeAttemptId)] || '').trim();
+    },
+    clearStoredPublicAttemptAccess: (attemptId) => {
+        const safeAttemptId = Number(attemptId || 0);
+        if (!Number.isFinite(safeAttemptId) || safeAttemptId <= 0) return;
+        const cache = readPublicAttemptCache();
+        delete cache[String(safeAttemptId)];
+        writePublicAttemptCache(cache);
+    },
+    lookupGuestCheckoutAccount: async ({ mobile } = {}) => {
+        const res = await fetch(`${API_URL}/checkout/account-lookup`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify({ mobile })
+        });
+        return handleResponse(res);
+    },
     getCheckoutSummary: async ({ shippingAddress, couponCode } = {}) => {
         const payload = { shippingAddress };
         const normalizedCoupon = String(couponCode ?? '').trim().toUpperCase();
@@ -449,8 +499,8 @@ export const orderService = {
         });
         return handleResponse(res);
     },
-    getPublicCheckoutSummary: async ({ shippingAddress, couponCode, items = [] } = {}) => {
-        const payload = { shippingAddress, items };
+    getPublicCheckoutSummary: async ({ shippingAddress, couponCode, items = [], guest = null } = {}) => {
+        const payload = { shippingAddress, items, guest };
         const normalizedCoupon = String(couponCode ?? '').trim().toUpperCase();
         if (normalizedCoupon) payload.couponCode = normalizedCoupon;
         const res = await fetch(`${API_URL}/summary/public`, {
@@ -482,14 +532,6 @@ export const orderService = {
         });
         return handleResponse(res);
     },
-    startCheckoutAccountVerification: async ({ email, mobile } = {}) => {
-        const res = await fetch(`${API_URL}/checkout/account-verification/start`, {
-            method: 'POST',
-            headers: getAuthHeader(),
-            body: JSON.stringify({ email, mobile })
-        });
-        return handleResponse(res);
-    },
     validateRecoveryCoupon: async ({ code, shippingAddress } = {}) => {
         const res = await fetch(`${API_URL}/coupon/validate`, {
             method: 'POST',
@@ -498,11 +540,11 @@ export const orderService = {
         });
         return handleResponse(res);
     },
-    validatePublicRecoveryCoupon: async ({ code, shippingAddress, items = [] } = {}) => {
+    validatePublicRecoveryCoupon: async ({ code, shippingAddress, items = [], guest = null } = {}) => {
         const res = await fetch(`${API_URL}/coupon/validate/public`, {
             method: 'POST',
             headers: getAuthHeader(),
-            body: JSON.stringify({ code, shippingAddress, items })
+            body: JSON.stringify({ code, shippingAddress, items, guest })
         });
         return handleResponse(res);
     },
@@ -514,11 +556,11 @@ export const orderService = {
         });
         return handleResponse(res);
     },
-    getPublicAvailableCoupons: async ({ items = [] } = {}) => {
+    getPublicAvailableCoupons: async ({ items = [], guest = null } = {}) => {
         const res = await fetch(`${API_URL}/coupons/available/public`, {
             method: 'POST',
             headers: getAuthHeader(),
-            body: JSON.stringify({ items })
+            body: JSON.stringify({ items, guest })
         });
         return handleResponse(res);
     },
@@ -555,6 +597,14 @@ export const orderService = {
         }
         return data;
     },
+    verifyPublicRazorpayPayment: async (payload = {}) => {
+        const res = await fetch(`${API_URL}/razorpay/verify/public`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
     getPaymentAttemptStatus: async (attemptId) => {
         const res = await fetch(`${API_URL}/razorpay/attempt/${encodeURIComponent(attemptId)}`, {
             method: 'GET',
@@ -565,6 +615,15 @@ export const orderService = {
             orderService.patchMyOrdersCache(data.order);
         }
         return data;
+    },
+    getPublicPaymentAttemptStatus: async (attemptId, attemptToken = '') => {
+        const token = String(attemptToken || '').trim();
+        const query = token ? `?attemptToken=${encodeURIComponent(token)}` : '';
+        const res = await fetch(`${API_URL}/razorpay/attempt/public/${encodeURIComponent(attemptId)}${query}`, {
+            method: 'GET',
+            headers: token ? { 'x-checkout-attempt-token': token } : undefined
+        });
+        return handleResponse(res);
     },
     checkout: async ({ billingAddress, shippingAddress }) => {
         const res = await fetch(`${API_URL}/checkout`, {

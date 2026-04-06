@@ -21,7 +21,7 @@ import { burstConfetti, playCue } from '../utils/celebration';
 import RazorpayAffordability from '../components/RazorpayAffordability';
 import CheckoutFlowHeader from '../components/CheckoutFlowHeader';
 import CheckoutAccountVerificationModal from '../components/CheckoutAccountVerificationModal';
-import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpendKey } from '../utils/tierFormat';
+import { formatTierLabel, getMembershipLabel } from '../utils/tierFormat';
 import { formatMissingProfileFields } from '../utils/membershipUnlock';
 import { getGstDisplayDetails } from '../utils/gst';
 import { hasUnavailableCheckoutItems } from '../utils/checkoutAvailability';
@@ -37,6 +37,7 @@ const emptyAddress = { line1: '', city: '', state: '', zip: '' };
 const RAZORPAY_SCRIPT_ID = 'razorpay-checkout-js';
 const RAZORPAY_SCRIPT_SRC = 'https://checkout.razorpay.com/v1/checkout.js';
 const buildCheckoutCartKey = (productId = '', variantId = '') => `${String(productId || '').trim()}::${String(variantId || '').trim()}`;
+const POST_OTP_PREPARE_TIMEOUT_MS = 8000;
 
 const ensureRazorpayScript = () => {
     if (typeof window === 'undefined') return Promise.resolve(false);
@@ -71,13 +72,21 @@ const hasCompleteAddress = (address = null) => {
     );
 };
 
+const hasAddressFields = (address = null) => {
+    const value = address || {};
+    return Boolean(
+        String(value?.line1 || '').trim()
+        || String(value?.city || '').trim()
+        || String(value?.state || '').trim()
+        || String(value?.zip || '').trim()
+    );
+};
+
 const isValidEmailInput = (value = '') => {
     const raw = String(value || '').trim();
     if (!raw) return false;
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw);
 };
-
-const isValidMobileInput = (value = '') => isValidStorefrontMobile(value);
 
 const isValidZipInput = (value = '') => isValidIndianPincode(value);
 
@@ -90,6 +99,14 @@ const formatLongDate = (value) => {
     const month = date.toLocaleString('en-IN', { month: 'short' });
     const year = date.getFullYear();
     return `${day}${suffix} ${month} ${year}`;
+};
+const resolveProfileFieldErrors = (message = '') => {
+    const safeMessage = String(message || '').trim();
+    const lowered = safeMessage.toLowerCase();
+    return {
+        mobile: lowered.includes('mobile number already in use') ? safeMessage : '',
+        email: lowered.includes('email already in use') ? safeMessage : ''
+    };
 };
 const formatCouponOffer = (entry = {}) => {
     const type = String(entry.discountType || '').toLowerCase();
@@ -131,7 +148,7 @@ const EXTRA_DISCOUNT_BY_TIER = {
 
 export default function Checkout() {
     const { user, login, updateUser } = useAuth();
-    const { items, subtotal, itemCount, clearCart, adoptServerCart, skipNextLoginGuestMerge } = useCart();
+    const { items, subtotal, itemCount, clearCart, adoptServerCart, isSyncing: isCartSyncing } = useCart();
     const { zones } = useShipping();
     const { socket } = useSocket();
     const { companyInfo } = usePublicCompanyInfo();
@@ -153,15 +170,15 @@ export default function Checkout() {
     const [pendingPaymentAmount, setPendingPaymentAmount] = useState(0);
     const [orderResult, setOrderResult] = useState(null);
     const [isDownloadingOrderInvoice, setIsDownloadingOrderInvoice] = useState(false);
-    const [activeAttemptId, setActiveAttemptId] = useState(null);
     const [pricingSyncTick, setPricingSyncTick] = useState(0);
+    const [guestLookup, setGuestLookup] = useState(null);
+    const [isGuestLookupLoading, setIsGuestLookupLoading] = useState(false);
     const [guestCheckoutConflict, setGuestCheckoutConflict] = useState('');
-    const [guestConflictHints, setGuestConflictHints] = useState({ email: '', mobile: '' });
-    const [guestRequiresAccountVerification, setGuestRequiresAccountVerification] = useState(false);
     const [isAccountVerificationOpen, setIsAccountVerificationOpen] = useState(false);
     const [resumeCheckoutAfterVerification, setResumeCheckoutAfterVerification] = useState(false);
     const [postOtpCheckoutSync, setPostOtpCheckoutSync] = useState(null);
     const [isPreparingVerifiedCheckout, setIsPreparingVerifiedCheckout] = useState(false);
+    const [profileFieldErrors, setProfileFieldErrors] = useState({ mobile: '', email: '' });
     const orderCelebratedRef = useRef(false);
     const autoCouponAttemptsRef = useRef(new Set());
     const lastTierSeenRef = useRef(String(user?.loyaltyTier || 'regular').toLowerCase());
@@ -189,11 +206,22 @@ export default function Checkout() {
         const state = resolveAllowedStateName(availableStates, form.address?.state) || '';
         return state ? { state } : null;
     }, [availableStates, form.address?.state]);
+    const authenticatedPricingPreviewAddress = useMemo(() => {
+        if (!user) return pricingPreviewAddress;
+        if (pricingPreviewAddress?.state) return pricingPreviewAddress;
+        const fallbackState = resolveAllowedStateName(
+            availableStates,
+            user?.address?.state || (billingAddressEnabled ? user?.billingAddress?.state : '') || ''
+        ) || '';
+        return fallbackState ? { state: fallbackState } : null;
+    }, [availableStates, pricingPreviewAddress, user, user?.address?.state, user?.billingAddress?.state]);
     const shippingZip = form.address.zip;
     const billingZip = billingAddressEnabled ? form.billingAddress.zip : form.address.zip;
     const storefrontOpen = companyInfo?.storefrontOpen !== false;
     const subCategoriesEnabled = companyInfo?.subCategoriesEnabled === true;
-    const isGuestCheckout = !user;
+    const guestLockedAccount = Boolean(!user && guestLookup?.status === 'existing_account_locked');
+    const showGuestLockedPrefill = guestLockedAccount;
+    const isGuestCouponLoginRequired = Boolean(!user && guestLockedAccount);
     const checkoutItemsPayload = useMemo(
         () => items.map((item) => ({
             productId: item.productId,
@@ -202,8 +230,6 @@ export default function Checkout() {
         })),
         [items]
     );
-    const formInputsDisabled = Boolean(user && !editing);
-
     const pollPaymentAttemptUntilResolved = useCallback(async (attemptId, { maxAttempts = 8 } = {}) => {
         const safeAttemptId = Number(attemptId);
         if (!Number.isFinite(safeAttemptId) || safeAttemptId <= 0) {
@@ -230,7 +256,8 @@ export default function Checkout() {
                     shippingAddress: liveCouponShippingAddress
                 })
                 : await orderService.getPublicAvailableCoupons({
-                    items: checkoutItemsPayload
+                    items: checkoutItemsPayload,
+                    guest: { mobile: form.mobile }
                 });
             const nextCoupons = Array.isArray(res?.coupons) ? res.coupons : [];
             setAvailableCoupons(nextCoupons);
@@ -285,9 +312,17 @@ export default function Checkout() {
         return { movedToWishlistCount: serverOnlyItems.length, items: nextItems };
     }, [adoptServerCart]);
 
-    const applyBestCouponForValidatedCheckout = useCallback(async () => {
+    const applyBestCouponForValidatedCheckout = useCallback(async (shippingAddressOverride = null) => {
+        const candidateAddress = shippingAddressOverride && hasCompleteAddress(shippingAddressOverride)
+            ? shippingAddressOverride
+            : (hasCompleteAddress(form.address) ? form.address : null);
+        if (!candidateAddress) {
+            setAppliedCoupon(null);
+            setCoupon('');
+            return { coupon: null, summary: null };
+        }
         const couponRes = await orderService.getAvailableCoupons({
-            shippingAddress: hasCompleteAddress(form.address) ? form.address : null
+            shippingAddress: candidateAddress
         });
         const candidates = (Array.isArray(couponRes?.coupons) ? couponRes.coupons : []).filter((entry) => getCouponEligibility(entry).isEligible);
 
@@ -299,7 +334,7 @@ export default function Checkout() {
             const code = String(entry?.code || '').trim().toUpperCase();
             if (!code) continue;
             const summaryRes = await orderService.getCheckoutSummary({
-                shippingAddress: form.address,
+                shippingAddress: candidateAddress,
                 couponCode: code
             });
             const summary = summaryRes?.summary || null;
@@ -325,7 +360,7 @@ export default function Checkout() {
         setAppliedCoupon(null);
         setCoupon('');
         const summaryRes = await orderService.getCheckoutSummary({
-            shippingAddress: form.address,
+            shippingAddress: candidateAddress,
             couponCode: null
         });
         if (summaryRes?.summary) {
@@ -334,8 +369,25 @@ export default function Checkout() {
         return { coupon: null, summary: summaryRes?.summary || null };
     }, [form.address]);
 
+    const persistedLoggedInShippingMissing = Boolean(
+        user && !hasCompleteAddress(user?.address)
+    );
+    const persistedLoggedInBillingMissing = Boolean(
+        user && billingAddressEnabled && !hasCompleteAddress(user?.billingAddress)
+    );
+    const persistedLoggedInMobileMissing = Boolean(
+        user && getStorefrontMobileValidationMessage(user?.mobile)
+    );
+    const hasPersistedLoggedInRequiredDetailsMissing = Boolean(
+        user && (
+            persistedLoggedInShippingMissing
+            || persistedLoggedInBillingMissing
+            || persistedLoggedInMobileMissing
+        )
+    );
+
     useEffect(() => {
-        setEditing(!user);
+        setEditing(!user || hasPersistedLoggedInRequiredDetailsMissing);
         if (!user) return;
         lastTierSeenRef.current = String(user?.loyaltyTier || 'regular').toLowerCase();
         loyaltyHydratedRef.current = false;
@@ -371,7 +423,7 @@ export default function Checkout() {
                     }
             };
         });
-    }, [user, availableStates]);
+    }, [user, availableStates, hasPersistedLoggedInRequiredDetailsMissing]);
 
     useEffect(() => {
         if (billingAddressEnabled) return;
@@ -384,6 +436,31 @@ export default function Checkout() {
             };
         });
     }, [form.address]);
+
+    const restorePersistedLoggedInForm = useCallback(() => {
+        if (!user) return;
+        setProfileFieldErrors({ mobile: '', email: '' });
+        setGuestCheckoutConflict('');
+        setForm({
+            name: user.name || '',
+            email: user.email || '',
+            mobile: user.mobile || '',
+            address: {
+                ...emptyAddress,
+                ...(user.address || {}),
+                state: resolveAllowedStateName(availableStates, user?.address?.state) || ''
+            },
+            billingAddress: {
+                ...emptyAddress,
+                ...(billingAddressEnabled ? (user.billingAddress || user.address || {}) : (user.address || {})),
+                state: resolveAllowedStateName(
+                    availableStates,
+                    billingAddressEnabled ? (user?.billingAddress?.state || user?.address?.state) : user?.address?.state
+                ) || ''
+            }
+        });
+        setEditing(false);
+    }, [availableStates, billingAddressEnabled, user]);
 
     useEffect(() => {
         if (!availableStates.length) return undefined;
@@ -420,12 +497,53 @@ export default function Checkout() {
     }, [availableStates, billingZip, shippingZip]);
 
     useEffect(() => {
+        if (user) {
+            setGuestLookup(null);
+            setIsGuestLookupLoading(false);
+            return undefined;
+        }
+        const normalizedMobile = normalizeStorefrontMobileInput(form.mobile);
+        if (!isValidStorefrontMobile(normalizedMobile)) {
+            setGuestLookup(null);
+            setIsGuestLookupLoading(false);
+            return undefined;
+        }
+
+        let cancelled = false;
+        const timer = window.setTimeout(async () => {
+            setIsGuestLookupLoading(true);
+            try {
+                const lookup = await orderService.lookupGuestCheckoutAccount({ mobile: normalizedMobile });
+                if (cancelled) return;
+                setGuestLookup(lookup || null);
+                setGuestCheckoutConflict('');
+            } catch (error) {
+                if (cancelled) return;
+                const status = String(error?.details?.status || '').trim().toLowerCase();
+                if (status === 'account_unavailable' || status === 'data_conflict') {
+                    setGuestLookup({ status });
+                    setGuestCheckoutConflict(error?.message || 'Unable to use this mobile number for checkout.');
+                } else {
+                    setGuestLookup(null);
+                }
+            } finally {
+                if (!cancelled) setIsGuestLookupLoading(false);
+            }
+        }, 300);
+
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [form.mobile, user]);
+
+    useEffect(() => {
         if (!couponFromQuery) return;
         if (itemCount <= 0) {
             setIsApplyingCoupon(false);
             return;
         }
-        if (!user && !hasCompleteAddress(form.address)) {
+        if (!user && !guestLockedAccount && !hasCompleteAddress(form.address)) {
             setIsApplyingCoupon(false);
             return;
         }
@@ -449,7 +567,8 @@ export default function Checkout() {
             : orderService.validatePublicRecoveryCoupon({
                 code: couponFromQuery,
                 shippingAddress: form.address,
-                items: checkoutItemsPayload
+                items: checkoutItemsPayload,
+                guest: { mobile: form.mobile }
             });
         validateRequest.then((data) => {
             setCoupon(couponFromQuery);
@@ -465,7 +584,7 @@ export default function Checkout() {
         }).finally(() => {
             setIsApplyingCoupon(false);
         });
-    }, [user, couponFromQuery, appliedCoupon?.code, toast, itemCount, liveCouponShippingAddress, form.address, checkoutItemsPayload]);
+    }, [user, couponFromQuery, appliedCoupon?.code, toast, itemCount, liveCouponShippingAddress, form.address, checkoutItemsPayload, guestLockedAccount]);
 
     const applyLoyaltyStatus = useCallback((status) => {
         setLoyaltyStatus(status || null);
@@ -519,19 +638,28 @@ export default function Checkout() {
             setCheckoutSummary(null);
             return;
         }
+        if (user && (isCartSyncing || Boolean(postOtpCheckoutSync) || isPreparingVerifiedCheckout || resumeCheckoutAfterVerification)) {
+            setIsSummaryLoading(false);
+            return;
+        }
+        if (user && !authenticatedPricingPreviewAddress) {
+            setIsSummaryLoading(false);
+            return;
+        }
         let cancelled = false;
         const timer = setTimeout(async () => {
             setIsSummaryLoading(true);
             const [summaryResult, loyaltyResult] = await Promise.allSettled([
                 user
                     ? orderService.getCheckoutSummary({
-                        shippingAddress: pricingPreviewAddress,
+                        shippingAddress: authenticatedPricingPreviewAddress,
                         couponCode: appliedCoupon?.code || null
                     })
                     : orderService.getPublicCheckoutSummary({
                         shippingAddress: pricingPreviewAddress,
                         couponCode: appliedCoupon?.code || null,
-                        items: checkoutItemsPayload
+                        items: checkoutItemsPayload,
+                        guest: { mobile: form.mobile }
                     }),
                 user ? authService.getLoyaltyStatus() : Promise.resolve({ status: null })
             ]);
@@ -558,7 +686,7 @@ export default function Checkout() {
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [user, items, subtotal, itemCount, pricingPreviewAddress, appliedCoupon?.code, applyLoyaltyStatus, pricingSyncTick, checkoutItemsPayload]);
+    }, [user, items, subtotal, itemCount, pricingPreviewAddress, authenticatedPricingPreviewAddress, appliedCoupon?.code, applyLoyaltyStatus, pricingSyncTick, checkoutItemsPayload, guestLookup?.status, guestLookup?.mobile, isCartSyncing, postOtpCheckoutSync, isPreparingVerifiedCheckout, resumeCheckoutAfterVerification]);
 
     useEffect(() => {
         refreshAvailableCoupons();
@@ -622,9 +750,10 @@ export default function Checkout() {
         if (name === 'mobile') {
             nextValue = normalizeStorefrontMobileInput(value);
         }
+        if (name === 'mobile' || name === 'email') {
+            setProfileFieldErrors((prev) => ({ ...prev, [name]: '' }));
+        }
         setGuestCheckoutConflict('');
-        setGuestConflictHints({ email: '', mobile: '' });
-        setGuestRequiresAccountVerification(false);
         setIsAccountVerificationOpen(false);
         setForm((prev) => ({ ...prev, [name]: nextValue }));
     };
@@ -638,8 +767,6 @@ export default function Checkout() {
             nextValue = resolveAllowedStateName(availableStates, value);
         }
         setGuestCheckoutConflict('');
-        setGuestConflictHints({ email: '', mobile: '' });
-        setGuestRequiresAccountVerification(false);
         setIsAccountVerificationOpen(false);
         setForm((prev) => ({
             ...prev,
@@ -652,6 +779,7 @@ export default function Checkout() {
         if (isSaving) return;
         setIsSaving(true);
         try {
+            setProfileFieldErrors({ mobile: '', email: '' });
             const res = await authService.updateProfile({
                 name: form.name,
                 email: form.email,
@@ -667,16 +795,29 @@ export default function Checkout() {
                 toast.error(res?.message || 'Failed to update profile');
             }
         } catch (error) {
+            const nextFieldErrors = resolveProfileFieldErrors(error?.message);
+            if (nextFieldErrors.mobile || nextFieldErrors.email) {
+                setProfileFieldErrors(nextFieldErrors);
+            }
             toast.error(error?.message || 'Failed to update profile');
         } finally {
             setIsSaving(false);
         }
     };
 
+    const openOtpLogin = () => {
+        setIsAccountVerificationOpen(true);
+    };
+
     const handleApplyCoupon = () => {
+        if (isGuestCouponLoginRequired) {
+            toast.info('Login via OTP to unlock account coupons.');
+            openOtpLogin();
+            return;
+        }
         const code = String(coupon || '').trim().toUpperCase();
         if (!code) return toast.error('Enter a coupon code');
-        if (!user && !hasCompleteAddress(form.address)) return toast.error('Please complete shipping address before applying coupon');
+        if (!user && !guestLockedAccount && !hasCompleteAddress(form.address)) return toast.error('Please complete shipping address before applying coupon');
         const knownCoupon = availableCoupons.find((entry) => String(entry.code || '').toUpperCase() === code);
         if (knownCoupon) {
             const eligibility = getCouponEligibility(knownCoupon);
@@ -693,7 +834,8 @@ export default function Checkout() {
             : orderService.validatePublicRecoveryCoupon({
                 code,
                 shippingAddress: form.address,
-                items: checkoutItemsPayload
+                items: checkoutItemsPayload,
+                guest: { mobile: form.mobile }
             });
         request.then((data) => {
             setCoupon(code);
@@ -717,8 +859,13 @@ export default function Checkout() {
     };
 
     const handleApplyAvailableCoupon = (code) => {
+        if (isGuestCouponLoginRequired) {
+            toast.info('Login via OTP to unlock account coupons.');
+            openOtpLogin();
+            return;
+        }
         const normalizedCode = String(code || '').toUpperCase();
-        if (!user && !hasCompleteAddress(form.address)) {
+        if (!user && !guestLockedAccount && !hasCompleteAddress(form.address)) {
             toast.error('Please complete shipping address before applying coupon');
             return;
         }
@@ -742,7 +889,8 @@ export default function Checkout() {
             : orderService.validatePublicRecoveryCoupon({
                 code: normalizedCode,
                 shippingAddress: form.address,
-                items: checkoutItemsPayload
+                items: checkoutItemsPayload,
+                guest: { mobile: form.mobile }
             });
         request.then((data) => {
             setAppliedCoupon({
@@ -828,29 +976,43 @@ export default function Checkout() {
         () => Number(checkoutSummary?.couponDiscountTotal ?? appliedCoupon?.discountTotal ?? 0),
         [checkoutSummary?.couponDiscountTotal, appliedCoupon?.discountTotal]
     );
+    const resolvedCheckoutTier = useMemo(
+        () => String((user ? (loyaltyStatus?.tier || checkoutSummary?.loyaltyTier) : checkoutSummary?.loyaltyTier) || 'regular').toLowerCase(),
+        [user, loyaltyStatus?.tier, checkoutSummary?.loyaltyTier]
+    );
+    const resolvedCheckoutLoyaltyProfile = useMemo(
+        () => (user ? (loyaltyStatus?.profile || checkoutSummary?.loyaltyMeta?.profile || null) : (checkoutSummary?.loyaltyMeta?.profile || null)),
+        [user, loyaltyStatus?.profile, checkoutSummary?.loyaltyMeta?.profile]
+    );
+    const resolvedCheckoutEligibility = useMemo(
+        () => (user ? (loyaltyStatus?.eligibility || null) : null),
+        [user, loyaltyStatus?.eligibility]
+    );
+    const resolvedCheckoutProgress = useMemo(
+        () => (user ? (loyaltyStatus?.progress || checkoutSummary?.loyaltyMeta?.progress || {}) : (checkoutSummary?.loyaltyMeta?.progress || {})),
+        [user, loyaltyStatus?.progress, checkoutSummary?.loyaltyMeta?.progress]
+    );
     const estimatedLoyaltyDiscount = useMemo(() => {
-        const isMembershipEligible = Boolean(loyaltyStatus?.eligibility?.isEligible ?? true);
+        const isMembershipEligible = Boolean(resolvedCheckoutEligibility?.isEligible ?? true);
         if (!isMembershipEligible) return 0;
-        const tierKey = String(loyaltyStatus?.tier || user?.loyaltyTier || 'regular').toLowerCase();
+        const tierKey = resolvedCheckoutTier;
         const memberPct = Number(
-            loyaltyStatus?.profile?.extraDiscountPct
-            ?? user?.loyaltyProfile?.extraDiscountPct
+            resolvedCheckoutLoyaltyProfile?.extraDiscountPct
             ?? EXTRA_DISCOUNT_BY_TIER[tierKey]
             ?? 0
         );
         const eligibleBase = Math.max(0, Number(subtotal || 0) - Number(couponDiscount || 0));
         return Math.max(0, Number(((eligibleBase * memberPct) / 100).toFixed(2)));
-    }, [loyaltyStatus?.eligibility?.isEligible, loyaltyStatus?.tier, loyaltyStatus?.profile?.extraDiscountPct, user?.loyaltyTier, user?.loyaltyProfile?.extraDiscountPct, subtotal, couponDiscount]);
+    }, [resolvedCheckoutEligibility?.isEligible, resolvedCheckoutTier, resolvedCheckoutLoyaltyProfile?.extraDiscountPct, subtotal, couponDiscount]);
     const estimatedLoyaltyShippingDiscount = useMemo(() => {
-        const isMembershipEligible = Boolean(loyaltyStatus?.eligibility?.isEligible ?? true);
+        const isMembershipEligible = Boolean(resolvedCheckoutEligibility?.isEligible ?? true);
         if (!isMembershipEligible) return 0;
         const shippingPct = Number(
-            loyaltyStatus?.profile?.shippingDiscountPct
-            ?? user?.loyaltyProfile?.shippingDiscountPct
+            resolvedCheckoutLoyaltyProfile?.shippingDiscountPct
             ?? 0
         );
         return Math.max(0, Number(((Number(shippingFee || 0) * shippingPct) / 100).toFixed(2)));
-    }, [loyaltyStatus?.eligibility?.isEligible, loyaltyStatus?.profile?.shippingDiscountPct, user?.loyaltyProfile?.shippingDiscountPct, shippingFee]);
+    }, [resolvedCheckoutEligibility?.isEligible, resolvedCheckoutLoyaltyProfile?.shippingDiscountPct, shippingFee]);
     const loyaltyDiscount = useMemo(
         () => Number(checkoutSummary?.loyaltyDiscountTotal ?? estimatedLoyaltyDiscount ?? 0),
         [checkoutSummary?.loyaltyDiscountTotal, estimatedLoyaltyDiscount]
@@ -873,44 +1035,8 @@ export default function Checkout() {
     );
     const checkoutTaxHint = useMemo(() => {
         if (taxTotal <= 0) return '';
-        return `Includes ₹${Number(taxTotal || 0).toLocaleString('en-IN')} tax`;
+        return `Includes ₹${Number(taxTotal || 0).toLocaleString('en-IN')} GST`;
     }, [taxTotal]);
-    const taxByItemKey = useMemo(() => {
-        const out = new Map();
-        const summaryItems = Array.isArray(checkoutSummary?.items) ? checkoutSummary.items : [];
-        summaryItems.forEach((item) => {
-            const key = `${String(item?.productId || '')}::${String(item?.variantId || '')}`;
-            out.set(key, {
-                unitPriceBase: Number(item?.unitPriceBase || 0),
-                unitPriceGross: Number(item?.unitPriceGross || item?.price || 0),
-                lineTotalBase: Number(item?.lineTotalBase || 0),
-                lineTotalGross: Number(item?.lineTotalGross || item?.lineTotal || 0),
-                discountedLineTotalBase: Number(item?.discountedLineTotalBase || item?.taxBase || 0),
-                discountedLineTotalGross: Number(item?.discountedLineTotalGross || item?.discountedLineTotal || item?.lineTotal || 0),
-                taxBase: Number(item?.taxBase || 0),
-                taxAmount: Number(item?.taxAmount || 0),
-                taxRatePercent: Number(item?.taxRatePercent || 0),
-                taxName: item?.taxName || '',
-                taxCode: item?.taxCode || ''
-            });
-        });
-        return out;
-    }, [checkoutSummary?.items]);
-    const taxRateSummary = useMemo(() => {
-        const rates = new Set();
-        const summaryItems = Array.isArray(checkoutSummary?.items) ? checkoutSummary.items : [];
-        summaryItems.forEach((item) => {
-            const rate = Number(item?.taxRatePercent || 0);
-            rates.add(Number(rate.toFixed(2)));
-        });
-        const uniqueRates = Array.from(rates.values()).sort((a, b) => a - b);
-        return {
-            uniqueRates,
-            hasMultipleRates: uniqueRates.length > 1,
-            hasSingleRate: uniqueRates.length === 1,
-            singleRate: uniqueRates.length === 1 ? uniqueRates[0] : 0
-        };
-    }, [checkoutSummary?.items]);
     const hasServerLoyaltyDiscount = useMemo(
         () => Boolean(checkoutSummary && Object.prototype.hasOwnProperty.call(checkoutSummary, 'loyaltyDiscountTotal')),
         [checkoutSummary]
@@ -929,13 +1055,37 @@ export default function Checkout() {
         () => checkoutSummary?.displayPricing && typeof checkoutSummary.displayPricing === 'object' ? checkoutSummary.displayPricing : null,
         [checkoutSummary?.displayPricing]
     );
+    const summarySubtotalDisplay = useMemo(
+        () => Number(
+            taxPriceMode === 'inclusive'
+                ? (displayPricing?.displaySubtotalGross ?? subtotal)
+                : (displayPricing?.displaySubtotalBase ?? subtotal)
+        ),
+        [taxPriceMode, displayPricing?.displaySubtotalGross, displayPricing?.displaySubtotalBase, subtotal]
+    );
+    const summaryShippingDisplay = useMemo(
+        () => Number(
+            taxPriceMode === 'inclusive'
+                ? (displayPricing?.displayShippingGross ?? shippingFee)
+                : (displayPricing?.displayShippingBase ?? shippingFee)
+        ),
+        [taxPriceMode, displayPricing?.displayShippingGross, displayPricing?.displayShippingBase, shippingFee]
+    );
     const basePriceBeforeDiscounts = useMemo(
-        () => Number(displayPricing?.displayBaseBeforeDiscounts ?? Math.max(0, Number(subtotal || 0) + Number(shippingFee || 0))),
-        [displayPricing?.displayBaseBeforeDiscounts, subtotal, shippingFee]
+        () => Number(
+            taxPriceMode === 'inclusive'
+                ? (displayPricing?.displayGrossBeforeDiscounts ?? Math.max(0, Number(subtotal || 0) + Number(shippingFee || 0)))
+                : (displayPricing?.displayBaseBeforeDiscounts ?? Math.max(0, Number(subtotal || 0) + Number(shippingFee || 0)))
+        ),
+        [taxPriceMode, displayPricing?.displayGrossBeforeDiscounts, displayPricing?.displayBaseBeforeDiscounts, subtotal, shippingFee]
     );
     const summaryValueAfterDiscounts = useMemo(
-        () => Number(displayPricing?.displayValueAfterDiscountsBase ?? Math.max(0, basePriceBeforeDiscounts - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0))),
-        [displayPricing?.displayValueAfterDiscountsBase, basePriceBeforeDiscounts, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]
+        () => Number(
+            taxPriceMode === 'inclusive'
+                ? (displayPricing?.displayGrossAfterDiscounts ?? Math.max(0, basePriceBeforeDiscounts - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0)))
+                : (displayPricing?.displayValueAfterDiscountsBase ?? Math.max(0, basePriceBeforeDiscounts - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0)))
+        ),
+        [taxPriceMode, displayPricing?.displayGrossAfterDiscounts, displayPricing?.displayValueAfterDiscountsBase, basePriceBeforeDiscounts, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]
     );
     const grandTotal = useMemo(() => {
         if (checkoutSummary?.total != null) return Number(checkoutSummary.total || 0);
@@ -947,9 +1097,12 @@ export default function Checkout() {
     const isMobileMissingOnProfile = !String(user?.mobile || '').trim();
     const hasValidMobileForPayment = isValidStorefrontMobile(form.mobile);
     const effectiveBillingAddress = billingAddressEnabled ? form.billingAddress : form.address;
-    const isAddressReadyForPayment = hasCompleteAddress(form.address) && hasCompleteAddress(effectiveBillingAddress);
+    const isAddressReadyForPayment = showGuestLockedPrefill || (hasCompleteAddress(form.address) && hasCompleteAddress(effectiveBillingAddress));
     const hasUnavailableItems = useMemo(() => hasUnavailableCheckoutItems(lineItems), [lineItems]);
     const isReadyForPayment = isAddressReadyForPayment && (!isMobileMissingOnProfile || hasValidMobileForPayment) && !hasUnavailableItems;
+    const isLoggedInEditingBeforePayment = Boolean(user && editing);
+    const maskedShippingAddressFields = guestLookup?.maskedProfile?.shippingAddressFields || {};
+    const maskedBillingAddressFields = guestLookup?.maskedProfile?.billingAddressFields || {};
     const emailValidationMessage = useMemo(() => {
         const value = String(form.email || '').trim();
         if (!value) return '';
@@ -961,9 +1114,21 @@ export default function Checkout() {
     );
     const fieldErrors = useMemo(() => {
         const errors = {};
-        if (!String(form.name || '').trim()) errors.name = 'Name is required';
-        if (!isValidEmailInput(form.email)) errors.email = 'Enter a valid email';
+        const requiresGuestName = !user && !guestLockedAccount;
+        if ((user || requiresGuestName) && !String(form.name || '').trim()) errors.name = 'Name is required';
+        if (String(form.email || '').trim() && !isValidEmailInput(form.email)) errors.email = 'Enter a valid email';
         if (mobileValidationMessage) errors.mobile = mobileValidationMessage;
+        if (profileFieldErrors.email) errors.email = profileFieldErrors.email;
+        if (profileFieldErrors.mobile) errors.mobile = profileFieldErrors.mobile;
+
+        const shouldRequireGuestAddress = !guestLockedAccount
+            || hasAddressFields(form.address)
+            || (billingAddressEnabled && hasAddressFields(form.billingAddress));
+
+        const shouldValidateAddresses = user || shouldRequireGuestAddress;
+        if (!shouldValidateAddresses) {
+            return errors;
+        }
 
         ['address', ...(billingAddressEnabled ? ['billingAddress'] : [])].forEach((section) => {
             const prefix = section === 'address' ? 'shipping' : 'billing';
@@ -975,8 +1140,19 @@ export default function Checkout() {
             if (!isValidZipInput(source.zip)) errors[`${prefix}Zip`] = 'Enter a valid 6-digit PIN code';
         });
         return errors;
-    }, [availableStates, form, mobileValidationMessage]);
+    }, [availableStates, billingAddressEnabled, form, guestLockedAccount, mobileValidationMessage, profileFieldErrors, user]);
     const hasFormValidationErrors = Object.keys(fieldErrors).length > 0;
+    const hasShippingFieldErrors = Boolean(fieldErrors.shippingLine1 || fieldErrors.shippingCity || fieldErrors.shippingState || fieldErrors.shippingZip);
+    const hasBillingFieldErrors = Boolean(fieldErrors.billingLine1 || fieldErrors.billingCity || fieldErrors.billingState || fieldErrors.billingZip);
+    const hasLoggedInRequiredDetailsMissing = Boolean(
+        user && (
+            hasShippingFieldErrors
+            || (billingAddressEnabled && hasBillingFieldErrors)
+            || Boolean(fieldErrors.mobile)
+        )
+    );
+    const shouldShowValidationHints = Boolean(attemptedPay || hasLoggedInRequiredDetailsMissing);
+    const formInputsDisabled = Boolean(user && !editing && !hasLoggedInRequiredDetailsMissing);
     const selectedCouponForInput = useMemo(
         () => availableCoupons.find((entry) => String(entry.code || '').toUpperCase() === String(coupon || '').trim().toUpperCase()) || null,
         [availableCoupons, coupon]
@@ -985,7 +1161,7 @@ export default function Checkout() {
         () => (selectedCouponForInput ? getCouponEligibility(selectedCouponForInput) : null),
         [selectedCouponForInput]
     );
-    const isCouponInputDisabled = Boolean(selectedCouponEligibility && !selectedCouponEligibility.isEligible && !appliedCoupon);
+    const isCouponInputDisabled = isGuestCouponLoginRequired || Boolean(selectedCouponEligibility && !selectedCouponEligibility.isEligible && !appliedCoupon);
     const visibleCoupons = useMemo(() => {
         const byCode = new Map();
         availableCoupons.forEach((entry) => {
@@ -1002,8 +1178,23 @@ export default function Checkout() {
     }, [user, isAccountVerificationOpen]);
 
     useEffect(() => {
+        if (!isGuestCouponLoginRequired) return;
+        if (!appliedCoupon && !coupon) return;
+        setAppliedCoupon(null);
+        setCoupon('');
+    }, [appliedCoupon, coupon, isGuestCouponLoginRequired]);
+
+    useEffect(() => {
         if (!postOtpCheckoutSync || !user) return;
         let cancelled = false;
+        const withTimeout = (promise, timeoutMs = POST_OTP_PREPARE_TIMEOUT_MS) => Promise.race([
+            promise,
+            new Promise((_, reject) => {
+                window.setTimeout(() => {
+                    reject(new Error('Checkout preparation took too long. Please review the form and continue manually.'));
+                }, timeoutMs);
+            })
+        ]);
 
         const continueCheckout = async () => {
             try {
@@ -1019,21 +1210,31 @@ export default function Checkout() {
                     : preservedShippingAddress;
 
                 if (hasCompleteAddress(preservedShippingAddress) && hasCompleteAddress(preservedBillingAddress)) {
-                    const profileRes = await authService.updateProfile({
+                    const profileRes = await withTimeout(authService.updateProfile({
                         name: form.name,
                         email: form.email,
                         mobile: form.mobile,
                         address: preservedShippingAddress,
                         billingAddress: preservedBillingAddress
-                    });
+                    }));
                     if (!cancelled && profileRes?.user) {
                         updateUser(profileRes.user);
                     }
                 }
                 if (cancelled) return;
-                const syncResult = await syncValidatedAccountCheckoutCart(postOtpCheckoutSync.guestItems || []);
+                const syncResult = await withTimeout(syncValidatedAccountCheckoutCart(postOtpCheckoutSync.guestItems || []));
                 if (cancelled) return;
-                const couponResult = await applyBestCouponForValidatedCheckout();
+                const requiresShippingCorrection = !hasCompleteAddress(preservedShippingAddress);
+                const requiresBillingCorrection = billingAddressEnabled && !hasCompleteAddress(preservedBillingAddress);
+                if (requiresShippingCorrection || requiresBillingCorrection) {
+                    setPostOtpCheckoutSync(null);
+                    setResumeCheckoutAfterVerification(false);
+                    setIsPreparingVerifiedCheckout(false);
+                    setEditing(true);
+                    toast.info('Complete the highlighted delivery details to continue with payment.');
+                    return;
+                }
+                const couponResult = await withTimeout(applyBestCouponForValidatedCheckout(preservedShippingAddress));
                 if (cancelled) return;
                 if (Number(syncResult?.movedToWishlistCount || 0) > 0) {
                     toast.info(`${Number(syncResult.movedToWishlistCount)} existing account cart item(s) were moved to wishlist. Continuing with your checkout cart.`);
@@ -1063,9 +1264,22 @@ export default function Checkout() {
     useEffect(() => {
         if (!resumeCheckoutAfterVerification || !user) return;
         const effectiveCurrentBillingAddress = billingAddressEnabled ? form.billingAddress : form.address;
-        if (lineItems.length === 0) return;
-        if (!hasCompleteAddress(form.address) || !hasCompleteAddress(effectiveCurrentBillingAddress)) return;
-        if (hasFormValidationErrors || hasUnavailableItems || isPlacingOrder) return;
+        if (lineItems.length === 0) {
+            setResumeCheckoutAfterVerification(false);
+            setIsPreparingVerifiedCheckout(false);
+            return;
+        }
+        if (!hasCompleteAddress(form.address) || !hasCompleteAddress(effectiveCurrentBillingAddress) || hasFormValidationErrors) {
+            setResumeCheckoutAfterVerification(false);
+            setIsPreparingVerifiedCheckout(false);
+            setEditing(true);
+            return;
+        }
+        if (hasUnavailableItems || isPlacingOrder) {
+            setResumeCheckoutAfterVerification(false);
+            setIsPreparingVerifiedCheckout(false);
+            return;
+        }
         setResumeCheckoutAfterVerification(false);
         const timer = window.setTimeout(() => {
             void handlePayNow();
@@ -1075,26 +1289,81 @@ export default function Checkout() {
 
     const handlePayNow = async () => {
         setAttemptedPay(true);
-        if (lineItems.length === 0) return toast.error('Your cart is empty');
-        if (isPlacingOrder) return;
-        if (hasUnavailableItems) return toast.error('Some items are unavailable. Please review your cart before payment.');
-        if (hasFormValidationErrors) return toast.error('Please correct highlighted fields before payment');
-        if (isMobileMissingOnProfile && !hasValidMobileForPayment) return toast.error(mobileValidationMessage || 'Please enter a valid mobile number before payment');
-        if (!hasCompleteAddress(form.address)) return toast.error('Please complete shipping address before payment');
-        if (billingAddressEnabled && !hasCompleteAddress(form.billingAddress)) return toast.error('Please complete billing address before payment');
+        if (lineItems.length === 0) {
+            setIsPreparingVerifiedCheckout(false);
+            return toast.error('Your cart is empty');
+        }
+        if (isPlacingOrder) {
+            setIsPreparingVerifiedCheckout(false);
+            return;
+        }
+        if (hasUnavailableItems) {
+            setIsPreparingVerifiedCheckout(false);
+            return toast.error('Some items are unavailable. Please review your cart before payment.');
+        }
+        if (hasFormValidationErrors) {
+            setIsPreparingVerifiedCheckout(false);
+            setEditing(true);
+            return toast.error('Please correct highlighted fields before payment');
+        }
+        if (!user && guestLookup?.status === 'account_unavailable') {
+            setIsPreparingVerifiedCheckout(false);
+            return toast.error(guestCheckoutConflict || 'This mobile number belongs to an unavailable account.');
+        }
+        if (!user && guestLookup?.status === 'data_conflict') {
+            setIsPreparingVerifiedCheckout(false);
+            return toast.error(guestCheckoutConflict || 'This mobile number cannot be used right now. Please contact support.');
+        }
+        if (isMobileMissingOnProfile && !hasValidMobileForPayment) {
+            setIsPreparingVerifiedCheckout(false);
+            setEditing(true);
+            return toast.error(mobileValidationMessage || 'Please enter a valid mobile number before payment');
+        }
+        const isGuestLockedFlow = !user && guestLockedAccount;
+        const hasShippingOverride = hasCompleteAddress(form.address);
+        const hasBillingOverride = billingAddressEnabled ? hasCompleteAddress(form.billingAddress) : hasShippingOverride;
+        const effectiveGuestShippingAddress = isGuestLockedFlow
+            ? (hasShippingOverride ? form.address : null)
+            : form.address;
+        const effectiveGuestBillingAddress = isGuestLockedFlow
+            ? (billingAddressEnabled ? (hasBillingOverride ? form.billingAddress : null) : effectiveGuestShippingAddress)
+            : effectiveBillingAddress;
+        if ((!isGuestLockedFlow || hasAddressFields(form.address)) && !hasCompleteAddress(form.address)) {
+            setIsPreparingVerifiedCheckout(false);
+            setEditing(true);
+            return toast.error('Please complete shipping address before payment');
+        }
+        if (billingAddressEnabled && (!isGuestLockedFlow || hasAddressFields(form.billingAddress)) && !hasCompleteAddress(form.billingAddress)) {
+            setIsPreparingVerifiedCheckout(false);
+            setEditing(true);
+            return toast.error('Please complete billing address before payment');
+        }
         setIsPlacingOrder(true);
         let currentAttemptId = null;
         try {
             setGuestCheckoutConflict('');
-            setGuestConflictHints({ email: '', mobile: '' });
-            setGuestRequiresAccountVerification(false);
+            setProfileFieldErrors({ mobile: '', email: '' });
+            const normalizedFormEmail = String(form.email || '').trim().toLowerCase();
+            const normalizedUserEmail = String(user?.email || '').trim().toLowerCase();
+            const normalizedFormMobile = normalizeStorefrontMobileInput(form.mobile);
+            const normalizedUserMobile = normalizeStorefrontMobileInput(user?.mobile || '');
+            const profileHasUniqueFieldChanges = Boolean(
+                user && (
+                    normalizedFormEmail !== normalizedUserEmail
+                    || normalizedFormMobile !== normalizedUserMobile
+                )
+            );
             const profileNeedsAddressSync = user && (
                 !hasCompleteAddress(user?.address)
                 || (billingAddressEnabled && !hasCompleteAddress(user?.billingAddress))
                 || (isMobileMissingOnProfile && hasValidMobileForPayment)
             );
             const checkoutHasAddress = hasCompleteAddress(form.address) && hasCompleteAddress(effectiveBillingAddress);
-            if (profileNeedsAddressSync && checkoutHasAddress && (!isMobileMissingOnProfile || hasValidMobileForPayment)) {
+            const shouldSyncProfileBeforePayment = user && (
+                profileHasUniqueFieldChanges
+                || (profileNeedsAddressSync && checkoutHasAddress && (!isMobileMissingOnProfile || hasValidMobileForPayment))
+            );
+            if (shouldSyncProfileBeforePayment) {
                 const profileRes = await authService.updateProfile({
                     name: form.name,
                     email: form.email,
@@ -1104,7 +1373,11 @@ export default function Checkout() {
                 });
                 if (profileRes?.user) {
                     updateUser(profileRes.user);
-                    toast.success('Address saved to profile');
+                    if (profileHasUniqueFieldChanges) {
+                        toast.success('Profile updated');
+                    } else {
+                        toast.success('Address saved to profile');
+                    }
                 }
             }
 
@@ -1114,9 +1387,10 @@ export default function Checkout() {
                     couponCode: appliedCoupon?.code || null
                 })
                 : await orderService.getPublicCheckoutSummary({
-                    shippingAddress: hasCompleteAddress(form.address) ? form.address : null,
+                    shippingAddress: effectiveGuestShippingAddress,
                     couponCode: appliedCoupon?.code || null,
-                    items: checkoutItemsPayload
+                    items: checkoutItemsPayload,
+                    guest: { mobile: form.mobile }
                 });
             if (!preflight?.summary || preflight.summary.total == null) {
                 throw new Error('Unable to validate order summary on server. Please retry.');
@@ -1143,8 +1417,8 @@ export default function Checkout() {
                         email: form.email,
                         mobile: form.mobile
                     },
-                    billingAddress: effectiveBillingAddress,
-                    shippingAddress: form.address,
+                    billingAddress: effectiveGuestBillingAddress,
+                    shippingAddress: effectiveGuestShippingAddress,
                     couponCode: appliedCoupon?.code || null,
                     notes: {
                         source: 'web_checkout'
@@ -1154,13 +1428,15 @@ export default function Checkout() {
             if (!init?.order?.id || !init?.keyId) {
                 throw new Error(init?.message || 'Failed to initialize payment');
             }
-            if (!user && init?.token && init?.user) {
-                adoptServerCart(init?.cart?.items || []);
-                login(init.token, init.user);
+            if (!user && init?.attempt?.id && init?.attemptToken) {
+                orderService.rememberPublicAttemptAccess({
+                    attemptId: init.attempt.id,
+                    attemptToken: init.attemptToken
+                });
             }
             setPendingPaymentAmount(Number(init?.order?.amount || 0) / 100);
-            setActiveAttemptId(init?.attempt?.id || null);
             currentAttemptId = Number(init?.attempt?.id || 0) || null;
+            const isPublicPaymentFlow = !user && Boolean(init?.attemptToken);
 
             const prefillContact = form.mobile
                 ? (String(form.mobile).startsWith('+') ? String(form.mobile) : `+91${String(form.mobile).replace(/\D/g, '')}`)
@@ -1201,11 +1477,16 @@ export default function Checkout() {
                     handler: async (response) => {
                         try {
                             setIsPaymentAwaitingConfirmation(true);
-                            const verification = await orderService.verifyRazorpayPayment(response);
+                            const verification = isPublicPaymentFlow
+                                ? await orderService.verifyPublicRazorpayPayment({
+                                    ...response,
+                                    attemptId: init?.attempt?.id,
+                                    attemptToken: init?.attemptToken
+                                })
+                                : await orderService.verifyRazorpayPayment(response);
                             if (verification?.order) {
                                 setIsPaymentAwaitingConfirmation(false);
                                 setOrderResult(verification.order);
-                                setActiveAttemptId(null);
                                 await clearCart();
                                 toast.success('Payment successful, order placed');
                                 markSettled();
@@ -1213,11 +1494,12 @@ export default function Checkout() {
                                 return;
                             }
                             if (verification?.processing && currentAttemptId) {
-                                const polled = await pollPaymentAttemptUntilResolved(currentAttemptId);
+                                const polled = isPublicPaymentFlow
+                                    ? await orderService.getPublicPaymentAttemptStatus(currentAttemptId, init.attemptToken)
+                                    : await pollPaymentAttemptUntilResolved(currentAttemptId);
                                 if (polled?.order) {
                                     setIsPaymentAwaitingConfirmation(false);
                                     setOrderResult(polled.order);
-                                    setActiveAttemptId(null);
                                     await clearCart();
                                     toast.success('Payment successful, order placed');
                                     markSettled();
@@ -1228,7 +1510,6 @@ export default function Checkout() {
                                     throw new Error(polled?.message || 'Payment verification failed');
                                 }
                                 setIsPaymentAwaitingConfirmation(false);
-                                setActiveAttemptId(currentAttemptId);
                                 markSettled();
                                 navigate(`/payment/success?attemptId=${encodeURIComponent(String(currentAttemptId))}`);
                                 resolve({ pending: true, attemptId: currentAttemptId });
@@ -1257,30 +1538,20 @@ export default function Checkout() {
         } catch (error) {
             setIsPreparingVerifiedCheckout(false);
             setIsPaymentAwaitingConfirmation(false);
-            if (!user && String(error?.code || '').toUpperCase() === 'CHECKOUT_IDENTITY_CONFLICT') {
-                const conflictDetails = error?.details?.conflicts || {};
-                const nextHints = {
-                    email: conflictDetails?.email?.hint
-                        ? `Enter registered E-mail id ${conflictDetails.email.hint}`
-                        : '',
-                    mobile: conflictDetails?.mobile?.hint
-                        ? `Enter registered phone number ${conflictDetails.mobile.hint}`
-                        : ''
-                };
-                setGuestRequiresAccountVerification(false);
-                setIsAccountVerificationOpen(false);
-                setGuestConflictHints(nextHints);
-                setGuestCheckoutConflict('');
-                return;
-            }
-            if (!user && (Number(error?.status || 0) === 409 || String(error?.code || '').toUpperCase() === 'ACCOUNT_EXISTS')) {
-                setGuestRequiresAccountVerification(true);
-                setGuestCheckoutConflict(error?.message || 'We found your existing account. Verify with OTP to continue securely.');
-                setGuestConflictHints({ email: '', mobile: '' });
-                setIsAccountVerificationOpen(true);
-                return;
-            }
             const message = normalizePaymentFailureReason(error?.message || 'Failed to complete payment');
+            if (user && /already in use|invalid email format|mobile must be 10 digits|enter a valid mobile number/i.test(message)) {
+                const nextFieldErrors = resolveProfileFieldErrors(message);
+                if (nextFieldErrors.mobile || nextFieldErrors.email) {
+                    setProfileFieldErrors(nextFieldErrors);
+                }
+                setEditing(true);
+                toast.error(message);
+                return;
+            }
+            if (!currentAttemptId) {
+                toast.error(message);
+                return;
+            }
             toast.error(message);
             const params = new URLSearchParams();
             params.set('reason', message);
@@ -1293,23 +1564,21 @@ export default function Checkout() {
     };
 
     if (!storefrontOpen) return <StorefrontClosed />;
-    const tier = String(loyaltyStatus?.tier || checkoutSummary?.loyaltyTier || user?.loyaltyTier || 'regular').toLowerCase();
-    const membershipEligibility = loyaltyStatus?.eligibility || null;
+    const tier = resolvedCheckoutTier;
+    const membershipEligibility = resolvedCheckoutEligibility;
     const isMembershipEligible = Boolean(membershipEligibility?.isEligible ?? true);
     const profileCompletionPct = Number(membershipEligibility?.completionPct || 0);
     const missingProfileFields = Array.isArray(membershipEligibility?.missingFields) ? membershipEligibility.missingFields : [];
     const membershipUnlockState = formatMissingProfileFields(missingProfileFields);
     const tierTheme = TIER_THEME[tier] || TIER_THEME.regular;
-    const tierLabel = formatTierLabel(loyaltyStatus?.profile?.label || tier);
-    const progress = loyaltyStatus?.progress || checkoutSummary?.loyaltyMeta?.progress || {};
+    const tierLabel = formatTierLabel(resolvedCheckoutLoyaltyProfile?.label || tier);
+    const progress = resolvedCheckoutProgress;
     const progressPct = Number(progress?.progressPct || 0);
-    const nextTierKey = progress?.nextTier || getNextTierFromCurrent(tier);
+    const nextTierKey = progress?.nextTier || null;
     const nextTierLabel = nextTierKey
         ? formatTierLabel(loyaltyStatus?.nextTierProfile?.label || nextTierKey)
         : '';
-    const spends = loyaltyStatus?.spends || checkoutSummary?.loyaltyMeta?.spends || {};
-    const spendKey = getTierSpendKey(tier);
-    const currentSpend = Number(spends?.[spendKey] || 0);
+    const currentSpend = Number(progress?.currentSpend ?? 0);
     const neededToNext = Number(progress?.needed || 0);
     const progressMessage = String(progress?.message || '').trim();
     const isProgressMessageDuplicated = Boolean(
@@ -1361,59 +1630,87 @@ export default function Checkout() {
                         ) : (
                         <>
                         <div className="flex flex-col gap-6 h-full">
-                            <div className={`rounded-2xl p-5 bg-gradient-to-r ${tierTheme.card} shadow-lg`}>
-                                <div className="flex items-start justify-between gap-4">
-                                    <div>
-                                        <p className={`text-xs uppercase tracking-[0.24em] font-semibold ${tierTheme.caption}`}>Membership</p>
-                                        <p className={`text-xl font-semibold mt-1 ${tierTheme.title}`}>{getMembershipLabel(tierLabel)}</p>
-                                        <p className={`text-sm mt-2 ${tierTheme.body}`}>
-                                            {membershipMessage}
-                                        </p>
-                                        <p className={`text-xs mt-2 ${tierTheme.caption}`}>
-                                            Spent: ₹{currentSpend.toLocaleString('en-IN')}
-                                        </p>
-                                        <p className={`text-xs mt-1 ${tierTheme.caption}`}>
-                                            {nextTierLabel ? `Need ₹${neededToNext.toLocaleString('en-IN')} more for ${getMembershipLabel(nextTierLabel)}` : 'You are at the highest tier.'}
-                                        </p>
-                                    </div>
-                                    <div className="flex flex-col items-end gap-2">
-                                        <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.tag}`}>
-                                            <Sparkles size={14} /> {isMembershipEligible ? 'Extra member pricing' : 'Profile completion required'}
+                            {!user ? (
+                                <div className="rounded-2xl p-5 bg-gradient-to-r from-slate-700 via-slate-600 to-slate-700 shadow-lg">
+                                    <div className="flex items-start justify-between gap-4">
+                                        <div>
+                                            <p className="text-xs uppercase tracking-[0.24em] font-semibold text-white/75">Membership</p>
+                                            <p className="text-xl font-semibold mt-1 text-white">Unlock Your Member View</p>
+                                            <p className="text-sm mt-2 text-white/90">
+                                                Verify your account to view your membership card, tier progress, and personalized benefits.
+                                            </p>
+                                            <p className="text-xs mt-3 text-white/80">
+                                                Members can unlock extra pricing, shipping benefits, and tier-based rewards during checkout.
+                                            </p>
+                                        </div>
+                                        <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border border-white/30 bg-white/15 text-white">
+                                            <Sparkles size={14} /> Login to view
                                         </span>
-                                        {isSummaryLoading && !isPreparingVerifiedCheckout && (
-                                            <span className="text-[11px] text-white/80">
-                                                Updating pricing...
-                                            </span>
-                                        )}
                                     </div>
-                                </div>
-                                {!isMembershipEligible && (
-                                    <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-amber-900">
-                                        <p className="text-xs font-semibold !mb-0">
-                                            Membership benefits are locked until profile reaches 100% completion ({profileCompletionPct}% now).
+                                    <div className="mt-4 rounded-lg border border-white/20 bg-slate-950/20 px-3 py-3">
+                                        <p className="text-xs font-semibold !mb-0 text-white">
+                                            OTP verification is required before we reveal your membership card and progress details.
                                         </p>
-                                        {membershipUnlockState.items.length > 0 && (
-                                            <div className="mt-2">
-                                                <p className="text-[11px] font-semibold !mb-0">{membershipUnlockState.title}</p>
-                                                <ul className="mt-1 space-y-1 text-[11px]">
-                                                    {membershipUnlockState.items.map((field) => (
-                                                        <li key={field}>- {field}</li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                                <div className="mt-4">
-                                    <div className={`h-2 rounded-full overflow-hidden ${tierTheme.track}`}>
-                                        <div className={`h-full rounded-full ${tierTheme.fill}`} style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
-                                    </div>
-                                    <div className={`mt-2 flex items-center justify-between text-xs ${tierTheme.caption}`}>
-                                        <span>{progressPct}% to next tier</span>
-                                        <span>{nextTierLabel ? `Next: ${getMembershipLabel(nextTierLabel)}` : 'Highest tier reached'}</span>
+                                        <p className="mt-2 text-[11px] text-white/95">
+                                            Use {guestLockedAccount ? 'View/Edit' : 'account verification'} to log in and make this card viewable.
+                                        </p>
                                     </div>
                                 </div>
-                            </div>
+                            ) : (
+                                <div className={`rounded-2xl p-5 bg-gradient-to-r ${tierTheme.card} shadow-lg`}>
+                                    <div className="flex items-start justify-between gap-4">
+                                        <div>
+                                            <p className={`text-xs uppercase tracking-[0.24em] font-semibold ${tierTheme.caption}`}>Membership</p>
+                                            <p className={`text-xl font-semibold mt-1 ${tierTheme.title}`}>{getMembershipLabel(tierLabel)}</p>
+                                            <p className={`text-sm mt-2 ${tierTheme.body}`}>
+                                                {membershipMessage}
+                                            </p>
+                                            <p className={`text-xs mt-2 ${tierTheme.caption}`}>
+                                                Spent: ₹{currentSpend.toLocaleString('en-IN')}
+                                            </p>
+                                            <p className={`text-xs mt-1 ${tierTheme.caption}`}>
+                                                {nextTierLabel ? `Need ₹${neededToNext.toLocaleString('en-IN')} more for ${getMembershipLabel(nextTierLabel)}` : 'You are at the highest tier.'}
+                                            </p>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-2">
+                                            <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.tag}`}>
+                                                <Sparkles size={14} /> {isMembershipEligible ? 'Extra member pricing' : 'Profile completion required'}
+                                            </span>
+                                            {isSummaryLoading && !isPreparingVerifiedCheckout && (
+                                                <span className="text-[11px] text-white/80">
+                                                    Updating pricing...
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {!isMembershipEligible && (
+                                        <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-amber-900">
+                                            <p className="text-xs font-semibold !mb-0">
+                                                Membership benefits are locked until profile reaches 100% completion ({profileCompletionPct}% now).
+                                            </p>
+                                            {membershipUnlockState.items.length > 0 && (
+                                                <div className="mt-2">
+                                                    <p className="text-[11px] font-semibold !mb-0">{membershipUnlockState.title}</p>
+                                                    <ul className="mt-1 space-y-1 text-[11px]">
+                                                        {membershipUnlockState.items.map((field) => (
+                                                            <li key={field}>- {field}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    <div className="mt-4">
+                                        <div className={`h-2 rounded-full overflow-hidden ${tierTheme.track}`}>
+                                            <div className={`h-full rounded-full ${tierTheme.fill}`} style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
+                                        </div>
+                                        <div className={`mt-2 flex items-center justify-between text-xs ${tierTheme.caption}`}>
+                                            <span>{progressPct}% to next tier</span>
+                                            <span>{nextTierLabel ? `Next: ${getMembershipLabel(nextTierLabel)}` : 'Highest tier reached'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                                 <div className="flex items-center justify-between gap-4">
                                     <div>
@@ -1422,68 +1719,44 @@ export default function Checkout() {
                                             {user ? 'Update your billing and shipping addresses.' : 'Enter your contact, shipping, and billing details to continue securely.'}
                                         </p>
                                     </div>
+                                    {!user && guestLockedAccount ? (
+                                        <button
+                                            type="button"
+                                            onClick={openOtpLogin}
+                                            className="inline-flex items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                                        >
+                                            View/Edit
+                                        </button>
+                                    ) : null}
                                     {user && !editing ? (
                                         <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50">
                                             <Edit3 size={16} /> Edit
                                         </button>
                                     ) : user ? (
                                         <div className="flex items-center gap-2">
-                                            <button type="button" onClick={() => setEditing(false)} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-500 hover:bg-gray-50">
-                                                Cancel
-                                            </button>
+                                            {!hasPersistedLoggedInRequiredDetailsMissing && (
+                                                <button type="button" onClick={restorePersistedLoggedInForm} className="px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-500 hover:bg-gray-50">
+                                                    Cancel
+                                                </button>
+                                            )}
                                             <button type="button" onClick={handleSave} disabled={isSaving} className="px-4 py-2 rounded-xl bg-primary text-accent text-sm font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60">
                                                 {isSaving ? 'Saving...' : 'Save'}
                                             </button>
                                         </div>
                                     ) : null}
                                 </div>
-                                {!user && guestRequiresAccountVerification && guestCheckoutConflict && !isAccountVerificationOpen && (
-                                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                                        <p className="font-semibold">Existing account found</p>
+                                {!user && guestCheckoutConflict && (
+                                    <div className={`mt-4 rounded-xl px-4 py-3 text-sm ${guestLookup?.status === 'account_unavailable' || guestLookup?.status === 'data_conflict' ? 'border border-red-200 bg-red-50 text-red-700' : 'border border-amber-200 bg-amber-50 text-amber-900'}`}>
+                                        <p className="font-semibold">
+                                            {guestLookup?.status === 'account_unavailable' || guestLookup?.status === 'data_conflict'
+                                                ? 'Checkout unavailable for this mobile'
+                                                : 'Existing account found'}
+                                        </p>
                                         <p className="mt-1">{guestCheckoutConflict}</p>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setIsAccountVerificationOpen(true);
-                                            }}
-                                            className="mt-2 inline-flex text-sm font-semibold text-primary underline underline-offset-4"
-                                        >
-                                            Verify with OTP and continue checkout
-                                        </button>
                                     </div>
                                 )}
 
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-                                    <div className="space-y-2">
-                                        <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Name</label>
-                                        <div className="relative">
-                                            <input
-                                                name="name"
-                                                value={form.name}
-                                                onChange={handleFieldChange}
-                                                disabled={formInputsDisabled}
-                                                className={`input-field pl-10 disabled:bg-gray-50 ${attemptedPay && fieldErrors.name ? 'border-red-400 bg-red-50/30' : ''}`}
-                                            />
-                                            <UserRound size={16} className="absolute left-3 top-3.5 text-gray-400" />
-                                        </div>
-                                        {attemptedPay && fieldErrors.name && <p className="text-[11px] text-red-600">{fieldErrors.name}</p>}
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Email</label>
-                                        <div className="relative">
-                                            <input
-                                                name="email"
-                                                value={form.email}
-                                                onChange={handleFieldChange}
-                                                disabled={formInputsDisabled}
-                                                className={`input-field pl-10 disabled:bg-gray-50 ${(emailValidationMessage && String(form.email || '').trim()) || (attemptedPay && fieldErrors.email) || guestConflictHints.email ? 'border-red-400 bg-red-50/30' : ''}`}
-                                            />
-                                            <Mail size={16} className="absolute left-3 top-3.5 text-gray-400" />
-                                        </div>
-                                        {((emailValidationMessage && String(form.email || '').trim()) || (attemptedPay && fieldErrors.email) || guestConflictHints.email) && (
-                                            <p className="text-[11px] text-red-600">{guestConflictHints.email || emailValidationMessage || fieldErrors.email}</p>
-                                        )}
-                                    </div>
                                     <div className="space-y-2">
                                         <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Phone</label>
                                         <div className="relative">
@@ -1495,106 +1768,183 @@ export default function Checkout() {
                                                 maxLength={10}
                                                 value={form.mobile}
                                                 onChange={handleFieldChange}
-                                                disabled={formInputsDisabled}
+                                                disabled={Boolean(user) || formInputsDisabled}
                                                 placeholder="9876543210"
-                                                className={`input-field pl-10 disabled:bg-gray-50 ${(mobileValidationMessage && String(form.mobile || '').trim()) || (attemptedPay && fieldErrors.mobile) || guestConflictHints.mobile ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                className={`input-field pl-10 disabled:bg-gray-50 ${(mobileValidationMessage && String(form.mobile || '').trim()) || (shouldShowValidationHints && fieldErrors.mobile) ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
                                             <Phone size={16} className="absolute left-3 top-3.5 text-gray-400" />
                                         </div>
-                                        {((attemptedPay && fieldErrors.mobile) || guestConflictHints.mobile) && (
-                                            <p className="text-[11px] text-red-600">{guestConflictHints.mobile || fieldErrors.mobile}</p>
+                                        {isGuestLookupLoading && !user && (
+                                            <p className="text-[11px] text-gray-500">Checking this mobile number...</p>
+                                        )}
+                                        {shouldShowValidationHints && fieldErrors.mobile && (
+                                            <p className="text-[11px] text-red-600">{fieldErrors.mobile}</p>
+                                        )}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Name</label>
+                                        <div className="relative">
+                                            <input
+                                                name="name"
+                                                value={showGuestLockedPrefill ? (guestLookup?.maskedProfile?.name || 'Not saved') : form.name}
+                                                onChange={handleFieldChange}
+                                                readOnly={showGuestLockedPrefill}
+                                                disabled={formInputsDisabled}
+                                                className={`input-field pl-10 disabled:bg-gray-50 ${showGuestLockedPrefill ? 'bg-gray-50 text-gray-700' : ''} ${shouldShowValidationHints && fieldErrors.name ? 'border-red-400 bg-red-50/30' : ''}`}
+                                            />
+                                            <UserRound size={16} className="absolute left-3 top-3.5 text-gray-400" />
+                                        </div>
+                                        {!showGuestLockedPrefill && shouldShowValidationHints && fieldErrors.name && <p className="text-[11px] text-red-600">{fieldErrors.name}</p>}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Email</label>
+                                        <div className="relative">
+                                            <input
+                                                name="email"
+                                                value={showGuestLockedPrefill ? (guestLookup?.maskedProfile?.email || 'Not saved') : form.email}
+                                                onChange={handleFieldChange}
+                                                readOnly={showGuestLockedPrefill}
+                                                disabled={formInputsDisabled}
+                                                placeholder={showGuestLockedPrefill ? '' : 'Optional'}
+                                                className={`input-field pl-10 disabled:bg-gray-50 ${showGuestLockedPrefill ? 'bg-gray-50 text-gray-700' : ''} ${(emailValidationMessage && String(form.email || '').trim()) || (shouldShowValidationHints && fieldErrors.email) ? 'border-red-400 bg-red-50/30' : ''}`}
+                                            />
+                                            <Mail size={16} className="absolute left-3 top-3.5 text-gray-400" />
+                                        </div>
+                                        {!showGuestLockedPrefill && (((emailValidationMessage && String(form.email || '').trim()) || (shouldShowValidationHints && fieldErrors.email))) && (
+                                            <p className="text-[11px] text-red-600">{emailValidationMessage || fieldErrors.email}</p>
                                         )}
                                     </div>
                                 </div>
 
                                 <div className={`grid grid-cols-1 ${billingAddressEnabled ? 'md:grid-cols-2' : ''} gap-5 mt-6`}>
                                     {billingAddressEnabled && (
-                                        <div className="bg-gray-50 rounded-2xl border border-gray-100 p-5">
+                                        <div className={`rounded-2xl border p-5 ${hasBillingFieldErrors && shouldShowValidationHints ? 'border-red-200 bg-red-50/40' : 'border-gray-100 bg-gray-50'}`}>
                                             <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
                                                 <CreditCard size={16} className="text-primary" /> Billing Address
                                             </h3>
+                                            {hasBillingFieldErrors && shouldShowValidationHints && (
+                                                <p className="mt-2 text-[11px] font-medium text-red-600">
+                                                    Complete the highlighted billing details to continue payment.
+                                                </p>
+                                            )}
                                             <div className="mt-4 space-y-3">
                                                 <input
-                                                    value={form.billingAddress.line1}
+                                                    value={showGuestLockedPrefill ? (maskedBillingAddressFields.line1 || 'Not saved') : form.billingAddress.line1}
                                                     onChange={(e) => handleAddressChange('billingAddress', 'line1', e.target.value)}
+                                                    readOnly={showGuestLockedPrefill}
                                                     disabled={formInputsDisabled}
                                                     placeholder="Street Address"
-                                                    className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingLine1 ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                    className={`input-field disabled:bg-gray-50 ${showGuestLockedPrefill ? 'bg-gray-50 text-gray-700' : ''} ${shouldShowValidationHints && fieldErrors.billingLine1 ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 />
                                                 <div className="grid grid-cols-2 gap-3">
                                                     <input
-                                                        value={form.billingAddress.city}
+                                                        value={showGuestLockedPrefill ? (maskedBillingAddressFields.city || 'Not saved') : form.billingAddress.city}
                                                         onChange={(e) => handleAddressChange('billingAddress', 'city', e.target.value)}
+                                                        readOnly={showGuestLockedPrefill}
                                                         disabled={formInputsDisabled}
                                                         placeholder="City"
-                                                        className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingCity ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                        className={`input-field disabled:bg-gray-50 ${showGuestLockedPrefill ? 'bg-gray-50 text-gray-700' : ''} ${shouldShowValidationHints && fieldErrors.billingCity ? 'border-red-400 bg-red-50/30' : ''}`}
                                                     />
-                                                    <select
-                                                        value={resolveAllowedStateName(availableStates, form.billingAddress.state) || ''}
-                                                        onChange={(e) => handleAddressChange('billingAddress', 'state', e.target.value)}
-                                                        disabled={formInputsDisabled || availableStates.length === 0}
-                                                        className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingState ? 'border-red-400 bg-red-50/30' : ''}`}
-                                                    >
-                                                        <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
-                                                        {availableStates.map((state) => (
-                                                            <option key={`billing-state-${state}`} value={state}>{state}</option>
-                                                        ))}
-                                                    </select>
+                                                    {showGuestLockedPrefill ? (
+                                                        <input
+                                                            value={maskedBillingAddressFields.state || 'Not saved'}
+                                                            readOnly
+                                                            disabled={formInputsDisabled}
+                                                            placeholder="State"
+                                                            className="input-field disabled:bg-gray-50 bg-gray-50 text-gray-700"
+                                                        />
+                                                    ) : (
+                                                        <select
+                                                            value={resolveAllowedStateName(availableStates, form.billingAddress.state) || ''}
+                                                            onChange={(e) => handleAddressChange('billingAddress', 'state', e.target.value)}
+                                                            disabled={formInputsDisabled || availableStates.length === 0}
+                                                            className={`input-field disabled:bg-gray-50 ${shouldShowValidationHints && fieldErrors.billingState ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                        >
+                                                            <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
+                                                            {availableStates.map((state) => (
+                                                                <option key={`billing-state-${state}`} value={state}>{state}</option>
+                                                            ))}
+                                                        </select>
+                                                    )}
                                                 </div>
                                                 <input
-                                                    value={form.billingAddress.zip}
+                                                    value={showGuestLockedPrefill ? (maskedBillingAddressFields.zip || 'Not saved') : form.billingAddress.zip}
                                                     onChange={(e) => handleAddressChange('billingAddress', 'zip', e.target.value)}
+                                                    readOnly={showGuestLockedPrefill}
                                                     disabled={formInputsDisabled}
                                                     placeholder="PIN code"
-                                                    className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.billingZip ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                    className={`input-field disabled:bg-gray-50 ${showGuestLockedPrefill ? 'bg-gray-50 text-gray-700' : ''} ${shouldShowValidationHints && fieldErrors.billingZip ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 />
-                                                {attemptedPay && (fieldErrors.billingLine1 || fieldErrors.billingCity || fieldErrors.billingState || fieldErrors.billingZip) && (
+                                                {!showGuestLockedPrefill && shouldShowValidationHints && (fieldErrors.billingLine1 || fieldErrors.billingCity || fieldErrors.billingState || fieldErrors.billingZip) && (
                                                     <p className="text-[11px] text-red-600">{fieldErrors.billingLine1 || fieldErrors.billingCity || fieldErrors.billingState || fieldErrors.billingZip}</p>
                                                 )}
                                             </div>
                                         </div>
                                     )}
-                                    <div className="bg-gray-50 rounded-2xl border border-gray-100 p-5">
+                                    <div className={`rounded-2xl border p-5 ${hasShippingFieldErrors && shouldShowValidationHints ? 'border-red-200 bg-red-50/40' : 'border-gray-100 bg-gray-50'}`}>
                                         <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
                                             <Home size={16} className="text-primary" /> Shipping Address
                                         </h3>
-                                        <div className="mt-4 space-y-3">
-                                            <input
-                                                value={form.address.line1}
-                                                onChange={(e) => handleAddressChange('address', 'line1', e.target.value)}
-                                                disabled={formInputsDisabled}
-                                                placeholder="Street Address"
-                                                className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingLine1 ? 'border-red-400 bg-red-50/30' : ''}`}
-                                            />
-                                            <div className="grid grid-cols-2 gap-3">
+                                            {hasShippingFieldErrors && shouldShowValidationHints && (
+                                                <p className="mt-2 text-[11px] font-medium text-red-600">
+                                                    Complete the highlighted shipping details to continue payment.
+                                                </p>
+                                            )}
+                                            <div className="mt-4 space-y-3">
                                                 <input
-                                                    value={form.address.city}
-                                                    onChange={(e) => handleAddressChange('address', 'city', e.target.value)}
+                                                    value={showGuestLockedPrefill ? (maskedShippingAddressFields.line1 || 'Not saved') : form.address.line1}
+                                                    onChange={(e) => handleAddressChange('address', 'line1', e.target.value)}
+                                                    readOnly={showGuestLockedPrefill}
                                                     disabled={formInputsDisabled}
-                                                    placeholder="City"
-                                                    className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingCity ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                    placeholder="Street Address"
+                                                    className={`input-field disabled:bg-gray-50 ${showGuestLockedPrefill ? 'bg-gray-50 text-gray-700' : ''} ${shouldShowValidationHints && fieldErrors.shippingLine1 ? 'border-red-400 bg-red-50/30' : ''}`}
                                                 />
-                                                <select
-                                                    value={resolveAllowedStateName(availableStates, form.address.state) || ''}
-                                                    onChange={(e) => handleAddressChange('address', 'state', e.target.value)}
-                                                    disabled={formInputsDisabled || availableStates.length === 0}
-                                                    className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingState ? 'border-red-400 bg-red-50/30' : ''}`}
-                                                >
-                                                    <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
-                                                    {availableStates.map((state) => (
-                                                        <option key={`shipping-state-${state}`} value={state}>{state}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                            <input
-                                                value={form.address.zip}
-                                                onChange={(e) => handleAddressChange('address', 'zip', e.target.value)}
-                                                disabled={formInputsDisabled}
-                                                placeholder="PIN code"
-                                                className={`input-field disabled:bg-gray-50 ${attemptedPay && fieldErrors.shippingZip ? 'border-red-400 bg-red-50/30' : ''}`}
-                                            />
-                                            {attemptedPay && (fieldErrors.shippingLine1 || fieldErrors.shippingCity || fieldErrors.shippingState || fieldErrors.shippingZip) && (
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <input
+                                                        value={showGuestLockedPrefill ? (maskedShippingAddressFields.city || 'Not saved') : form.address.city}
+                                                        onChange={(e) => handleAddressChange('address', 'city', e.target.value)}
+                                                        readOnly={showGuestLockedPrefill}
+                                                        disabled={formInputsDisabled}
+                                                        placeholder="City"
+                                                        className={`input-field disabled:bg-gray-50 ${showGuestLockedPrefill ? 'bg-gray-50 text-gray-700' : ''} ${shouldShowValidationHints && fieldErrors.shippingCity ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                    />
+                                                    {showGuestLockedPrefill ? (
+                                                        <input
+                                                            value={maskedShippingAddressFields.state || 'Not saved'}
+                                                            readOnly
+                                                            disabled={formInputsDisabled}
+                                                            placeholder="State"
+                                                            className="input-field disabled:bg-gray-50 bg-gray-50 text-gray-700"
+                                                        />
+                                                    ) : (
+                                                        <select
+                                                            value={resolveAllowedStateName(availableStates, form.address.state) || ''}
+                                                            onChange={(e) => handleAddressChange('address', 'state', e.target.value)}
+                                                            disabled={formInputsDisabled || availableStates.length === 0}
+                                                            className={`input-field disabled:bg-gray-50 ${shouldShowValidationHints && fieldErrors.shippingState ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                        >
+                                                            <option value="">{availableStates.length ? 'Select State' : 'No states configured'}</option>
+                                                            {availableStates.map((state) => (
+                                                                <option key={`shipping-state-${state}`} value={state}>{state}</option>
+                                                            ))}
+                                                        </select>
+                                                    )}
+                                                </div>
+                                                <input
+                                                    value={showGuestLockedPrefill ? (maskedShippingAddressFields.zip || 'Not saved') : form.address.zip}
+                                                    onChange={(e) => handleAddressChange('address', 'zip', e.target.value)}
+                                                    readOnly={showGuestLockedPrefill}
+                                                    disabled={formInputsDisabled}
+                                                    placeholder="PIN code"
+                                                    className={`input-field disabled:bg-gray-50 ${showGuestLockedPrefill ? 'bg-gray-50 text-gray-700' : ''} ${shouldShowValidationHints && fieldErrors.shippingZip ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                />
+                                            {!showGuestLockedPrefill && shouldShowValidationHints && (fieldErrors.shippingLine1 || fieldErrors.shippingCity || fieldErrors.shippingState || fieldErrors.shippingZip) && (
                                                 <p className="text-[11px] text-red-600">{fieldErrors.shippingLine1 || fieldErrors.shippingCity || fieldErrors.shippingState || fieldErrors.shippingZip}</p>
+                                            )}
+                                            {showGuestLockedPrefill && (
+                                                <p className="text-[11px] text-gray-500">
+                                                    Saved account details are shown in masked form. Use View/Edit to unlock the full form and continue as a logged-in account.
+                                                </p>
                                             )}
                                         </div>
                                     </div>
@@ -1613,7 +1963,7 @@ export default function Checkout() {
                                     <input
                                         value={coupon}
                                         onChange={(e) => setCoupon(e.target.value)}
-                                        placeholder="Enter coupon code"
+                                        placeholder={isGuestCouponLoginRequired ? 'Login via OTP to unlock coupons' : 'Enter coupon code'}
                                         className={`input-field flex-1 ${isCouponInputDisabled ? 'bg-gray-100 text-gray-500 border-gray-200 cursor-not-allowed' : ''}`}
                                         disabled={isCouponInputDisabled}
                                     />
@@ -1621,12 +1971,26 @@ export default function Checkout() {
                                         <button onClick={handleRemoveCoupon} className="px-6 py-3 rounded-xl border border-gray-200 font-semibold text-gray-500 hover:bg-gray-50">
                                             Remove
                                         </button>
+                                    ) : isGuestCouponLoginRequired ? (
+                                        <button onClick={openOtpLogin} className="px-6 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light">
+                                            Login via OTP
+                                        </button>
                                     ) : (
                                         <button onClick={handleApplyCoupon} disabled={isApplyingCoupon || isCouponInputDisabled} className="px-6 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60 disabled:cursor-not-allowed">
                                             {isApplyingCoupon ? 'Applying...' : 'Apply'}
                                         </button>
                                     )}
                                 </div>
+                                {isGuestCouponLoginRequired && (
+                                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                                        <p className="text-xs font-semibold text-amber-900">
+                                            Account coupons are available after OTP login.
+                                        </p>
+                                        <p className="mt-1 text-xs text-amber-800">
+                                            Login via OTP to unlock coupons, reveal your saved form details, and continue in normal logged-in checkout mode.
+                                        </p>
+                                    </div>
+                                )}
                                 {isCouponInputDisabled && selectedCouponEligibility && (
                                     <p className="text-xs text-amber-700 mt-3">
                                         This coupon unlocks after cart reaches ₹{selectedCouponEligibility.required.toLocaleString('en-IN')}. Add ₹{selectedCouponEligibility.shortfall.toLocaleString('en-IN')} more.
@@ -1646,8 +2010,8 @@ export default function Checkout() {
                                                     key={entry.id || entry.code}
                                                     type="button"
                                                     onClick={() => handleApplyAvailableCoupon(entry.code)}
-                                                    disabled={!eligibility.isEligible}
-                                                    className={`relative text-left rounded-xl transition-all ${appliedCoupon?.code === entry.code ? 'ring-2 ring-emerald-100' : ''} ${!eligibility.isEligible ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                                    disabled={isGuestCouponLoginRequired || !eligibility.isEligible}
+                                                    className={`relative text-left rounded-xl transition-all ${appliedCoupon?.code === entry.code ? 'ring-2 ring-emerald-100' : ''} ${isGuestCouponLoginRequired || !eligibility.isEligible ? 'opacity-60 cursor-not-allowed' : ''}`}
                                                 >
                                                     <div className={`rounded-xl border overflow-hidden grid grid-cols-[1fr_156px] h-[116px] ${appliedCoupon?.code === entry.code ? 'border-emerald-300' : 'border-gray-200 hover:border-primary/30'}`}>
                                                         <div className="bg-primary px-4 py-3 flex flex-col justify-center">
@@ -1668,7 +2032,11 @@ export default function Checkout() {
                                                             )}
                                                         </div>
                                                     </div>
-                                                    {!eligibility.isEligible && (
+                                                    {isGuestCouponLoginRequired ? (
+                                                        <span className="absolute top-2 right-2 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 shadow-sm">
+                                                            Locked • Login via OTP
+                                                        </span>
+                                                    ) : !eligibility.isEligible && (
                                                         <span className="absolute top-2 right-2 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 shadow-sm">
                                                             Locked • Requires ₹{eligibility.shortfall.toLocaleString('en-IN')} more
                                                         </span>
@@ -1678,11 +2046,11 @@ export default function Checkout() {
                                                 </button>
                                             );
                                             })}
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
                             </div>
-                        </div>
 
                         <div className="flex flex-col gap-6 h-full">
                             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
@@ -1703,14 +2071,8 @@ export default function Checkout() {
                                             const mrp = Number(item.compareAt || 0);
                                             const hasDiscount = mrp > price;
                                             const discountPct = hasDiscount ? Math.round(((mrp - price) / mrp) * 100) : 0;
-                                            const taxKey = `${String(item.productId || item.product_id || '')}::${String(item.variantId || item.variant_id || '')}`;
-                                            const itemTax = taxByItemKey.get(taxKey) || null;
-                                            const displayUnitPrice = taxPriceMode === 'inclusive' && itemTax
-                                                ? Number(itemTax.unitPriceBase || price)
-                                                : price;
-                                            const displayLineTotal = taxPriceMode === 'inclusive' && itemTax
-                                                ? Number(itemTax.lineTotalBase || item.lineTotal || 0)
-                                                : Number(item.lineTotal || 0);
+                                            const displayUnitPrice = Number(price || 0);
+                                            const displayLineTotal = Number(item.lineTotal || 0);
                                             const lowStockCopy = item.isLowStock
                                                 ? `Only ${Number(item.availableQuantity || 0)} left. Complete payment soon.`
                                                 : '';
@@ -1773,14 +2135,14 @@ export default function Checkout() {
                                     )}
                                     <div className="flex items-center justify-between text-gray-500">
                                         <span>Subtotal</span>
-                                        <span className="font-semibold text-gray-800">₹{Number(displayPricing?.displaySubtotalBase ?? subtotal).toLocaleString()}</span>
+                                        <span className="font-semibold text-gray-800">₹{summarySubtotalDisplay.toLocaleString()}</span>
                                     </div>
                                     <div className="flex items-center justify-between text-gray-500">
                                         <span>Shipping</span>
                                         {isShippingUnavailable ? (
                                             <span className="font-semibold text-amber-700">Unavailable for this state</span>
                                         ) : (
-                                            <span className="font-semibold text-gray-800">₹{Number(displayPricing?.displayShippingBase ?? shippingFee).toLocaleString()}</span>
+                                            <span className="font-semibold text-gray-800">₹{summaryShippingDisplay.toLocaleString()}</span>
                                         )}
                                     </div>
                                     {isShippingUnavailable && (
@@ -1789,7 +2151,7 @@ export default function Checkout() {
                                         </p>
                                     )}
                                     <div className="flex items-start justify-between text-gray-500">
-                                        <span>Base Price (Before Discounts)</span>
+                                        <span>{taxPriceMode === 'inclusive' ? 'Price Before Discounts (Incl. GST)' : 'Base Price (Before Discounts)'}</span>
                                         <span className="font-semibold text-gray-800">₹{basePriceBeforeDiscounts.toLocaleString()}</span>
                                     </div>
                                     {productMrpSavings > 0 && (
@@ -1828,7 +2190,7 @@ export default function Checkout() {
                                         </p>
                                     )}
                                     <div className="flex items-start justify-between text-gray-500">
-                                        <span>{taxPriceMode === 'inclusive' ? 'Value After Discounts' : 'Taxable Value After Discounts'}</span>
+                                        <span>{taxPriceMode === 'inclusive' ? 'Price After Discounts (Incl. GST)' : 'Taxable Value After Discounts'}</span>
                                         <span className="font-semibold text-gray-800">₹{summaryValueAfterDiscounts.toLocaleString()}</span>
                                     </div>
                                     {roundOffAmount !== 0 && (
@@ -1852,17 +2214,22 @@ export default function Checkout() {
                                 <button
                                     type="button"
                                     onClick={handlePayNow}
-                                    disabled={isPlacingOrder || !isReadyForPayment}
+                                    disabled={isPlacingOrder || !isReadyForPayment || isLoggedInEditingBeforePayment}
                                     className="mt-6 w-full inline-flex items-center justify-center gap-2 bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all disabled:opacity-60"
                                 >
                                     <CreditCard size={18} /> {isPlacingOrder ? 'Processing...' : 'Pay Now'}
                                 </button>
+                                {isLoggedInEditingBeforePayment && (
+                                    <p className="text-[11px] text-amber-700 text-center mt-2">
+                                        Save or cancel your profile edits before continuing to payment.
+                                    </p>
+                                )}
                                 {isMobileMissingOnProfile && !hasValidMobileForPayment && (
                                     <p className="text-[11px] text-amber-700 text-center mt-2">
                                         Mobile number is required to continue payment.
                                     </p>
                                 )}
-                                {!isAddressReadyForPayment && (
+                                {!showGuestLockedPrefill && !isAddressReadyForPayment && (
                                     <p className="text-[11px] text-amber-700 text-center mt-2">
                                         Complete {billingAddressEnabled ? 'shipping and billing address' : 'shipping address'} to continue payment.
                                     </p>
@@ -1977,9 +2344,6 @@ export default function Checkout() {
                                         ? orderResult.displayPricing
                                         : null;
                                 const taxValue = Number(orderResult.taxTotal || orderResult.tax_total || 0);
-                                const taxPriceModeValue = String(orderResult.taxPriceMode || orderResult.tax_price_mode || displayPricingValue?.taxPriceMode || orderResult.companySnapshot?.taxPriceMode || 'exclusive').trim().toLowerCase() === 'inclusive'
-                                    ? 'inclusive'
-                                    : 'exclusive';
                                 const roundOffValue = Number(orderResult.roundOffAmount || orderResult.round_off_amount || 0);
                                 const couponValue = Number(orderResult.coupon_discount_value || orderResult.couponDiscountValue || orderResult.couponDiscountTotal || 0);
                                 const loyaltyValue = Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0);
@@ -2019,7 +2383,7 @@ export default function Checkout() {
                                                         ?? item.item_snapshot?.lineTotal
                                                         ?? baseLineTotal
                                                     );
-                                                    const displayLineTotal = orderTaxPriceMode === 'inclusive' ? baseLineTotal : grossLineTotal;
+                                                    const displayLineTotal = grossLineTotal;
                                                     const imageUrl = getOrderResultItemImage(item);
                                                     return (
                                                         <div key={item.id || `${item.product_id || 'item'}-${item.variant_id || ''}-${idx}`} className="flex items-start justify-between gap-3">
@@ -2042,19 +2406,7 @@ export default function Checkout() {
                                                             <div className="text-right shrink-0">
                                                                 <p className="text-sm font-semibold text-gray-800">₹{displayLineTotal.toLocaleString()}</p>
                                                                 {orderTaxPriceMode === 'inclusive' && taxAmount > 0 && (
-                                                                    <p className="text-[11px] text-gray-400 mt-1">Gross incl. GST: ₹{grossLineTotal.toLocaleString()}</p>
-                                                                )}
-                                                                {taxAmount > 0 && (
-                                                                    <p className="text-[11px] text-gray-500 mt-1 max-w-[180px]">
-                                                                        {(() => {
-                                                                            const gst = getGstDisplayDetails({
-                                                                                taxAmount,
-                                                                                taxRatePercent: Number(item.tax_rate_percent || item.taxRatePercent || item.item_snapshot?.taxRatePercent || 0),
-                                                                                taxLabel: item.tax_code || item.taxCode || item.tax_name || item.taxName || item.item_snapshot?.taxCode || item.item_snapshot?.taxName || ''
-                                                                            });
-                                                                            return `${gst.title}: ${gst.totalAmountLabel} (${gst.splitAmountLabel})`;
-                                                                        })()}
-                                                                    </p>
+                                                                    <p className="text-[11px] text-gray-400 mt-1">Taxable value: ₹{baseLineTotal.toLocaleString()}</p>
                                                                 )}
                                                             </div>
                                                         </div>
@@ -2064,7 +2416,7 @@ export default function Checkout() {
                                         )}
                                         <div className="mt-4 pt-3 border-t border-gray-200 space-y-2">
                                             <div className="flex items-center justify-between text-sm">
-                                                <span className="text-gray-500">Subtotal</span>
+                                                <span className="text-gray-500">Subtotal (Before GST)</span>
                                                 <span className="font-semibold text-gray-800">₹{Number(displayPricingValue?.displaySubtotalBase ?? subtotalValue).toLocaleString()}</span>
                                             </div>
                                             <div className="flex items-center justify-between text-sm">
@@ -2072,7 +2424,7 @@ export default function Checkout() {
                                                 <span className="font-semibold text-gray-800">₹{Number(displayPricingValue?.displayShippingBase ?? shippingValue).toLocaleString()}</span>
                                             </div>
                                             <div className="flex items-center justify-between text-sm">
-                                                <span className="text-gray-500">Base Price (Before Discounts)</span>
+                                                <span className="text-gray-500">Price Before Discounts</span>
                                                 <span className="font-semibold text-gray-800">₹{Number(displayPricingValue?.displayBaseBeforeDiscounts ?? Math.max(0, subtotalValue + shippingValue)).toLocaleString()}</span>
                                             </div>
                                             {couponValue > 0 && (
@@ -2100,13 +2452,13 @@ export default function Checkout() {
                                                 </div>
                                             )}
                                             <div className="flex items-center justify-between text-sm">
-                                                <span className="text-gray-500">{taxPriceModeValue === 'inclusive' ? 'Value After Discounts' : 'Taxable Value After Discounts'}</span>
+                                                <span className="text-gray-500">Price After Discounts</span>
                                                 <span className="font-semibold text-gray-800">₹{Number(displayPricingValue?.displayValueAfterDiscountsBase ?? valueAfterDiscounts).toLocaleString()}</span>
                                             </div>
                                             {taxValue > 0 && (
                                                 <div className="flex items-start justify-between text-sm">
                                                     <span className="text-gray-500">
-                                                        {taxPriceModeValue === 'inclusive' ? 'GST Breakdown' : 'GST'}
+                                                        GST Breakdown
                                                         <span className="block text-[11px] text-gray-400">
                                                             {getGstDisplayDetails({ taxAmount: taxValue }).splitAmountLabel}
                                                         </span>
@@ -2121,7 +2473,7 @@ export default function Checkout() {
                                                 </div>
                                             )}
                                             <div className="flex items-center justify-between text-base font-semibold pt-1 text-gray-800">
-                                                <span>Total</span>
+                                                <span>Grand Total</span>
                                                 <span>₹{Number(orderResult.total || 0).toLocaleString()}</span>
                                             </div>
                                         </div>
@@ -2164,36 +2516,54 @@ export default function Checkout() {
             )}
             <CheckoutAccountVerificationModal
                 isOpen={isAccountVerificationOpen}
-                checkoutEmail={form.email}
                 checkoutMobile={form.mobile}
+                maskedProfile={guestLookup?.maskedProfile || null}
                 onClose={() => setIsAccountVerificationOpen(false)}
                 onSuccess={async (res, resolution = {}) => {
-                    const guestCheckoutItemsSnapshot = items.map((item) => ({
-                        productId: item.productId,
-                        variantId: item.variantId || '',
-                        quantity: Number(item.quantity || 0)
-                    }));
-                    checkoutAddressSnapshotRef.current = {
-                        address: { ...form.address },
-                        billingAddress: { ...(billingAddressEnabled ? form.billingAddress : form.address) }
+                    const resolvedUserShippingAddress = {
+                        ...emptyAddress,
+                        ...(res?.user?.address || {}),
+                        state: resolveAllowedStateName(availableStates, res?.user?.address?.state) || ''
                     };
-                    preserveCheckoutAddressOnLoginRef.current = true;
-                    skipNextLoginGuestMerge();
+                    const resolvedUserBillingAddress = {
+                        ...emptyAddress,
+                        ...(billingAddressEnabled ? (res?.user?.billingAddress || res?.user?.address || {}) : (res?.user?.address || {})),
+                        state: resolveAllowedStateName(
+                            availableStates,
+                            billingAddressEnabled ? (res?.user?.billingAddress?.state || res?.user?.address?.state) : res?.user?.address?.state
+                        ) || ''
+                    };
+                    const preservedShippingAddress = guestLockedAccount
+                        ? resolvedUserShippingAddress
+                        : (hasAddressFields(checkoutAddressSnapshotRef.current.address)
+                            ? { ...checkoutAddressSnapshotRef.current.address }
+                            : resolvedUserShippingAddress);
+                    const preservedBillingAddress = guestLockedAccount
+                        ? resolvedUserBillingAddress
+                        : (hasAddressFields(checkoutAddressSnapshotRef.current.billingAddress)
+                            ? { ...checkoutAddressSnapshotRef.current.billingAddress }
+                            : resolvedUserBillingAddress);
+                    checkoutAddressSnapshotRef.current = {
+                        address: preservedShippingAddress,
+                        billingAddress: preservedBillingAddress
+                    };
                     login(res.token, res.user);
                     setGuestCheckoutConflict('');
                     setIsAccountVerificationOpen(false);
                     setResumeCheckoutAfterVerification(false);
-                    setIsPreparingVerifiedCheckout(true);
-                    setPostOtpCheckoutSync({ guestItems: guestCheckoutItemsSnapshot });
                     setForm((prev) => ({
                         ...prev,
                         name: res?.user?.name || prev.name,
-                        email: resolution?.resolvedEmail || res?.user?.email || prev.email,
-                        mobile: resolution?.resolvedMobile || res?.user?.mobile || prev.mobile,
-                        address: { ...checkoutAddressSnapshotRef.current.address },
-                        billingAddress: { ...checkoutAddressSnapshotRef.current.billingAddress }
+                        email: res?.user?.email || resolution?.resolvedEmail || prev.email,
+                        mobile: res?.user?.mobile || resolution?.resolvedMobile || prev.mobile,
+                        address: preservedShippingAddress,
+                        billingAddress: preservedBillingAddress
                     }));
-                    toast.success('Account verified. Continuing to payment...');
+                    preserveCheckoutAddressOnLoginRef.current = false;
+                    setIsPreparingVerifiedCheckout(false);
+                    setPostOtpCheckoutSync(null);
+                    setEditing(true);
+                    toast.success('Account verified. You are now logged in.');
                 }}
             />
         </div>

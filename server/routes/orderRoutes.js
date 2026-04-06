@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { createOrderFromCheckout, createRazorpayOrder, createPublicRazorpayOrder, getCheckoutSummary, getPublicCheckoutSummary, startCheckoutAccountVerification, retryRazorpayPayment, verifyRazorpayPayment, getMyPaymentAttemptStatus, handleRazorpayWebhook, getAdminOrders, getAdminPaymentHealth, getAdminOrderById, getMyOrders, getMyOrderByPaymentRef, updateOrderStatus, fetchAdminPaymentStatus, fetchMyPaymentStatus, deleteAdminOrder, deleteAdminPaymentAttempt, reconcileAdminPaymentAttempt, convertAdminPaymentAttemptToOrder, createAdminManualOrder, getAdminManualCoupons, getAdminManualPreview, validateRecoveryCoupon, validatePublicRecoveryCoupon, getAvailableCoupons, getPublicAvailableCoupons, getCustomerPopupData, getPublicPopupData, downloadMyInvoicePdf, downloadAdminInvoicePdf, sendAdminInvoiceCommunication, getOverdueShippedSummary, confirmDeliveryBySignedLink, downloadInvoiceBySignedLink } = require('../controllers/orderController');
+const { createOrderFromCheckout, createRazorpayOrder, createPublicRazorpayOrder, lookupGuestCheckoutAccount, getCheckoutSummary, getPublicCheckoutSummary, retryRazorpayPayment, verifyRazorpayPayment, verifyPublicRazorpayPayment, getMyPaymentAttemptStatus, getPublicPaymentAttemptStatus, handleRazorpayWebhook, getAdminOrders, getAdminPaymentHealth, getAdminOrderById, getMyOrders, getMyOrderByPaymentRef, updateOrderStatus, fetchAdminPaymentStatus, fetchMyPaymentStatus, deleteAdminOrder, deleteAdminPaymentAttempt, reconcileAdminPaymentAttempt, convertAdminPaymentAttemptToOrder, createAdminManualOrder, getAdminManualCoupons, getAdminManualPreview, validateRecoveryCoupon, validatePublicRecoveryCoupon, getAvailableCoupons, getPublicAvailableCoupons, getCustomerPopupData, getPublicPopupData, downloadMyInvoicePdf, downloadAdminInvoicePdf, sendAdminInvoiceCommunication, getOverdueShippedSummary, confirmDeliveryBySignedLink, downloadInvoiceBySignedLink } = require('../controllers/orderController');
 
 router.post('/checkout', protect, createOrderFromCheckout);
 router.post('/razorpay/order/public', createPublicRazorpayOrder);
-router.post('/checkout/account-verification/start', startCheckoutAccountVerification);
+router.post('/checkout/account-lookup', lookupGuestCheckoutAccount);
 router.post('/razorpay/order', protect, createRazorpayOrder);
 router.post('/summary/public', getPublicCheckoutSummary);
 router.post('/summary', protect, getCheckoutSummary);
@@ -18,7 +18,9 @@ router.get('/coupons/popup', protect, getCustomerPopupData);
 router.get('/coupons/popup/public', getPublicPopupData);
 router.post('/razorpay/retry', protect, retryRazorpayPayment);
 router.post('/razorpay/verify', protect, verifyRazorpayPayment);
+router.post('/razorpay/verify/public', verifyPublicRazorpayPayment);
 router.get('/razorpay/attempt/:id', protect, getMyPaymentAttemptStatus);
+router.get('/razorpay/attempt/public/:id', getPublicPaymentAttemptStatus);
 router.post('/razorpay/webhook', handleRazorpayWebhook);
 router.get('/delivery/confirm', confirmDeliveryBySignedLink);
 router.get('/invoice/share', downloadInvoiceBySignedLink);

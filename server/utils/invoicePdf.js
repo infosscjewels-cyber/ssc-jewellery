@@ -35,6 +35,10 @@ const inr = (value) => `INR ${toNumber(value).toLocaleString('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
 })}`;
+const inrRate = (value) => `INR ${toNumber(value).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 3
+})}`;
 
 const roundToTwo = (value) => Math.round(toNumber(value, 0) * 100) / 100;
 const roundCurrency = (value) => roundToTwo(value);
@@ -58,15 +62,18 @@ const getGstAmountSplit = (totalTaxAmount = 0) => {
 const buildDiscountCellParts = (item = {}) => {
     const totalDiscount = Math.max(
         0,
-        toNumber(item.discount, 0) + toNumber(item.couponDiscount, 0) + toNumber(item.memberDiscount, 0) + toNumber(item.shippingBenefitShare, 0)
+        toNumber(item.displayProductDiscount ?? item.discount, 0)
+        + toNumber(item.displayCouponDiscount ?? item.couponDiscount, 0)
+        + toNumber(item.displayMemberDiscount ?? item.memberDiscount, 0)
+        + toNumber(item.displayShippingBenefitShare ?? item.shippingBenefitShare, 0)
     );
     const breakdown = [
-        `Product: ${inr(item.discount)}`,
-        `Coupon: ${inr(item.couponDiscount)}`,
-        `Member: ${inr(item.memberDiscount)}`
+        `Product: ${inr(item.displayProductDiscount ?? item.discount)}`,
+        `Coupon: ${inr(item.displayCouponDiscount ?? item.couponDiscount)}`,
+        `Member: ${inr(item.displayMemberDiscount ?? item.memberDiscount)}`
     ];
-    if (toNumber(item.shippingBenefitShare, 0) > 0) {
-        breakdown.push(`Shipping Benefit: ${inr(item.shippingBenefitShare)}`);
+    if (toNumber(item.displayShippingBenefitShare ?? item.shippingBenefitShare, 0) > 0) {
+        breakdown.push(`Shipping Benefit: ${inr(item.displayShippingBenefitShare ?? item.shippingBenefitShare)}`);
     }
     return {
         total: inr(totalDiscount),
@@ -293,6 +300,7 @@ const getItems = (order = {}) => {
             unitPricePaid: unitPriceBase,
             discount: Math.max(0, (mrpUnitBase - unitPriceBase) * qty),
             lineTotal: lineTotalBase,
+            lineTotalBase,
             lineTotalGross: finalLineTotalGross,
             taxAmount,
             taxRatePercent: resolvedTaxRatePercent,
@@ -334,15 +342,24 @@ const getItems = (order = {}) => {
         const taxableValue = taxPriceMode === 'inclusive'
             ? Math.max(0, toNumber(item.discountedLineBase, discountedGross - toNumber(item.taxAmount, 0)))
             : Math.max(0, discountedGross);
-
         return {
             ...item,
             couponDiscount: couponShare,
             memberDiscount: memberShare,
+            displayProductDiscount: toNumber(item.discount, 0),
+            displayCouponDiscount: couponShare,
+            displayMemberDiscount: memberShare,
+            displayShippingBenefitShare: 0,
             shippingShare: 0,
             shippingBenefitShare: 0,
             netShippingShare: 0,
             taxableValue,
+            displayRate: taxPriceMode === 'inclusive'
+                ? Math.max(0, roundCurrency(lineGross / Math.max(1, toNumber(item.qty, 0))))
+                : Math.max(0, roundCurrency(toNumber(item.lineTotalBase, lineGross) / Math.max(1, toNumber(item.qty, 0)))),
+            displayAmount: taxPriceMode === 'inclusive'
+                ? lineGross
+                : Math.max(0, toNumber(item.lineTotalBase, lineGross)),
             lineTotal: taxableValue,
             lineTotalInclTax: taxPriceMode === 'inclusive'
                 ? discountedGross
@@ -376,10 +393,16 @@ const buildShippingRow = (order = {}, items = []) => {
         discount: 0,
         couponDiscount: 0,
         memberDiscount: 0,
+        displayProductDiscount: 0,
+        displayCouponDiscount: 0,
+        displayMemberDiscount: 0,
         shippingShare: shippingFeeGross,
         shippingBenefitShare,
+        displayShippingBenefitShare: shippingBenefitShare,
         netShippingShare: taxableValue,
         taxableValue,
+        displayRate: taxPriceMode === 'inclusive' ? shippingFeeGross : shippingFeeBase,
+        displayAmount: taxPriceMode === 'inclusive' ? shippingFeeGross : shippingFeeBase,
         taxAmount: shippingTaxAmount,
         taxRatePercent: 0,
         lineTotal: taxableValue,
@@ -425,26 +448,28 @@ const drawTableHeader = (doc, y, { showTaxColumns = false, taxPriceMode = 'exclu
     const left = 42;
     const tableWidth = 510;
     const headerHeight = showTaxColumns ? 30 : 22;
-    const priceLabel = showTaxColumns && String(taxPriceMode || '').toLowerCase() === 'inclusive'
-        ? 'Taxable Value'
-        : 'Unit Price (MRP)';
+    const gstLabel = showTaxColumns && String(taxPriceMode || '').toLowerCase() === 'inclusive'
+        ? 'Incl. GST'
+        : 'GST';
     const cols = showTaxColumns
         ? {
             idx: { x: 46, width: 14, label: '#', align: 'left' },
-            name: { x: 62, width: 136, label: 'Item', align: 'left' },
-            price: { x: 200, width: 74, label: priceLabel, align: 'right' },
-            qty: { x: 276, width: 24, label: 'Qty', align: 'right' },
-            discount: { x: 302, width: 106, label: 'Discount', align: 'right' },
-            gstAmount: { x: 410, width: 78, label: 'GST', align: 'right' },
-            total: { x: 490, width: 58, label: 'Line Total', align: 'right' }
+            name: { x: 62, width: 126, label: 'Item', align: 'left' },
+            rate: { x: 190, width: 54, label: 'Rate', align: 'right' },
+            qty: { x: 246, width: 24, label: 'Qty', align: 'right' },
+            amount: { x: 272, width: 70, label: 'Amount', align: 'right' },
+            discount: { x: 344, width: 92, label: 'Discount', align: 'right' },
+            gstAmount: { x: 438, width: 54, label: gstLabel, align: 'right' },
+            total: { x: 494, width: 54, label: 'Line Total', align: 'right' }
         }
         : {
             idx: { x: 46, width: 18, label: '#', align: 'left' },
-            name: { x: 66, width: 224, label: 'Item', align: 'left' },
-            price: { x: 292, width: 82, label: priceLabel, align: 'right' },
-            qty: { x: 376, width: 32, label: 'Qty', align: 'right' },
-            discount: { x: 410, width: 72, label: 'Discount', align: 'right' },
-            total: { x: 484, width: 66, label: 'Line Total', align: 'right' }
+            name: { x: 66, width: 184, label: 'Item', align: 'left' },
+            rate: { x: 252, width: 62, label: 'Rate', align: 'right' },
+            qty: { x: 316, width: 30, label: 'Qty', align: 'right' },
+            amount: { x: 348, width: 74, label: 'Amount', align: 'right' },
+            discount: { x: 424, width: 62, label: 'Discount', align: 'right' },
+            total: { x: 488, width: 60, label: 'Line Total', align: 'right' }
         };
 
     doc.rect(left, y, tableWidth, headerHeight).fill('#F9FAFB');
@@ -468,13 +493,13 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
 
     const tableTotals = {
         qty: 0,
-        unitPriceMrp: 0,
+        amount: 0,
         productDiscount: 0,
         couponDiscount: 0,
         memberDiscount: 0,
         shippingBenefitShare: 0,
         gstAmount: 0,
-        lineTotal: 0,
+        lineTotalBase: 0,
         lineTotalInclTax: 0
     };
 
@@ -511,8 +536,11 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
             lineY += textHeight(doc, lineText, table.cols.name.width, 9, fonts) + 1;
         });
 
-        doc.text(inr(item.unitPriceMrp), table.cols.price.x, y + 6, { width: table.cols.price.width, align: 'right' });
+        const displayedRate = toNumber(item.displayRate, 0);
+        const displayedAmount = toNumber(item.displayAmount, 0);
+        doc.text(inrRate(displayedRate), table.cols.rate.x, y + 6, { width: table.cols.rate.width, align: 'right' });
         doc.font('Helvetica').fontSize(9).fillColor('#111827').text(String(item.qty), table.cols.qty.x, y + 6, { width: table.cols.qty.width, align: 'right' });
+        doc.text(inr(displayedAmount), table.cols.amount.x, y + 6, { width: table.cols.amount.width, align: 'right' });
         if (showTaxColumns) {
             drawBreakdownCell(doc, table.cols.discount.x, y + 5, table.cols.discount.width, discountParts, 'right', {}, fonts);
             drawBreakdownCell(doc, table.cols.gstAmount.x, y + 5, table.cols.gstAmount.width, gstParts, 'right', {}, fonts);
@@ -524,13 +552,13 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
         }
 
         tableTotals.qty += toNumber(item.qty, 0);
-        tableTotals.unitPriceMrp += toNumber(item.unitPriceMrp, 0) * toNumber(item.qty, 0);
+        tableTotals.amount += toNumber(item.displayAmount, 0);
         tableTotals.productDiscount += toNumber(item.discount, 0);
         tableTotals.couponDiscount += toNumber(item.couponDiscount, 0);
         tableTotals.memberDiscount += toNumber(item.memberDiscount, 0);
         tableTotals.shippingBenefitShare += toNumber(item.shippingBenefitShare, 0);
         tableTotals.gstAmount += toNumber(item.taxAmount, 0);
-        tableTotals.lineTotal += toNumber(item.lineTotal, 0);
+        tableTotals.lineTotalBase += toNumber(item.lineTotal, 0);
         tableTotals.lineTotalInclTax += toNumber(item.lineTotalInclTax, 0);
         y += rowHeight;
     });
@@ -559,8 +587,9 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
     doc.rect(table.left, y, table.tableWidth, totalsRowHeight).fill('#F9FAFB');
     doc.rect(table.left, y, table.tableWidth, totalsRowHeight).strokeColor('#D1D5DB').stroke();
     doc.font('Helvetica-Bold').fontSize(9).fillColor('#374151').text('Table Totals', table.cols.name.x, y + 7, { width: table.cols.name.width });
-    doc.text(inr(tableTotals.unitPriceMrp), table.cols.price.x, y + 7, { width: table.cols.price.width, align: 'right' });
+    doc.text('—', table.cols.rate.x, y + 7, { width: table.cols.rate.width, align: 'right' });
     doc.text(`${Math.round(tableTotals.qty)}`, table.cols.qty.x, y + 7, { width: table.cols.qty.width, align: 'right' });
+    doc.text(inr(roundCurrency(tableTotals.amount)), table.cols.amount.x, y + 7, { width: table.cols.amount.width, align: 'right' });
     if (showTaxColumns) {
         drawBreakdownCell(doc, table.cols.discount.x, y + 5, table.cols.discount.width, totalsDiscountParts, 'right', { bold: true }, fonts);
         drawBreakdownCell(doc, table.cols.gstAmount.x, y + 5, table.cols.gstAmount.width, totalsGstParts, 'right', { bold: true }, fonts);
@@ -568,7 +597,7 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
         doc.text(inr(tableTotals.lineTotalInclTax), table.cols.total.x, y + 7, { width: table.cols.total.width, align: 'right' });
     } else {
         doc.font('Helvetica-Bold').fontSize(9).fillColor('#374151').text(inr(tableTotals.productDiscount), table.cols.discount.x, y + 5, { width: table.cols.discount.width, align: 'right' });
-        doc.text(inr(tableTotals.lineTotal), table.cols.total.x, y + 7, { width: table.cols.total.width, align: 'right' });
+        doc.text(inr(tableTotals.lineTotalBase), table.cols.total.x, y + 7, { width: table.cols.total.width, align: 'right' });
     }
     y += totalsRowHeight;
 
@@ -625,15 +654,27 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     const shippingRow = buildShippingRow(order, items);
     const tableItems = shippingRow ? [...items, shippingRow] : items;
     const orderRef = order.order_ref || order.orderRef || `ORDER-${order.id || 'N/A'}`;
+    const taxPriceMode = resolveInvoiceTaxPriceMode(order);
 
-    const subtotal = toNumber(displayPricing.displaySubtotalBase, items.reduce((sum, item) => sum + toNumber(item.lineTotal, 0), 0));
-    const shippingFee = toNumber(displayPricing.displayShippingBase, shippingRow ? toNumber(shippingRow.lineTotal, 0) : toNumber(order.shipping_fee, 0));
+    const subtotal = taxPriceMode === 'inclusive'
+        ? toNumber(displayPricing.displaySubtotalGross, items.reduce((sum, item) => sum + toNumber(item.lineTotalGross, 0), 0))
+        : toNumber(displayPricing.displaySubtotalBase, items.reduce((sum, item) => sum + toNumber(item.lineTotal, 0), 0));
+    const subtotalBeforeTax = toNumber(
+        displayPricing.displaySubtotalBase,
+        items.reduce((sum, item) => sum + toNumber(item.lineTotalBase ?? item.lineTotal, 0), 0)
+    );
+    const shippingFee = taxPriceMode === 'inclusive'
+        ? toNumber(displayPricing.displayShippingGross, shippingRow ? toNumber(shippingRow.lineTotalGross, 0) : toNumber(order.shipping_fee, 0))
+        : toNumber(displayPricing.displayShippingBase, shippingRow ? toNumber(shippingRow.lineTotal, 0) : toNumber(order.shipping_fee, 0));
+    const shippingBeforeTax = toNumber(
+        displayPricing.displayShippingBase,
+        shippingRow ? toNumber(shippingRow.taxableValue ?? shippingRow.lineTotal, 0) : toNumber(order.shipping_fee, 0)
+    );
     const couponDiscount = toNumber(order.coupon_discount_value, 0);
     const loyaltyDiscount = toNumber(order.loyalty_discount_total, 0);
     const loyaltyShippingDiscount = toNumber(order.loyalty_shipping_discount_total, 0);
     const taxTotal = toNumber(order.tax_total, tableItems.reduce((sum, item) => sum + toNumber(item.taxAmount, 0), 0));
     const roundOffAmount = toNumber(order.round_off_amount, 0);
-    const taxPriceMode = resolveInvoiceTaxPriceMode(order);
     const showTaxTotals = taxTotal > 0;
     const showTaxColumns = toBoolean(companySnapshot.taxEnabled ?? companySnapshot.tax_enabled, false) || showTaxTotals;
     const totalDiscount = toNumber(order.discount_total, couponDiscount + loyaltyDiscount + loyaltyShippingDiscount);
@@ -732,15 +773,18 @@ const buildInvoicePdfBuffer = async (order = {}) => {
         return y + rowHeight + rowGap;
     };
 
-    const basePriceBeforeDiscounts = toNumber(displayPricing.displayBaseBeforeDiscounts, Math.max(0, subtotal + shippingFee));
+    const basePriceBeforeDiscounts = toNumber(
+        displayPricing.displayBaseBeforeDiscounts,
+        Math.max(0, subtotalBeforeTax + shippingBeforeTax)
+    );
     const taxableValueAfterDiscounts = toNumber(
         displayPricing.displayValueAfterDiscountsBase,
         Math.max(0, tableItems.reduce((sum, item) => sum + toNumber(item.taxableValue, item.lineTotal), 0))
     );
     let runningY = totalsY;
-    runningY = writeTotal('Subtotal', inr(subtotal), runningY);
-    runningY = writeTotal('Shipping', inr(shippingFee), runningY);
-    runningY = writeTotal('Base Price (Before Discounts)', inr(basePriceBeforeDiscounts), runningY);
+    runningY = writeTotal('Subtotal (Before GST)', inr(subtotalBeforeTax), runningY);
+    runningY = writeTotal('Shipping', inr(shippingBeforeTax), runningY);
+    runningY = writeTotal('Price Before Discounts', inr(basePriceBeforeDiscounts), runningY);
     runningY = writeTotal(
         `Coupon Discount${couponCode ? ` (${couponCode})` : ''}`,
         `- ${inr(couponDiscount)}`,
@@ -749,10 +793,10 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     runningY = writeTotal(`Member Discount (${tierTheme.label})`, `- ${inr(loyaltyDiscount)}`, runningY);
     runningY = writeTotal('Member Shipping Benefit', `- ${inr(loyaltyShippingDiscount)}`, runningY);
     runningY = writeTotal('Total Savings', inr(totalDiscount), runningY);
-    runningY = writeTotal(taxPriceMode === 'inclusive' ? 'Value After Discounts' : 'Taxable Value After Discounts', inr(taxableValueAfterDiscounts), runningY);
+    runningY = writeTotal('Price After Discounts', inr(taxableValueAfterDiscounts), runningY);
     if (showTaxTotals) {
         const taxSplit = getGstAmountSplit(taxTotal);
-        runningY = writeTotal(taxPriceMode === 'inclusive' ? 'GST Breakdown' : 'GST Total', inr(taxTotal), runningY, false, { rowGap: 3 });
+        runningY = writeTotal('GST Breakdown', inr(taxTotal), runningY, false, { rowGap: 3 });
         doc.font('Helvetica').fontSize(8).fillColor('#6B7280').text(taxSplit.label, totalsX, runningY, { width: 215, align: 'right' });
         runningY += doc.heightOfString(taxSplit.label, { width: 215, align: 'right' }) + 4;
     }
@@ -802,5 +846,7 @@ const buildInvoicePdfBuffer = async (order = {}) => {
 
 module.exports = { buildInvoicePdfBuffer };
 module.exports.__test = {
-    resolveInvoiceTaxPriceMode
+    resolveInvoiceTaxPriceMode,
+    getItems,
+    buildShippingRow
 };

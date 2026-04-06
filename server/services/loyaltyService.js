@@ -209,6 +209,9 @@ const buildProgress = ({ tier = 'regular', spend30 = 0, spend60 = 0, spend90 = 0
             nextTier: null,
             needed: 0,
             progressPct: 100,
+            currentSpend: toMoney(spend365),
+            threshold: toMoney(getActiveLoyaltyConfig()?.[tier]?.threshold || 0),
+            windowDays: Number(getActiveLoyaltyConfig()?.[tier]?.windowDays || 365),
             message: 'You are at the highest tier.'
         };
     }
@@ -227,6 +230,9 @@ const buildProgress = ({ tier = 'regular', spend30 = 0, spend60 = 0, spend90 = 0
         nextTier,
         needed,
         progressPct,
+        currentSpend: toMoney(baseSpend),
+        threshold: toMoney(nextCfg.threshold),
+        windowDays: Number(nextCfg.windowDays || 30),
         message: needed > 0
             ? `Spend INR ${needed.toLocaleString('en-IN')} more to unlock ${nextCfg.label}.`
             : `You have unlocked ${nextCfg.label}.`
@@ -339,13 +345,8 @@ const getUserLoyaltyStatus = async (userId) => {
         };
     }
     const spends = await getUserSpendWindows(userId);
-    const [storedRows] = await db.execute(
-        'SELECT tier FROM user_loyalty WHERE user_id = ? LIMIT 1',
-        [userId]
-    );
-    const storedTier = String(storedRows[0]?.tier || '').toLowerCase();
     const computedTier = computeTierFromSpends(spends);
-    const tier = TIER_ORDER.includes(storedTier) ? storedTier : computedTier;
+    const tier = computedTier;
     const user = await User.findById(userId);
     const eligibility = evaluateProfileCompletion(user || {});
     const effectiveTier = eligibility.isEligible ? tier : 'regular';
@@ -358,7 +359,7 @@ const getUserLoyaltyStatus = async (userId) => {
     });
     return {
         tier,
-        profile: getLoyaltyProfileByTier(effectiveTier),
+        profile: getLoyaltyProfileByTier(tier),
         effectiveTier,
         effectiveProfile: getLoyaltyProfileByTier(effectiveTier),
         earnedTier: tier,

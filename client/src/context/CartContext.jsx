@@ -161,7 +161,7 @@ const upsertLocalCartItem = (prev, snapshot, quantityDelta = 1, toast = null) =>
 };
 
 export const CartProvider = ({ children }) => {
-    const { user, updateUser } = useAuth();
+    const { user, updateUser, login, logout } = useAuth();
     const { socket } = useSocket();
     const toast = useToast();
     const { removeFromWishlist } = useWishlist();
@@ -179,6 +179,8 @@ export const CartProvider = ({ children }) => {
     });
     const [pendingAddIntent, setPendingAddIntent] = useState(null);
     const skipNextLoginGuestMergeRef = useRef(false);
+    const suppressGuestCartPersistRef = useRef(false);
+    const pendingPostSwitchAddIntentRef = useRef(null);
 
     const hydrateFromServer = useCallback(async (mergeGuest = false) => {
         if (!user) return;
@@ -204,6 +206,7 @@ export const CartProvider = ({ children }) => {
         if (user) {
             const shouldMergeGuest = !skipNextLoginGuestMergeRef.current;
             skipNextLoginGuestMergeRef.current = false;
+            suppressGuestCartPersistRef.current = false;
             hydrateFromServer(shouldMergeGuest);
         } else {
             setItems(loadGuestCart());
@@ -212,6 +215,7 @@ export const CartProvider = ({ children }) => {
 
     useEffect(() => {
         if (!user) {
+            if (suppressGuestCartPersistRef.current) return;
             saveGuestCart(items);
         }
     }, [items, user]);
@@ -249,6 +253,15 @@ export const CartProvider = ({ children }) => {
         }
         return { status: 'added' };
     }, [removeFromWishlist, toast, user, items]);
+
+    useEffect(() => {
+        if (!user || isSyncing || !pendingPostSwitchAddIntentRef.current) return;
+        const intent = pendingPostSwitchAddIntentRef.current;
+        pendingPostSwitchAddIntentRef.current = null;
+        void executeAddItem(intent).catch((error) => {
+            toast.error(error?.message || 'Failed to add item to cart');
+        });
+    }, [executeAddItem, isSyncing, toast, user]);
 
     const addItem = useCallback(async ({ product, variant, quantity = 1 }) => {
         if (!product) return { status: 'blocked' };
@@ -376,6 +389,17 @@ export const CartProvider = ({ children }) => {
         setPendingAddIntent(null);
     }, [phoneCaptureState.isSaving]);
 
+    const handlePhoneCaptureChange = useCallback((mobile = '') => {
+        setPhoneCaptureState((prev) => {
+            if (prev.mobile === mobile && !prev.error) return prev;
+            return {
+                ...prev,
+                mobile,
+                error: ''
+            };
+        });
+    }, []);
+
     const handlePhoneCaptureSubmit = useCallback(async (mobile) => {
         const activeIntent = pendingAddIntent;
         if (!activeIntent) {
@@ -422,6 +446,35 @@ export const CartProvider = ({ children }) => {
             }));
         }
     }, [executeAddItem, pendingAddIntent, toast, updateUser, user?.mobile]);
+
+    const handlePhoneCaptureSwitchAccount = useCallback(async (res, mobile) => {
+        const activeIntent = pendingAddIntent;
+        if (!res?.token || !res?.user) {
+            throw new Error(res?.message || 'OTP login failed');
+        }
+
+        pendingPostSwitchAddIntentRef.current = activeIntent || null;
+        setPendingAddIntent(null);
+        setPhoneCaptureState({
+            modalKey: Date.now(),
+            isOpen: false,
+            mobile: '',
+            error: '',
+            isSaving: false
+        });
+
+        suppressGuestCartPersistRef.current = true;
+        skipNextLoginGuestMergeRef.current = true;
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+        } catch {
+            // ignore
+        }
+
+        await logout();
+        login(res.token, res.user);
+        toast.success(`Switched to the account linked with ${mobile}.`);
+    }, [login, logout, pendingAddIntent, toast]);
 
     const isAdminRoute = location.pathname.startsWith('/admin');
     const isStaffUser = user && (user.role === 'admin' || user.role === 'staff');
@@ -634,15 +687,17 @@ export const CartProvider = ({ children }) => {
                 onClose={closeQuickAdd}
                 onConfirm={handleQuickAddConfirm}
             />
-            <PhoneCaptureModal
-                key={phoneCaptureState.modalKey}
-                isOpen={phoneCaptureState.isOpen}
-                initialValue={phoneCaptureState.mobile}
-                isSaving={phoneCaptureState.isSaving}
-                error={phoneCaptureState.error}
-                onClose={closePhoneCapture}
-                onSubmit={handlePhoneCaptureSubmit}
-            />
+                <PhoneCaptureModal
+                    key={phoneCaptureState.modalKey}
+                    isOpen={phoneCaptureState.isOpen}
+                    initialValue={phoneCaptureState.mobile}
+                    isSaving={phoneCaptureState.isSaving}
+                    error={phoneCaptureState.error}
+                    onClose={closePhoneCapture}
+                    onChange={handlePhoneCaptureChange}
+                    onSwitchAccount={handlePhoneCaptureSwitchAccount}
+                    onSubmit={handlePhoneCaptureSubmit}
+                />
         </CartContext.Provider>
     );
 };

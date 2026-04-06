@@ -1,4 +1,4 @@
-export const TIER_ORDER = ['regular', 'silver', 'gold', 'platinum'];
+export const TIER_ORDER = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
 
 export const normalizeTierKey = (value = 'regular') => {
     const key = String(value || 'regular').trim().toLowerCase();
@@ -30,6 +30,7 @@ export const getMembershipLabel = (tierOrLabel = 'regular') => `${formatTierLabe
 export const getTierSpendKey = (tier = 'regular') => {
     const key = normalizeTierKey(tier);
     if (key === 'regular') return 'spend30';
+    if (key === 'bronze') return 'spend60';
     if (key === 'silver') return 'spend90';
     return 'spend365';
 };

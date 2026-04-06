@@ -12,6 +12,7 @@ router.post('/reset-password', authController.resetPassword);
 router.post('/social-login', authController.socialLogin);
 router.get('/profile', protect, authController.getProfile);
 router.get('/loyalty-status', protect, authController.getLoyaltyStatus);
+router.post('/profile/validate-mobile', protect, authController.validateProfileMobile);
 router.put('/profile', protect, authController.updateProfile);
 router.post('/push-subscriptions', protect, authController.registerPushSubscription);
 router.delete('/push-subscriptions', protect, authController.deletePushSubscription);

@@ -179,3 +179,52 @@ test('client popup key rotates when popup content changes', async () => {
         assert.notEqual(popupA.key, popupB.key);
     });
 });
+
+test('loyalty status uses admin-rule computed tier instead of stale stored tier', async () => {
+    await withPatched(db, {
+        execute: async (query) => {
+            const sql = String(query);
+            if (sql.includes('FROM loyalty_tier_config')) {
+                return [[
+                    { tier: 'regular', label: 'Regular', threshold: 0, window_days: 0, extra_discount_pct: 0, shipping_discount_pct: 0, birthday_discount_pct: 10, abandoned_cart_boost_pct: 0, priority_weight: 0, shipping_priority: 'standard', benefits_json: '[]', color: '#999999' },
+                    { tier: 'bronze', label: 'Bronze', threshold: 1000, window_days: 30, extra_discount_pct: 2, shipping_discount_pct: 0, birthday_discount_pct: 10, abandoned_cart_boost_pct: 0, priority_weight: 1, shipping_priority: 'standard', benefits_json: '[]', color: '#a97142' },
+                    { tier: 'silver', label: 'Silver', threshold: 2000, window_days: 60, extra_discount_pct: 4, shipping_discount_pct: 5, birthday_discount_pct: 10, abandoned_cart_boost_pct: 0, priority_weight: 2, shipping_priority: 'priority', benefits_json: '[]', color: '#c0c0c0' },
+                    { tier: 'gold', label: 'Gold', threshold: 4000, window_days: 90, extra_discount_pct: 6, shipping_discount_pct: 10, birthday_discount_pct: 10, abandoned_cart_boost_pct: 0, priority_weight: 3, shipping_priority: 'express', benefits_json: '[]', color: '#d4af37' },
+                    { tier: 'platinum', label: 'Platinum', threshold: 10000, window_days: 365, extra_discount_pct: 8, shipping_discount_pct: 15, birthday_discount_pct: 10, abandoned_cart_boost_pct: 0, priority_weight: 4, shipping_priority: 'express', benefits_json: '[]', color: '#e5e4e2' }
+                ]];
+            }
+            if (sql.includes('FROM orders')) {
+                return [[{
+                    spend30: 1500,
+                    spend60: 2500,
+                    spend90: 2500,
+                    spend365: 2500
+                }]];
+            }
+            if (sql.includes('FROM user_loyalty')) {
+                return [[{ tier: 'regular' }]];
+            }
+            return [[]];
+        }
+    }, async () => {
+        await withPatched(User, {
+            findById: async () => ({
+                id: 'cust_1',
+                name: 'Customer One',
+                email: 'customer@example.com',
+                mobile: '9876543210',
+                dob: '1990-01-01',
+                profileImage: 'profile.jpg',
+                address: { line1: '1 Test Street', city: 'Chennai', state: 'Tamil Nadu', zip: '600001' },
+                billingAddress: { line1: '1 Test Street', city: 'Chennai', state: 'Tamil Nadu', zip: '600001' }
+            })
+        }, async () => {
+            await loyaltyService.ensureLoyaltyConfigLoaded({ force: true });
+            const status = await loyaltyService.getUserLoyaltyStatus('cust_1');
+            assert.equal(status.tier, 'silver');
+            assert.equal(status.earnedTier, 'silver');
+            assert.equal(status.effectiveTier, 'silver');
+            assert.equal(String(status.profile?.label || '').toLowerCase(), 'silver');
+        });
+    });
+});

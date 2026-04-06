@@ -188,6 +188,17 @@ class User {
         return User.normalizeRow(rows[0]);
     }
 
+    static async findAllByMobile(mobile) {
+        const [rows] = await db.execute(
+            `SELECT u.*, COALESCE(ul.tier, 'regular') as loyalty_tier
+             FROM users u
+             LEFT JOIN user_loyalty ul ON ul.user_id = u.id
+             WHERE u.mobile = ?`,
+            [mobile]
+        );
+        return rows.map(User.normalizeRow);
+    }
+
     static async findById(id) {
         const [rows] = await db.execute(
             `SELECT u.*, COALESCE(ul.tier, 'regular') as loyalty_tier,

@@ -174,6 +174,37 @@ test('deleteUser deactivates customers instead of removing the row', async () =>
     assert.equal(res.body.user.isActive, false);
 });
 
+test('deleteUser permanently removes customers when delete mode is requested', async () => {
+    const io = createMockIo();
+    const req = {
+        params: { id: 'cust_1' },
+        body: { mode: 'delete' },
+        user: { id: 'admin_1', role: 'admin' },
+        app: { get: () => io }
+    };
+    const res = createMockRes();
+    let deleteCalled = false;
+    let deactivateCalled = false;
+
+    await withPatched(User, {
+        findById: async () => ({ id: 'cust_1', role: 'customer', isActive: true }),
+        setActiveStatus: async () => {
+            deactivateCalled = true;
+        },
+        delete: async () => {
+            deleteCalled = true;
+        }
+    }, async () => {
+        await adminController.deleteUser(req, res);
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(deleteCalled, true);
+    assert.equal(deactivateCalled, false);
+    assert.equal(res.body.message, 'User removed');
+    assert.deepEqual(io.emitted.map((entry) => entry.scope), ['to:admin', 'to:user:cust_1']);
+});
+
 test('setUserStatus reactivates inactive customers', async () => {
     const io = createMockIo();
     const req = {

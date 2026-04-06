@@ -1659,6 +1659,7 @@ const createUser = async (req, res) => {
 const deleteUser = async (req, res) => {
     try {
         const userToDelete = await User.findById(req.params.id);
+        const requestedMode = String(req.body?.mode || req.query?.mode || '').trim().toLowerCase();
         
         if (!userToDelete) return res.status(404).json({ message: 'User not found' });
 
@@ -1672,7 +1673,7 @@ const deleteUser = async (req, res) => {
             return res.status(403).json({ message: 'Access Denied: Staff can only delete customers.' });
         }
 
-        if (String(userToDelete.role || '').toLowerCase() === 'customer') {
+        if (String(userToDelete.role || '').toLowerCase() === 'customer' && requestedMode !== 'delete') {
             const updatedUser = await User.setActiveStatus(req.params.id, {
                 isActive: false,
                 reason: 'Deactivated by admin'

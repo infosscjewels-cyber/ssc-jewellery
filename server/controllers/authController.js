@@ -64,6 +64,13 @@ const normalizeOtpPurpose = (value = '') => {
     return 'general';
 };
 
+const normalizeOtpChannel = (value = '') => {
+    const channel = String(value || '').trim().toLowerCase();
+    if (['mobile', 'phone', 'whatsapp'].includes(channel)) return 'mobile';
+    if (channel === 'email') return 'email';
+    return 'auto';
+};
+
 const resolveUserByIdentifier = async (identifier = '') => {
     const normalized = String(identifier || '').trim().toLowerCase();
     if (!normalized) return null;
@@ -252,6 +259,16 @@ const recordDeliveryAttempt = async (promiseFactory, channel, delivery) => {
     }
 };
 
+const applyUserLoyaltySnapshot = (user = {}, loyalty = null) => {
+    if (!user || !loyalty) return user;
+    user.loyaltyTier = String(loyalty?.effectiveTier || loyalty?.tier || 'regular').toLowerCase();
+    user.loyaltyProfile = loyalty?.effectiveProfile || loyalty?.profile || null;
+    user.loyaltyEligibility = loyalty?.eligibility || null;
+    user.earnedLoyaltyTier = String(loyalty?.tier || loyalty?.earnedTier || user.loyaltyTier || 'regular').toLowerCase();
+    user.earnedLoyaltyProfile = loyalty?.earnedProfile || loyalty?.profile || user.loyaltyProfile || null;
+    return user;
+};
+
 const dispatchWelcomeCommunication = (user = {}) => {
     const email = String(user?.email || '').trim().toLowerCase();
     const mobile = String(user?.mobile || '').trim();
@@ -324,6 +341,7 @@ exports.sendOtp = async (req, res) => {
         const mobile = normalizeMobile(sanitize(req.body.mobile));
         const identifier = sanitize(req.body.identifier).toLowerCase();
         const purpose = normalizeOtpPurpose(req.body.purpose);
+        const otpChannel = normalizeOtpChannel(req.body.otpChannel);
 
         let user = null;
         let otpIdentity = mobile;
@@ -344,16 +362,32 @@ exports.sendOtp = async (req, res) => {
 
             const hasEmail = Boolean(user.email && isEmail(user.email));
             const hasWhatsapp = /^[0-9]{10,12}$/.test(String(user.whatsapp || user.mobile || '').trim());
-            if (!hasEmail && !hasWhatsapp) {
+            if (otpChannel === 'mobile' && !hasWhatsapp) {
+                return res.status(400).json({
+                    message: 'OTP not sent. No active mobile delivery channel found for this account.',
+                    delivery: { purpose, attempted: [], sent: [], missing: ['whatsapp'], failed: [] }
+                });
+            }
+            if (otpChannel === 'email' && !hasEmail) {
+                return res.status(400).json({
+                    message: 'OTP not sent. No active email delivery channel found for this account.',
+                    delivery: { purpose, attempted: [], sent: [], missing: ['email'], failed: [] }
+                });
+            }
+            if (otpChannel === 'auto' && !hasEmail && !hasWhatsapp) {
                 return res.status(400).json({
                     message: 'OTP not sent. No active delivery channel found for this account.',
                     delivery: { purpose, attempted: [], sent: [], missing: ['email', 'whatsapp'], failed: [] }
                 });
             }
 
-            otpIdentity = hasEmail
-                ? String(user.email).trim().toLowerCase()
-                : String(user.whatsapp || user.mobile || '').trim();
+            otpIdentity = otpChannel === 'mobile'
+                ? String(user.whatsapp || user.mobile || '').trim()
+                : otpChannel === 'email'
+                    ? String(user.email).trim().toLowerCase()
+                    : (hasEmail
+                        ? String(user.email).trim().toLowerCase()
+                        : String(user.whatsapp || user.mobile || '').trim());
         } else if (!/^[0-9]{10,12}$/.test(mobile)) {
             return res.status(400).json({ message: "Invalid mobile number." });
         } else if (purpose !== 'login' && purpose !== 'password_reset' && isSuspiciousMobile(mobile)) {
@@ -394,7 +428,21 @@ exports.sendOtp = async (req, res) => {
                 delivery.missing.push('whatsapp');
             }
 
-            if (!canSendEmail && !isWhatsappMobileValid) {
+            if (otpChannel === 'mobile' && !isWhatsappMobileValid) {
+                return res.status(400).json({
+                    message: 'OTP not sent. No active mobile delivery channel found for this account.',
+                    delivery
+                });
+            }
+
+            if (otpChannel === 'email' && !canSendEmail) {
+                return res.status(400).json({
+                    message: 'OTP not sent. No active email delivery channel found for this account.',
+                    delivery
+                });
+            }
+
+            if (otpChannel === 'auto' && !canSendEmail && !isWhatsappMobileValid) {
                 return res.status(400).json({
                     message: 'OTP not sent. No active delivery channel found for this account.',
                     delivery
@@ -406,7 +454,7 @@ exports.sendOtp = async (req, res) => {
                 whatsapp: isWhatsappMobileValid ? maskMobile(whatsappMobile) : ''
             };
 
-            if (canSendEmail) {
+            if (canSendEmail && otpChannel !== 'mobile') {
                 const template = buildLoginOtpEmailTemplate({
                     user,
                     otp,
@@ -419,7 +467,7 @@ exports.sendOtp = async (req, res) => {
                     html: template.html
                 }), 'email', delivery);
             }
-            if (isWhatsappMobileValid) {
+            if (isWhatsappMobileValid && otpChannel !== 'email') {
                 await recordDeliveryAttempt(() => sendWhatsapp({
                     to: whatsappMobile,
                     message: `Your SSC Jewellery OTP is ${otp}. Valid for 5 minutes.`,
@@ -530,6 +578,7 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
     try {
         const { type, identifier, password, mobile, otp } = req.body;
+        const otpChannel = normalizeOtpChannel(req.body.otpChannel);
         
         // Sanitize inputs
         const safeIdentifier = sanitize(identifier);
@@ -558,7 +607,11 @@ exports.login = async (req, res) => {
 
             const emailIdentity = String(user.email || '').trim().toLowerCase();
             const mobileIdentity = String(user.whatsapp || user.mobile || '').trim();
-            const otpIdentity = emailIdentity && isEmail(emailIdentity) ? emailIdentity : mobileIdentity;
+            const otpIdentity = otpChannel === 'mobile'
+                ? mobileIdentity
+                : otpChannel === 'email'
+                    ? (emailIdentity && isEmail(emailIdentity) ? emailIdentity : '')
+                    : (emailIdentity && isEmail(emailIdentity) ? emailIdentity : mobileIdentity);
             if (!otpIdentity) {
                 return res.status(400).json({ message: 'No active email or mobile is registered for this account' });
             }
@@ -569,8 +622,7 @@ exports.login = async (req, res) => {
 
         try {
             const loyalty = await getUserLoyaltyStatus(user.id);
-            if (loyalty?.tier) user.loyaltyTier = String(loyalty.tier).toLowerCase();
-            if (loyalty?.profile) user.loyaltyProfile = loyalty.profile;
+            applyUserLoyaltySnapshot(user, loyalty);
         } catch {}
 
         const token = generateToken(user);
@@ -655,8 +707,7 @@ exports.getProfile = async (req, res) => {
         delete user.password;
         try {
             const loyalty = await getUserLoyaltyStatus(user.id);
-            user.loyaltyTier = loyalty.tier;
-            user.loyaltyProfile = loyalty.profile;
+            applyUserLoyaltySnapshot(user, loyalty);
         } catch {}
         await issueBirthdayCouponForUser(user.id, { sendEmail: true }).catch(() => {});
         res.json({ user: User.toSafePayload(user) });
@@ -672,6 +723,26 @@ exports.getLoyaltyStatus = async (req, res) => {
         return res.json({ status });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to fetch loyalty status' });
+    }
+};
+
+exports.validateProfileMobile = async (req, res) => {
+    try {
+        const userId = String(req.user?.id || '').trim();
+        const normalizedMobile = normalizeMobile(sanitize(req.body?.mobile));
+        if (!normalizedMobile || !/^\d{10}$/.test(normalizedMobile)) {
+            return res.status(400).json({ message: 'Mobile must be 10 digits', available: false });
+        }
+        if (isSuspiciousMobile(normalizedMobile)) {
+            return res.status(400).json({ message: 'Enter a valid mobile number', available: false });
+        }
+        const existingUser = await User.findByMobile(normalizedMobile);
+        if (existingUser && String(existingUser.id || '') !== userId) {
+            return res.status(400).json({ message: 'Mobile number already in use', available: false });
+        }
+        return res.json({ available: true, mobile: normalizedMobile });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Failed to validate mobile number', available: false });
     }
 };
 
@@ -799,6 +870,10 @@ exports.updateProfile = async (req, res) => {
         });
 
         const updatedUser = await User.findById(userId);
+        try {
+            const loyalty = await getUserLoyaltyStatus(userId);
+            applyUserLoyaltySnapshot(updatedUser, loyalty);
+        } catch {}
         const io = req.app.get('io');
         if (io) {
             emitToUserAudiences(io, updatedUser, 'user:update', User.toSafePayload(updatedUser));
@@ -909,6 +984,7 @@ exports.verifyOtpOnly = async (req, res) => {
     }
 };
 
+exports.dispatchWelcomeCommunication = dispatchWelcomeCommunication;
 exports.__test = {
     dispatchWelcomeCommunication
 };

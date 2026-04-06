@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { orderService } from '../services/orderService';
 import { useToast } from '../context/ToastContext';
 import { useCart } from '../context/CartContext';
+import { useAuth } from '../context/AuthContext';
 import successDing from '../assets/success_ding.mp3';
 import { burstConfetti, playCue } from '../utils/celebration';
 import CheckoutFlowHeader from '../components/CheckoutFlowHeader';
@@ -12,6 +13,7 @@ import { BRAND_LOGO_URL } from '../utils/branding.js';
 export default function PaymentSuccess() {
     const toast = useToast();
     const { clearCart } = useCart();
+    const { user } = useAuth();
     const [searchParams] = useSearchParams();
     const orderId = searchParams.get('orderId');
     const attemptId = searchParams.get('attemptId') || '';
@@ -54,13 +56,19 @@ export default function PaymentSuccess() {
                 if (attemptId) {
                     let resolved = null;
                     let finalMessage = '';
+                    const publicAttemptToken = !user ? orderService.getStoredPublicAttemptAccess(attemptId) : '';
                     const maxAttempts = 12;
                     for (let i = 0; i < maxAttempts; i += 1) {
                         if (!ignore) setPollState({ attempts: i + 1, exhausted: false });
-                        const payload = await orderService.getPaymentAttemptStatus(attemptId);
+                        const payload = (!user && publicAttemptToken)
+                            ? await orderService.getPublicPaymentAttemptStatus(attemptId, publicAttemptToken)
+                            : await orderService.getPaymentAttemptStatus(attemptId);
                         finalMessage = String(payload?.message || '').trim();
                         if (payload?.order) {
                             resolved = payload.order;
+                            if (publicAttemptToken) {
+                                orderService.clearStoredPublicAttemptAccess(attemptId);
+                            }
                             break;
                         }
                         if (payload?.failed) {
@@ -90,7 +98,7 @@ export default function PaymentSuccess() {
         };
         load();
         return () => { ignore = true; };
-    }, [attemptId, orderId, paymentRef, toast]);
+    }, [attemptId, orderId, paymentRef, toast, user]);
 
     const items = useMemo(() => Array.isArray(order?.items) ? order.items : [], [order?.items]);
     const isRecoveryOrder = Boolean(order?.is_abandoned_recovery || order?.isAbandonedRecovery);
@@ -196,25 +204,24 @@ export default function PaymentSuccess() {
                                         const shipping = Number(order.shipping_fee || 0);
                                         const displayPricing = order.display_pricing && typeof order.display_pricing === 'object' ? order.display_pricing : null;
                                         const tax = Number(order.tax_total || 0);
-                                        const taxPriceMode = String(order.tax_price_mode || order.taxPriceMode || displayPricing?.taxPriceMode || order.company_snapshot?.taxPriceMode || 'exclusive').trim().toLowerCase() === 'inclusive'
-                                            ? 'inclusive'
-                                            : 'exclusive';
                                         const roundOff = Number(order.round_off_amount || 0);
-                                        const taxableTotal = Math.max(0, subtotal + shipping - couponDiscount - memberDiscount - memberShippingBenefit);
-                                        const grossBeforeDiscounts = Math.max(0, subtotal + shipping);
+                                        const valueAfterDiscounts = Math.max(0, Number(displayPricing?.displayValueAfterDiscountsBase ?? (subtotal + shipping - couponDiscount - memberDiscount - memberShippingBenefit)));
+                                        const grossBeforeDiscounts = Math.max(0, Number(displayPricing?.displayBaseBeforeDiscounts ?? (subtotal + shipping)));
+                                        const subtotalDisplay = Number(displayPricing?.displaySubtotalBase ?? subtotal);
+                                        const shippingDisplay = Number(displayPricing?.displayShippingBase ?? shipping);
                                         return (
                                             <>
-                                                <p>Subtotal: ₹{Number(displayPricing?.displaySubtotalBase ?? subtotal).toLocaleString()}</p>
-                                                <p>Shipping: ₹{Number(displayPricing?.displayShippingBase ?? shipping).toLocaleString()}</p>
-                                                <p>Base Price (Before Discounts): ₹{Number(displayPricing?.displayBaseBeforeDiscounts ?? grossBeforeDiscounts).toLocaleString()}</p>
-                                                {couponDiscount > 0 && <p>Coupon{order.coupon_code ? ` (${order.coupon_code})` : ''}: -₹{couponDiscount.toLocaleString()}</p>}
+                                                <p>Subtotal (Before GST): ₹{subtotalDisplay.toLocaleString()}</p>
+                                                <p>Shipping: ₹{shippingDisplay.toLocaleString()}</p>
+                                                <p>Price Before Discounts: ₹{grossBeforeDiscounts.toLocaleString()}</p>
+                                                {couponDiscount > 0 && <p>Coupon Discount{order.coupon_code ? ` (${order.coupon_code})` : ''}: -₹{couponDiscount.toLocaleString()}</p>}
                                                 {memberDiscount > 0 && <p>Member Discount: -₹{memberDiscount.toLocaleString()}</p>}
                                                 {memberShippingBenefit > 0 && <p>Member Shipping Benefit: -₹{memberShippingBenefit.toLocaleString()}</p>}
                                                 <p>Total Savings: ₹{discount.toLocaleString()}</p>
-                                                <p>{taxPriceMode === 'inclusive' ? 'Value After Discounts' : 'Taxable Value After Discounts'}: ₹{Number(displayPricing?.displayValueAfterDiscountsBase ?? taxableTotal).toLocaleString()}</p>
+                                                <p>Price After Discounts: ₹{valueAfterDiscounts.toLocaleString()}</p>
                                                 {tax > 0 && (
                                                     <p>
-                                                        {taxPriceMode === 'inclusive' ? 'GST Breakdown' : 'GST'}: ₹{tax.toLocaleString()}
+                                                        GST Breakdown: ₹{tax.toLocaleString()}
                                                         <span className="block text-[11px] text-gray-500">
                                                             {getGstDisplayDetails({ taxAmount: tax }).splitAmountLabel}
                                                         </span>
@@ -224,7 +231,7 @@ export default function PaymentSuccess() {
                                             </>
                                         );
                                     })()}
-                                    <p className="font-semibold text-gray-900">Total: ₹{Number(order.total || 0).toLocaleString()}</p>
+                                    <p className="font-semibold text-gray-900">Grand Total: ₹{Number(order.total || 0).toLocaleString()}</p>
                                     <p>Payment Method: {String(order.payment_gateway || 'razorpay').toUpperCase()}</p>
                                     <p className="pt-2 text-gray-600">Your items will be dispatched in 2-3 working days.</p>
                                 </div>
@@ -236,9 +243,11 @@ export default function PaymentSuccess() {
                         <Link to="/" className="px-4 py-2 rounded-xl bg-primary text-accent font-semibold">
                             Home
                         </Link>
-                        <Link to="/orders" className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 font-semibold">
-                            View Orders
-                        </Link>
+                        {user && (
+                            <Link to="/orders" className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 font-semibold">
+                                View Orders
+                            </Link>
+                        )}
                         {isFailed && (
                             <Link to="/checkout" className="px-4 py-2 rounded-xl border border-red-200 text-red-700 font-semibold">
                                 Retry Payment

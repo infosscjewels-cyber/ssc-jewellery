@@ -194,7 +194,6 @@ const getMobileCustomerCardTheme = (user = {}) => {
 };
 
 export default function Customers({
-    storefrontOpen = true,
     onOpenLoyalty,
     onCreateOrderForCustomer,
     focusCustomerId = null,
@@ -213,6 +212,7 @@ export default function Customers({
     const [isMobileSearchModalOpen, setIsMobileSearchModalOpen] = useState(false);
 
     const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'default', title: '', message: '', targetUser: null });
+    const [customerDeleteChoice, setCustomerDeleteChoice] = useState({ isOpen: false, targetUser: null });
     const [addModalRole, setAddModalRole] = useState(null);
     const [isActionLoading, setIsActionLoading] = useState(false);
 
@@ -345,18 +345,55 @@ export default function Customers({
 
     const openDeleteModal = (user) => {
         const isCustomer = String(user.role || '').toLowerCase() === 'customer';
-        const isInactive = user.isActive === false;
+        if (isCustomer) {
+            setCustomerDeleteChoice({ isOpen: true, targetUser: user });
+            return;
+        }
         setModalConfig({
             isOpen: true,
             type: 'delete',
-            title: isCustomer ? (isInactive ? 'Reactivate Customer?' : 'Deactivate Customer?') : 'Delete User?',
-            message: isCustomer
-                ? (isInactive
-                    ? `Reactivate ${user.name} and allow the customer to sign in again?`
-                    : `Deactivate ${user.name}? The account will be preserved, but the customer will no longer be able to sign in.`)
-                : `Are you sure you want to remove ${user.name}?`,
+            title: 'Delete User?',
+            message: `Are you sure you want to remove ${user.name}?`,
             targetUser: user
         });
+    };
+
+    const handleDeactivateCustomer = async (targetUser) => {
+        if (!targetUser?.id) return;
+        setIsActionLoading(true);
+        try {
+            await adminService.setUserStatus(targetUser.id, {
+                isActive: false,
+                reason: 'Deactivated by admin'
+            });
+            await refreshUsers(true);
+            setCustomerDeleteChoice({ isOpen: false, targetUser: null });
+            toast.success('Customer deactivated successfully');
+        } catch (error) {
+            toast.error(error?.message || 'Unable to deactivate customer');
+        } finally {
+            setIsActionLoading(false);
+        }
+    };
+
+    const handlePermanentDeleteCustomer = async (targetUser) => {
+        if (!targetUser?.id) return;
+        setIsActionLoading(true);
+        try {
+            await adminService.deleteUser(targetUser.id, { mode: 'delete' });
+            await refreshUsers(true);
+            if (selectedUser?.id && String(selectedUser.id) === String(targetUser.id)) {
+                setSelectedUser(null);
+                setIsProfileOpen(false);
+                setIsCartOpen(false);
+            }
+            setCustomerDeleteChoice({ isOpen: false, targetUser: null });
+            toast.success('Customer deleted permanently');
+        } catch (error) {
+            toast.error(error?.message || 'Unable to delete customer');
+        } finally {
+            setIsActionLoading(false);
+        }
     };
 
     const handleModalConfirm = async (inputValue) => {
@@ -364,18 +401,8 @@ export default function Customers({
         const { type, targetUser } = modalConfig;
         try {
             if (type === 'delete') {
-                const isCustomer = String(targetUser?.role || '').toLowerCase() === 'customer';
-                if (isCustomer) {
-                    const isInactive = targetUser?.isActive === false;
-                    await adminService.setUserStatus(targetUser.id, {
-                        isActive: isInactive,
-                        reason: isInactive ? undefined : 'Deactivated by admin'
-                    });
-                    toast.success(isInactive ? 'Customer reactivated successfully' : 'Customer deactivated successfully');
-                } else {
-                    await adminService.deleteUser(targetUser.id);
-                    toast.success('User deleted successfully');
-                }
+                await adminService.deleteUser(targetUser.id);
+                toast.success('User deleted successfully');
                 await refreshUsers(true);
             } else if (type === 'password') {
                 if (!inputValue || inputValue.length < 6) {
@@ -572,6 +599,75 @@ export default function Customers({
                 isLoading={couponDeleteLoading}
                 confirmText="Delete Coupon"
             />
+            {customerDeleteChoice.isOpen && createPortal(
+                <div className="fixed inset-0 z-[210] flex items-center justify-center p-4">
+                    <button
+                        type="button"
+                        className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]"
+                        onClick={() => (isActionLoading ? null : setCustomerDeleteChoice({ isOpen: false, targetUser: null }))}
+                    />
+                    <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15">
+                        <div className="h-1.5 w-full bg-primary" />
+                        <div className="border-b border-slate-100 bg-slate-50/80 px-5 py-4">
+                            <div className="flex items-start justify-between gap-3">
+                                <div>
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Customer Actions</p>
+                                    <h3 className="mt-1 text-lg font-semibold text-slate-900">Choose customer action</h3>
+                                    <p className="mt-1.5 text-sm text-slate-600">
+                                        Deactivate to block future sign-ins, or permanently delete the customer and linked history.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setCustomerDeleteChoice({ isOpen: false, targetUser: null })}
+                                    disabled={isActionLoading}
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                                    aria-label="Close customer action modal"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+                        </div>
+                        <div className="space-y-4 p-5">
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                                <p className="font-semibold text-slate-900">{customerDeleteChoice.targetUser?.name || 'Customer'}</p>
+                                <p className="mt-1 text-slate-600">{customerDeleteChoice.targetUser?.email || customerDeleteChoice.targetUser?.mobile || 'No contact details saved'}</p>
+                            </div>
+                            <div className="grid gap-3">
+                                <button
+                                    type="button"
+                                    disabled={isActionLoading || customerDeleteChoice.targetUser?.isActive === false}
+                                    onClick={() => handleDeactivateCustomer(customerDeleteChoice.targetUser)}
+                                    className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-4 text-left transition hover:border-amber-300 hover:bg-amber-100/80 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    <span className="block text-sm font-semibold text-amber-950">Deactivate customer</span>
+                                    <span className="mt-1 block text-xs leading-5 text-amber-900">Keep the profile and order history, but stop future sign-ins.</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={isActionLoading}
+                                    onClick={() => handlePermanentDeleteCustomer(customerDeleteChoice.targetUser)}
+                                    className="rounded-2xl border border-rose-200 bg-rose-50/80 px-4 py-4 text-left transition hover:border-rose-300 hover:bg-rose-100/80 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    <span className="block text-sm font-semibold text-rose-700">Delete customer permanently</span>
+                                    <span className="mt-1 block text-xs leading-5 text-rose-700">Remove the customer and all linked orders, payment attempts, loyalty data, coupons, and cart history. This cannot be undone.</span>
+                                </button>
+                            </div>
+                            <div className="flex justify-end border-t border-slate-100 pt-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setCustomerDeleteChoice({ isOpen: false, targetUser: null })}
+                                    disabled={isActionLoading}
+                                    className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
 
             <AddCustomerModal
                 isOpen={!!addModalRole}
@@ -927,14 +1023,10 @@ export default function Customers({
                                     <button
                                         type="button"
                                         onClick={() => openDeleteModal(selectedUser)}
-                                        className={`inline-flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold shadow-sm ${
-                                            selectedUser.isActive === false
-                                                ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 text-emerald-700 shadow-emerald-100/60 hover:from-emerald-100 hover:to-teal-100'
-                                                : 'border-rose-200 bg-gradient-to-br from-rose-50 to-red-50 text-rose-700 shadow-rose-100/60 hover:from-rose-100 hover:to-red-100'
-                                        }`}
+                                        className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-rose-200 bg-gradient-to-br from-rose-50 to-red-50 px-3 py-2 text-sm font-semibold text-rose-700 shadow-sm shadow-rose-100/60 hover:from-rose-100 hover:to-red-100"
                                     >
                                         <Trash2 size={14} />
-                                        <span className="hidden sm:inline">{selectedUser.isActive === false ? 'Reactivate' : 'Deactivate'}</span>
+                                        <span className="hidden sm:inline">Customer Actions</span>
                                     </button>
                                 )}
                             </div>
@@ -1138,11 +1230,9 @@ export default function Customers({
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                {isBasicTier ? (
-                                                    <span className="text-xs text-gray-400">-</span>
-                                                ) : (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">{tierLabel(user.loyaltyTier || 'regular')}</span>
-                                                )}
+                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${isBasicTier ? 'border border-slate-200 bg-slate-50 text-slate-600' : 'bg-slate-100 text-slate-700'}`}>
+                                                    {tierLabel(user.loyaltyTier || 'regular')}
+                                                </span>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-2 text-sm text-gray-900">
@@ -1177,7 +1267,7 @@ export default function Customers({
                                                         {cartLastActivity}
                                                     </span>
                                                 )}
-                                                {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className={`p-2 rounded-lg transition-all ${user.isActive === false ? 'text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}`} title={user.isActive === false ? 'Reactivate Customer' : 'Deactivate Customer'}><Trash2 size={18} /></button>}
+                                                {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className="p-2 rounded-lg text-gray-400 transition-all hover:bg-red-50 hover:text-red-600" title="Customer actions"><Trash2 size={18} /></button>}
                                             </td>
                                         </tr>
                                     );
@@ -1291,7 +1381,7 @@ export default function Customers({
                                                             <ShoppingCart size={14} />
                                                             {cartCount > 0 && <span className="absolute -top-1 -right-1 text-[9px] font-bold bg-green-600 text-white rounded-full px-1 py-0.5">{cartCount}</span>}
                                                         </button>
-                                                        {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className={`inline-flex items-center justify-center rounded-lg border p-2 shadow-sm transition-all ${user.isActive === false ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 text-emerald-700 shadow-emerald-100/60 hover:from-emerald-100 hover:to-teal-100' : 'border-rose-200 bg-gradient-to-br from-rose-50 to-red-50 text-rose-600 shadow-rose-100/60 hover:from-rose-100 hover:to-red-100'}`} title={user.isActive === false ? 'Reactivate Customer' : 'Deactivate Customer'}><Trash2 size={16} /></button>}
+                                                        {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-gradient-to-br from-rose-50 to-red-50 p-2 text-rose-600 shadow-sm shadow-rose-100/60 transition-all hover:from-rose-100 hover:to-red-100" title="Customer actions"><Trash2 size={16} /></button>}
                                                     </div>
                                                 </div>
                                             </div>

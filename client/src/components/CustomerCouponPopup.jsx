@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
@@ -64,6 +64,7 @@ const buildPopupIdentity = (popup = null) => {
 };
 
 export default function CustomerCouponPopup() {
+    const location = useLocation();
     const { user, loading } = useAuth();
     const { socket } = useSocket();
     const [open, setOpen] = useState(false);
@@ -81,6 +82,8 @@ export default function CustomerCouponPopup() {
     const userId = String(user?.id || '').trim();
     const userRole = String(user?.role || '').toLowerCase();
     const isCustomer = Boolean(userId) && userRole === 'customer';
+    const pathname = String(location.pathname || '').toLowerCase();
+    const shouldHideOnRoute = pathname === '/checkout' || pathname === '/payment/success' || pathname === '/payment/failed';
     const popupIdentity = useMemo(() => buildPopupIdentity(popup), [popup]);
 
     const shownStorageKey = useMemo(() => {
@@ -143,6 +146,7 @@ export default function CustomerCouponPopup() {
     }, []);
 
     useEffect(() => {
+        if (shouldHideOnRoute) return;
         if (loading) return;
         if (userId && !isCustomer) return;
         let active = true;
@@ -154,7 +158,7 @@ export default function CustomerCouponPopup() {
             active = false;
             clearTimeout(timer);
         };
-    }, [isCustomer, loadPopupData, loading, userId]);
+    }, [isCustomer, loadPopupData, loading, shouldHideOnRoute, userId]);
 
     useEffect(() => {
         if (!socket) return;
@@ -301,7 +305,7 @@ export default function CustomerCouponPopup() {
         setShowGiftIntro(false);
     };
 
-    if (!open || !popup) return null;
+    if (shouldHideOnRoute || !open || !popup) return null;
     if (dismissed) return null;
     const coupon = (() => {
         if (popup?.coupon && typeof popup.coupon === 'object') return popup.coupon;

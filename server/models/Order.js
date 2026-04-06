@@ -1742,7 +1742,8 @@ class Order {
     static async getAdminManualQuote(userId, {
         shippingAddress = null,
         couponCode = null,
-        items = []
+        items = [],
+        allowSavedAddressFallback = false
     } = {}) {
         const connection = await db.getConnection();
         try {
@@ -1752,7 +1753,10 @@ class Order {
                 totalWeightKg,
                 cartProductIds
             } = await buildOrderItemsFromSelections(connection, items, { deductStock: false });
-            const shippingFee = await computeShippingFee(connection, shippingAddress, subtotal, totalWeightKg);
+            const effectiveShippingAddress = allowSavedAddressFallback
+                ? await resolveEffectiveShippingAddress(connection, userId, shippingAddress)
+                : shippingAddress;
+            const shippingFee = await computeShippingFee(connection, effectiveShippingAddress, subtotal, totalWeightKg);
             let couponDiscountTotal = 0;
             let coupon = null;
             const loyaltyStatus = await getUserLoyaltyStatus(userId);

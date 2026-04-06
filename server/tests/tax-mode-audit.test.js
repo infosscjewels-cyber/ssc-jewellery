@@ -96,6 +96,49 @@ test('invoice resolver prefers stored order tax mode over display pricing and it
     assert.equal(mode, 'exclusive');
 });
 
+test('invoice item table uses post-discount taxable values and gross line totals in inclusive mode', () => {
+    const order = {
+        tax_price_mode: 'inclusive',
+        shipping_fee: 10,
+        tax_total: 57.95,
+        loyalty_discount_total: 20,
+        loyalty_shipping_discount_total: 0.5,
+        coupon_discount_value: 0,
+        items: [
+            {
+                title: 'Traditional Chain',
+                quantity: 2,
+                price: 1000,
+                line_total: 2000,
+                tax_amount: 57.67,
+                discounted_line_total_gross: 1980,
+                discounted_line_total_base: 1922.33,
+                item_snapshot: {
+                    title: 'Traditional Chain',
+                    quantity: 2,
+                    unitPriceBase: 970.87,
+                    unitPriceGross: 1000,
+                    lineTotalBase: 1941.75,
+                    lineTotalGross: 2000,
+                    taxAmount: 57.67,
+                    discountedLineTotalGross: 1980,
+                    discountedLineTotalBase: 1922.33
+                }
+            }
+        ]
+    };
+
+    const items = invoicePdf.__test.getItems(order);
+    const shippingRow = invoicePdf.__test.buildShippingRow(order, items);
+
+    assert.equal(items[0].taxableValue, 1922.33);
+    assert.equal(items[0].lineTotalInclTax, 1980);
+    assert.equal(shippingRow.taxableValue, 9.22);
+    assert.equal(shippingRow.lineTotalInclTax, 9.5);
+    assert.equal(Number((items[0].taxableValue + shippingRow.taxableValue).toFixed(2)), 1931.55);
+    assert.equal(Number((items[0].lineTotalInclTax + shippingRow.lineTotalInclTax).toFixed(2)), 1989.5);
+});
+
 test('communication resolver prefers display pricing tax mode before company snapshot fallback', () => {
     const mode = communicationService.__test.resolveOrderTaxPriceMode({
         tax_price_mode: '',

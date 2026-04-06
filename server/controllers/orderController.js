@@ -206,6 +206,122 @@ const normalizePricingPreviewAddress = (value = null) => {
     return { state };
 };
 
+const hasAddressFields = (value = null) => {
+    const address = parseAddressObject(value);
+    if (!address || typeof address !== 'object') return false;
+    return ['line1', 'city', 'state', 'zip'].some((field) => Boolean(String(address?.[field] || '').trim()));
+};
+
+const hasCompleteAddress = (value = null) => {
+    const address = parseAddressObject(value);
+    if (!address || typeof address !== 'object') return false;
+    return ['line1', 'city', 'state', 'zip'].every((field) => Boolean(String(address?.[field] || '').trim()));
+};
+
+const maskMiddle = (value = '', { start = 2, end = 1 } = {}) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (raw.length <= 2) return `${raw[0] || ''}*`;
+    if (raw.length <= start + end) {
+        return `${raw.slice(0, 1)}${'*'.repeat(Math.max(1, raw.length - 2))}${raw.slice(-1)}`;
+    }
+    return `${raw.slice(0, start)}${'*'.repeat(Math.max(1, raw.length - start - end))}${raw.slice(-end)}`;
+};
+
+const maskName = (value = '') => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    return maskMiddle(raw, { start: 2, end: raw.length > 4 ? 1 : 0 });
+};
+
+const maskAddressSummary = (value = null) => {
+    const address = parseAddressObject(value);
+    if (!address || typeof address !== 'object') return '';
+    const city = String(address?.city || '').trim();
+    const state = String(address?.state || '').trim();
+    const zip = String(address?.zip || '').replace(/\D/g, '').trim();
+    const maskedZip = zip ? `${zip.slice(0, Math.max(0, zip.length - 3))}${'*'.repeat(Math.min(3, zip.length))}` : '';
+    return [city, state, maskedZip].filter(Boolean).join(', ');
+};
+
+const maskAddressLine = (value = '') => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    return maskMiddle(raw, { start: 2, end: raw.length > 6 ? 2 : 1 });
+};
+
+const maskAddressWord = (value = '') => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    return maskMiddle(raw, { start: 2, end: raw.length > 5 ? 1 : 0 });
+};
+
+const buildMaskedAddressFields = (value = null) => {
+    const address = parseAddressObject(value);
+    if (!address || typeof address !== 'object') {
+        return {
+            line1: '',
+            city: '',
+            state: '',
+            zip: ''
+        };
+    }
+    const zip = String(address?.zip || '').replace(/\D/g, '').trim();
+    return {
+        line1: maskAddressLine(address?.line1 || ''),
+        city: maskAddressWord(address?.city || ''),
+        state: maskAddressWord(address?.state || ''),
+        zip: zip ? maskMiddle(zip, { start: Math.min(3, Math.max(1, zip.length - 2)), end: zip.length > 4 ? 1 : 0 }) : ''
+    };
+};
+
+const maskCheckoutEmail = (value = '') => {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw.includes('@')) return '';
+    const [name, domain] = raw.split('@');
+    if (!name || !domain) return '';
+    const visible = name.slice(0, 2);
+    return `${visible}${'*'.repeat(Math.max(1, name.length - visible.length))}@${domain}`;
+};
+
+const maskCheckoutMobile = (value = '') => {
+    const digits = String(value || '').replace(/\D/g, '').trim();
+    if (!digits) return '';
+    return `${'*'.repeat(Math.max(0, digits.length - 4))}${digits.slice(-4)}`;
+};
+
+const buildMaskedCheckoutProfile = (user = null) => {
+    const shippingAddress = parseAddressObject(user?.address);
+    const billingAddress = parseAddressObject(user?.billingAddress || user?.billing_address || user?.address);
+    return {
+        name: maskName(user?.name || ''),
+        email: maskCheckoutEmail(user?.email || ''),
+        mobile: maskCheckoutMobile(user?.mobile || user?.whatsapp || ''),
+        shippingAddressFields: buildMaskedAddressFields(shippingAddress),
+        billingAddressFields: buildMaskedAddressFields(billingAddress),
+        shippingAddress: maskAddressSummary(shippingAddress),
+        billingAddress: maskAddressSummary(billingAddress)
+    };
+};
+
+const generatePublicAttemptToken = ({ attemptId, userId, razorpayOrderId } = {}) => jwt.sign({
+    type: 'checkout_attempt_access',
+    attemptId: Number(attemptId || 0),
+    userId: String(userId || '').trim(),
+    razorpayOrderId: String(razorpayOrderId || '').trim()
+}, JWT_SECRET, { expiresIn: '2h' });
+
+const verifyPublicAttemptToken = ({ attemptId, attemptToken } = {}) => {
+    const decoded = jwt.verify(String(attemptToken || ''), JWT_SECRET);
+    if (decoded?.type !== 'checkout_attempt_access') {
+        throw new Error('Invalid checkout attempt token');
+    }
+    if (Number(decoded?.attemptId || 0) !== Number(attemptId || 0)) {
+        throw new Error('Checkout attempt token mismatch');
+    }
+    return decoded;
+};
+
 const parseCategoryScopeIds = (coupon = null) => {
     if (!coupon) return [];
     const raw = coupon.category_scope_json ?? coupon.categoryScopeJson ?? coupon.categoryIds ?? [];
@@ -389,135 +505,54 @@ const buildAccountExistsError = ({ email = false, mobile = false } = {}) => {
     return error;
 };
 
-const maskConflictEmail = (value = '') => {
-    const raw = String(value || '').trim().toLowerCase();
-    if (!raw.includes('@')) return '';
-    const [name, domain] = raw.split('@');
-    if (!name || !domain) return '';
-    const visible = name.slice(0, 2);
-    return `${visible}${'*'.repeat(Math.max(1, name.length - visible.length))}@${domain}`;
-};
-
-const maskConflictMobile = (value = '') => {
-    const digits = String(value || '').replace(/\D/g, '');
-    if (!digits) return '';
-    return `${'*'.repeat(Math.max(0, digits.length - 4))}${digits.slice(-4)}`;
-};
-
-const buildCheckoutIdentityConflictError = (
-    message = 'The entered email and mobile belong to different accounts. Please use matching account details to continue.',
-    conflicts = {}
-) => {
-    const error = new Error(message);
-    error.statusCode = 409;
-    error.code = 'CHECKOUT_IDENTITY_CONFLICT';
-    error.conflicts = conflicts;
-    return error;
-};
-
-const resolveCheckoutExistingAccount = async ({ email = '', mobile = '' } = {}) => {
-    const normalizedEmail = String(email || '').trim().toLowerCase();
+const resolveGuestCheckoutAccountByMobile = async ({ mobile = '' } = {}) => {
     const normalizedMobile = String(mobile || '').replace(/\D/g, '').trim();
-
-    const [emailUserRaw, mobileUserRaw] = await Promise.all([
-        normalizedEmail ? User.findByEmail(normalizedEmail) : null,
-        normalizedMobile ? User.findByMobile(normalizedMobile) : null
-    ]);
-
-    const emailUser = emailUserRaw || null;
-    const mobileUser = mobileUserRaw || null;
-
-    if (!emailUser && !mobileUser) {
-        return null;
+    if (!normalizedMobile) {
+        const error = new Error('Enter a valid mobile number before continuing.');
+        error.statusCode = 400;
+        error.code = 'INVALID_MOBILE';
+        throw error;
     }
 
-    if (emailUser && mobileUser && String(emailUser.id) !== String(mobileUser.id)) {
-        const mobileAccountEmail = String(mobileUser.email || '').trim().toLowerCase();
-        const emailAccountMobile = String(emailUser.mobile || emailUser.whatsapp || '').replace(/\D/g, '').trim();
-
-        if (mobileAccountEmail && normalizedEmail && mobileAccountEmail !== normalizedEmail) {
-            throw buildCheckoutIdentityConflictError(
-                'The entered email does not match the account tied to this mobile number. Please use matching account details to continue.',
-                {
-                    email: { entered: normalizedEmail, hint: maskConflictEmail(mobileAccountEmail) },
-                    mobile: null
-                }
-            );
-        }
-
-        if (emailAccountMobile && normalizedMobile && emailAccountMobile !== normalizedMobile) {
-            throw buildCheckoutIdentityConflictError(
-                'The entered mobile number does not match the account tied to this email. Please use matching account details to continue.',
-                {
-                    email: null,
-                    mobile: { entered: normalizedMobile, hint: maskConflictMobile(emailAccountMobile) }
-                }
-            );
-        }
-
-        throw buildCheckoutIdentityConflictError(
-            'The entered email and mobile belong to different accounts. Please use matching account details to continue.',
-            {
-                email: normalizedEmail
-                    ? { entered: normalizedEmail, hint: maskConflictEmail(emailUser.email || normalizedEmail) }
-                    : null,
-                mobile: normalizedMobile
-                    ? { entered: normalizedMobile, hint: maskConflictMobile(mobileUser.mobile || mobileUser.whatsapp || normalizedMobile) }
-                    : null
-            }
-        );
+    const matches = normalizedMobile ? await User.findAllByMobile(normalizedMobile) : [];
+    if (!matches.length) {
+        return {
+            status: 'no_account',
+            mobile: normalizedMobile,
+            user: null
+        };
     }
 
-    let matchedUser = emailUser || mobileUser;
-    let resolutionType = emailUser ? 'email_match' : 'mobile_match';
-
-    if (emailUser) {
-        const storedMobile = String(emailUser.mobile || '').replace(/\D/g, '').trim();
-        if (!storedMobile && normalizedMobile) {
-            if (mobileUser && String(mobileUser.id) !== String(emailUser.id)) {
-                throw buildCheckoutIdentityConflictError();
-            }
-            await User.updateProfile(emailUser.id, { mobile: normalizedMobile });
-            matchedUser = await User.findById(emailUser.id) || emailUser;
-            resolutionType = 'email_match_mobile_filled';
-        }
-    } else if (mobileUser) {
-        const storedEmail = String(mobileUser.email || '').trim().toLowerCase();
-        if (!storedEmail && normalizedEmail) {
-            if (emailUser && String(emailUser.id) !== String(mobileUser.id)) {
-                throw buildCheckoutIdentityConflictError();
-            }
-            await User.updateProfile(mobileUser.id, { email: normalizedEmail });
-            matchedUser = await User.findById(mobileUser.id) || mobileUser;
-            resolutionType = 'mobile_match_email_filled';
-        } else if (storedEmail && normalizedEmail && storedEmail !== normalizedEmail) {
-            throw buildCheckoutIdentityConflictError(
-                'The entered email does not match the account tied to this mobile number. Please use matching account details to continue.',
-                {
-                    email: normalizedEmail
-                        ? { entered: normalizedEmail, hint: maskConflictEmail(storedEmail) }
-                        : null,
-                    mobile: normalizedMobile
-                        ? { entered: normalizedMobile, hint: maskConflictMobile(mobileUser.mobile || mobileUser.whatsapp || normalizedMobile) }
-                        : null
-                }
-            );
-        }
+    if (matches.length > 1) {
+        const error = new Error('Multiple customer accounts use this mobile number. Please contact support.');
+        error.statusCode = 409;
+        error.code = 'DATA_CONFLICT';
+        error.publicStatus = 'data_conflict';
+        throw error;
     }
 
-    const resolvedEmail = String(matchedUser?.email || '').trim().toLowerCase();
-    const resolvedMobile = String(matchedUser?.whatsapp || matchedUser?.mobile || '').replace(/\D/g, '').trim();
-    const resolvedIdentifier = resolvedEmail || resolvedMobile;
-    if (!resolvedIdentifier) {
-        throw new Error('No active email or mobile is available for this account.');
+    const user = matches[0];
+    if (user?.isActive === false) {
+        const error = new Error('This mobile number belongs to an unavailable account. Please contact support.');
+        error.statusCode = 409;
+        error.code = 'ACCOUNT_UNAVAILABLE';
+        error.publicStatus = 'account_unavailable';
+        throw error;
     }
+
+    const hasSavedShippingAddress = hasCompleteAddress(user?.address);
+    const savedBillingSource = billingAddressEnabled ? (user?.billingAddress || user?.address) : (user?.address || null);
+    const hasSavedBillingAddress = hasCompleteAddress(savedBillingSource);
 
     return {
-        user: matchedUser,
-        resolutionType,
-        identifier: resolvedIdentifier,
-        normalizedEmail,
-        normalizedMobile
+        status: 'existing_account_locked',
+        mobile: normalizedMobile,
+        user,
+        maskedProfile: buildMaskedCheckoutProfile(user),
+        hasEmail: Boolean(String(user?.email || '').trim()),
+        hasSavedAddress: hasSavedShippingAddress && hasSavedBillingAddress,
+        requiresOrderAddressInput: !(hasSavedShippingAddress && hasSavedBillingAddress),
+        otpRequiredForEdit: true
     };
 };
 
@@ -778,11 +813,17 @@ const createCheckoutRazorpayOrderForUser = async ({
     billingAddress,
     shippingAddress,
     notes = null,
-    couponCode = null
+    couponCode = null,
+    allowMissingEmail = false
 } = {}) => {
     const normalizedEmail = String(user?.email || '').trim().toLowerCase();
     const normalizedMobile = String(user?.mobile || '').replace(/\D/g, '').trim();
-    if (!isValidEmailAddress(normalizedEmail)) {
+    if (normalizedEmail && !isValidEmailAddress(normalizedEmail)) {
+        const error = new Error('A valid customer email is required before payment');
+        error.statusCode = 400;
+        throw error;
+    }
+    if (!normalizedEmail && !allowMissingEmail) {
         const error = new Error('A valid customer email is required before payment');
         error.statusCode = 400;
         throw error;
@@ -887,9 +928,13 @@ const createRazorpayOrder = async (req, res) => {
         if (!user) {
             return res.status(404).json({ message: 'Customer not found' });
         }
-        const safeShippingAddress = await normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' });
+        const safeShippingAddress = shippingAddress
+            ? await normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' })
+            : null;
         const safeBillingAddress = billingAddressEnabled
-            ? await normalizeAddressPayload(billingAddress, { fieldLabel: 'Billing address' })
+            ? (billingAddress
+                ? await normalizeAddressPayload(billingAddress, { fieldLabel: 'Billing address' })
+                : null)
             : resolveBillingAddress({ shippingAddress: safeShippingAddress, billingAddress: safeShippingAddress });
         const payload = await createCheckoutRazorpayOrderForUser({
             userId,
@@ -934,9 +979,13 @@ const createPublicRazorpayOrder = async (req, res) => {
             couponCode,
             items = []
         } = req.body || {};
-        const safeShippingAddress = await normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' });
+        const safeShippingAddress = shippingAddress
+            ? await normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' })
+            : null;
         const safeBillingAddress = billingAddressEnabled
-            ? await normalizeAddressPayload(billingAddress, { fieldLabel: 'Billing address' })
+            ? (billingAddress
+                ? await normalizeAddressPayload(billingAddress, { fieldLabel: 'Billing address' })
+                : null)
             : resolveBillingAddress({ shippingAddress: safeShippingAddress, billingAddress: safeShippingAddress });
         const selections = normalizeCheckoutSelections(items);
         if (!selections.length) {
@@ -946,105 +995,93 @@ const createPublicRazorpayOrder = async (req, res) => {
         const safeName = String(guest?.name || '').trim();
         const safeEmail = String(guest?.email || '').trim().toLowerCase();
         const safeMobile = String(guest?.mobile || '').replace(/\D/g, '').trim();
-        if (!safeName) return res.status(400).json({ message: 'Name is required' });
-        if (!isValidEmailAddress(safeEmail)) return res.status(400).json({ message: 'A valid customer email is required before payment' });
+        if (!isValidEmailAddress(safeEmail) && safeEmail) return res.status(400).json({ message: 'Enter a valid email address or leave it blank' });
         if (!isValidPhoneNumber(safeMobile)) return res.status(400).json({ message: 'A valid customer mobile number is required before payment' });
+        const resolved = await resolveGuestCheckoutAccountByMobile({ mobile: safeMobile });
+        const isExistingAccount = resolved?.status === 'existing_account_locked' && resolved?.user;
 
-        const [existingEmailUser, existingMobileUser] = await Promise.all([
-            User.findByEmail(safeEmail),
-            User.findByMobile(safeMobile)
-        ]);
+        if (!isExistingAccount && !safeName) {
+            return res.status(400).json({ message: 'Name is required' });
+        }
 
-        if (existingEmailUser && existingMobileUser && String(existingEmailUser.id) !== String(existingMobileUser.id)) {
-            const mobileAccountEmail = String(existingMobileUser.email || '').trim().toLowerCase();
-            const emailAccountMobile = String(existingEmailUser.mobile || existingEmailUser.whatsapp || '').replace(/\D/g, '').trim();
+        let user = resolved?.user || null;
+        let responseToken = null;
+        let responseUser = null;
 
-            if (mobileAccountEmail && mobileAccountEmail !== safeEmail) {
-                throw buildCheckoutIdentityConflictError(
-                    'The entered email does not match the account tied to this mobile number. Please use matching account details to continue.',
-                    {
-                        email: { entered: safeEmail, hint: maskConflictEmail(mobileAccountEmail) },
-                        mobile: null
-                    }
-                );
-            }
-
-            if (emailAccountMobile && emailAccountMobile !== safeMobile) {
-                throw buildCheckoutIdentityConflictError(
-                    'The entered mobile number does not match the account tied to this email. Please use matching account details to continue.',
-                    {
-                        email: null,
-                        mobile: { entered: safeMobile, hint: maskConflictMobile(emailAccountMobile) }
-                    }
-                );
-            }
-
-            throw buildCheckoutIdentityConflictError(
-                'The entered email and mobile belong to different accounts. Please use matching account details to continue.',
-                {
-                    email: { entered: safeEmail, hint: maskConflictEmail(existingEmailUser.email || safeEmail) },
-                    mobile: { entered: safeMobile, hint: maskConflictMobile(existingMobileUser.mobile || existingMobileUser.whatsapp || safeMobile) }
+        if (!user) {
+            let persistedEmail = safeEmail || '';
+            if (persistedEmail) {
+                const existingEmailUser = await User.findByEmail(persistedEmail);
+                if (existingEmailUser) {
+                    persistedEmail = '';
                 }
-            );
-        }
-
-        if (!existingEmailUser && existingMobileUser) {
-            const storedEmail = String(existingMobileUser.email || '').trim().toLowerCase();
-            if (storedEmail && storedEmail !== safeEmail) {
-                throw buildCheckoutIdentityConflictError(
-                    'The entered email does not match the account tied to this mobile number. Please use matching account details to continue.',
-                    {
-                        email: { entered: safeEmail, hint: maskConflictEmail(storedEmail) },
-                        mobile: null
-                    }
-                );
             }
-        }
 
-        if (existingEmailUser && !existingMobileUser) {
-            const storedMobile = String(existingEmailUser.mobile || existingEmailUser.whatsapp || '').replace(/\D/g, '').trim();
-            if (storedMobile && storedMobile !== safeMobile) {
-                throw buildCheckoutIdentityConflictError(
-                    'The entered mobile number does not match the account tied to this email. Please use matching account details to continue.',
-                    {
-                        email: null,
-                        mobile: { entered: safeMobile, hint: maskConflictMobile(storedMobile) }
-                    }
-                );
+            user = await createSilentCheckoutUser({
+                name: safeName,
+                email: persistedEmail || null,
+                mobile: safeMobile,
+                shippingAddress: safeShippingAddress,
+                billingAddress: safeBillingAddress
+            });
+            responseToken = generateCheckoutToken(user);
+            responseUser = User.toSafePayload(user);
+            const io = req.app.get('io');
+            if (io) {
+                emitToUserAudiences(io, responseUser, 'user:create', responseUser);
             }
+            const { dispatchWelcomeCommunication } = require('./authController');
+            dispatchWelcomeCommunication(user);
         }
 
-        const user = await createSilentCheckoutUser({
-            name: safeName,
-            email: safeEmail,
-            mobile: safeMobile,
-            shippingAddress: safeShippingAddress,
-            billingAddress: safeBillingAddress
-        });
-        const safeUser = User.toSafePayload(user);
-        const io = req.app.get('io');
-        if (io) {
-            emitToUserAudiences(io, safeUser, 'user:create', safeUser);
+        const savedShippingAddress = parseAddressObject(user?.address);
+        const savedBillingAddress = billingAddressEnabled
+            ? parseAddressObject(user?.billingAddress || user?.billing_address || user?.address)
+            : parseAddressObject(user?.address);
+        const finalShippingAddress = safeShippingAddress || (hasCompleteAddress(savedShippingAddress) ? savedShippingAddress : null);
+        const finalBillingAddress = safeBillingAddress || (
+            billingAddressEnabled
+                ? (hasCompleteAddress(savedBillingAddress) ? savedBillingAddress : null)
+                : finalShippingAddress
+        );
+
+        if (!finalShippingAddress || !hasCompleteAddress(finalShippingAddress)) {
+            return res.status(400).json({ message: 'A complete shipping address is required before payment' });
         }
+        if (billingAddressEnabled && (!finalBillingAddress || !hasCompleteAddress(finalBillingAddress))) {
+            return res.status(400).json({ message: 'A complete billing address is required before payment' });
+        }
+
         const cartItems = await syncSelectionsToUserCart(user.id, selections);
         const payload = await createCheckoutRazorpayOrderForUser({
             userId: user.id,
-            user,
-            billingAddress: safeBillingAddress,
-            shippingAddress: safeShippingAddress,
+            user: {
+                ...user,
+                email: user?.email || null,
+                mobile: user?.mobile || safeMobile
+            },
+            billingAddress: finalBillingAddress,
+            shippingAddress: finalShippingAddress,
             notes,
-            couponCode
+            couponCode,
+            allowMissingEmail: true
+        });
+        const attemptToken = generatePublicAttemptToken({
+            attemptId: payload?.attempt?.id,
+            userId: user.id,
+            razorpayOrderId: payload?.order?.id || ''
         });
         return res.status(201).json({
             ...payload,
-            token: generateCheckoutToken(user),
-            user: safeUser,
-            cart: {
+            attemptToken,
+            token: responseToken,
+            user: responseUser,
+            cart: responseUser ? {
                 items: cartItems.map((item) => ({
                     ...item,
                     key: `${String(item.productId || '')}__${String(item.variantId || '')}`
                 }))
-            }
+            } : undefined
         });
     } catch (error) {
         if (Number(error?.statusCode || 0) === 423) {
@@ -1053,7 +1090,8 @@ const createPublicRazorpayOrder = async (req, res) => {
         if (Number(error?.statusCode || 0) === 409) {
             return res.status(409).json({
                 message: error.message,
-                code: error.code || 'CHECKOUT_IDENTITY_CONFLICT',
+                code: error.code || 'ACCOUNT_RESOLUTION_CONFLICT',
+                status: error.publicStatus || null,
                 conflicts: error.conflicts || null
             });
         }
@@ -1066,49 +1104,37 @@ const createPublicRazorpayOrder = async (req, res) => {
     }
 };
 
-const startCheckoutAccountVerification = async (req, res) => {
+const lookupGuestCheckoutAccount = async (req, res) => {
     try {
-        const email = String(req.body?.email || '').trim().toLowerCase();
         const mobile = String(req.body?.mobile || '').replace(/\D/g, '').trim();
-
-        if (!isValidEmailAddress(email)) {
-            return res.status(400).json({ message: 'Enter a valid checkout email before verification.' });
-        }
         if (!isValidPhoneNumber(mobile)) {
-            return res.status(400).json({ message: 'Enter a valid checkout mobile number before verification.' });
+            return res.status(400).json({ message: 'Enter a valid mobile number before continuing.' });
         }
 
-        const resolved = await resolveCheckoutExistingAccount({ email, mobile });
-        if (!resolved?.user) {
-            return res.json({ accountExists: false });
-        }
-
-        const safeUser = User.toSafePayload(resolved.user);
-        const existingCartItems = await Cart.getByUser(resolved.user.id);
-        return res.json({
-            ok: true,
-            accountExists: true,
-            code: 'ACCOUNT_EXISTS',
-            resolutionType: resolved.resolutionType,
-            identifier: resolved.identifier,
-            hasExistingCart: Array.isArray(existingCartItems) && existingCartItems.length > 0,
-            user: {
-                id: safeUser?.id || null,
-                email: safeUser?.email || null,
-                mobile: safeUser?.mobile || null,
-                whatsapp: safeUser?.whatsapp || null
-            }
-        });
-    } catch (error) {
-        const statusCode = Number(error?.statusCode || 0);
-        if (statusCode === 409) {
-            return res.status(409).json({
-                message: error.message,
-                code: error.code || 'CHECKOUT_IDENTITY_CONFLICT',
-                conflicts: error.conflicts || null
+        const resolved = await resolveGuestCheckoutAccountByMobile({ mobile });
+        if (resolved.status === 'no_account') {
+            return res.json({
+                status: 'no_account',
+                mobile: resolved.mobile
             });
         }
-        return res.status(400).json({ message: error?.message || 'Failed to resolve existing account' });
+
+        return res.json({
+            status: resolved.status,
+            mobile: resolved.mobile,
+            maskedProfile: resolved.maskedProfile,
+            hasEmail: Boolean(resolved.hasEmail),
+            hasSavedAddress: Boolean(resolved.hasSavedAddress),
+            requiresOrderAddressInput: Boolean(resolved.requiresOrderAddressInput),
+            otpRequiredForEdit: true
+        });
+    } catch (error) {
+        const statusCode = Number(error?.statusCode || 0) || 409;
+        return res.status(statusCode).json({
+            status: error?.publicStatus || 'data_conflict',
+            code: error?.code || 'DATA_CONFLICT',
+            message: error?.message || 'Unable to resolve this mobile number right now.'
+        });
     }
 };
 
@@ -1320,6 +1346,329 @@ const verifyRazorpayPayment = async (req, res) => {
         }
         const statusCode = Number(error?.statusCode || 0) || 400;
         return res.status(statusCode).json({ message: error.message || 'Failed to verify payment' });
+    }
+};
+
+const verifyPublicRazorpayPayment = async (req, res) => {
+    let lockedAttemptId = null;
+    let lockedPaymentId = null;
+    let lockedSignature = null;
+    let createdOrder = null;
+    try {
+        const attemptId = Number(req.body?.attemptId || 0);
+        const attemptToken = String(req.body?.attemptToken || '').trim();
+        verifyPublicAttemptToken({ attemptId, attemptToken });
+
+        const {
+            razorpay_payment_id: razorpayPaymentId,
+            razorpay_order_id: razorpayOrderId,
+            razorpay_signature: razorpaySignature
+        } = req.body || {};
+
+        if (!razorpayPaymentId || !razorpayOrderId || !razorpaySignature) {
+            return res.status(400).json({ message: 'Payment verification fields are required' });
+        }
+
+        const attempt = await PaymentAttempt.getById(attemptId);
+        if (!attempt) {
+            return res.status(404).json({ message: 'Payment attempt not found' });
+        }
+        if (String(attempt.razorpay_order_id || '') !== String(razorpayOrderId || '')) {
+            return res.status(400).json({ message: 'Payment attempt does not match this Razorpay order' });
+        }
+
+        if (attempt.status === PAYMENT_STATUS.PAID && attempt.local_order_id) {
+            const existingOrder = await Order.getById(attempt.local_order_id);
+            if (existingOrder) {
+                return res.json({ order: existingOrder, verified: true });
+            }
+        }
+        if (attempt.status === PAYMENT_STATUS.EXPIRED) {
+            return res.status(410).json({ message: 'Payment session expired. Please retry payment.' });
+        }
+
+        const razorpayConfig = await getRazorpayConfig();
+        const secret = String(razorpayConfig?.keySecret || '').trim();
+        if (!secret) {
+            return res.status(500).json({ message: 'Razorpay is not configured on server' });
+        }
+
+        const generatedSignature = crypto
+            .createHmac('sha256', secret)
+            .update(`${attempt.razorpay_order_id}|${razorpayPaymentId}`)
+            .digest('hex');
+
+        const isValidSignature = (() => {
+            try {
+                return crypto.timingSafeEqual(
+                    Buffer.from(generatedSignature),
+                    Buffer.from(String(razorpaySignature))
+                );
+            } catch {
+                return false;
+            }
+        })();
+
+        if (!isValidSignature) {
+            await PaymentAttempt.markFailed({
+                id: attempt.id,
+                paymentId: razorpayPaymentId,
+                signature: razorpaySignature,
+                errorMessage: 'Signature verification failed'
+            });
+            return res.status(400).json({ message: 'Invalid payment signature' });
+        }
+
+        const lockAcquired = await PaymentAttempt.beginVerificationLock({
+            id: attempt.id,
+            paymentId: razorpayPaymentId,
+            signature: razorpaySignature
+        });
+
+        if (!lockAcquired) {
+            const latestAttempt = await PaymentAttempt.getById(attempt.id);
+            if (latestAttempt?.local_order_id) {
+                const existingOrder = await Order.getById(latestAttempt.local_order_id);
+                if (existingOrder) {
+                    return res.json({ order: existingOrder, verified: true });
+                }
+            }
+            return res.status(409).json({ message: 'Payment verification already in progress. Please retry in a moment.' });
+        }
+        lockedAttemptId = attempt.id;
+        lockedPaymentId = razorpayPaymentId;
+        lockedSignature = razorpaySignature;
+
+        const { attempt: reconciledAttempt, paymentDetails, reusedExistingOrder = false } = await ensureCapturedPaymentMatchesAttempt({
+            attempt,
+            razorpayPaymentId,
+            razorpaySignature,
+            source: 'checkout_verify_public'
+        });
+
+        const order = await createOrderFromCheckoutPaymentAttempt(req, {
+            attempt: reconciledAttempt,
+            razorpayOrderId: reconciledAttempt.razorpay_order_id,
+            razorpayPaymentId,
+            razorpaySignature,
+            settlementId: paymentDetails?.settlement_id || null,
+            settlementSnapshot: null
+        });
+        createdOrder = order;
+        try {
+            await markRecoveredByOrder({ order, reason: 'order_paid_checkout_public' });
+        } catch {}
+
+        const latestAfterMaterialization = await PaymentAttempt.getById(attempt.id);
+        if (!(latestAfterMaterialization?.local_order_id && String(latestAfterMaterialization.local_order_id) === String(order.id))) {
+            const verifyMarked = await PaymentAttempt.markVerified({
+                id: attempt.id,
+                paymentId: razorpayPaymentId,
+                signature: razorpaySignature,
+                localOrderId: order.id
+            });
+            if (!verifyMarked) {
+                const latestAttempt = await PaymentAttempt.getById(attempt.id);
+                if (latestAttempt?.local_order_id) {
+                    const existingOrder = await Order.getById(latestAttempt.local_order_id);
+                    if (existingOrder) {
+                        return res.json({ order: existingOrder, verified: true });
+                    }
+                }
+                return res.status(409).json({ message: 'Payment verification conflict. Please retry.' });
+            }
+        }
+        lockedAttemptId = null;
+        lockedPaymentId = null;
+        lockedSignature = null;
+
+        const hydratedOrder = await Order.getById(order.id);
+        const finalOrder = hydratedOrder || order;
+        const io = req.app.get('io');
+        if (io) {
+            if (!reusedExistingOrder) {
+                emitToOrderAudiences(io, finalOrder, 'order:create', { order: finalOrder });
+            }
+            emitToOrderAudiences(io, finalOrder, 'order:update', {
+                orderId: finalOrder.id || order.id,
+                status: finalOrder.status || 'confirmed',
+                order: finalOrder
+            });
+            emitToOrderAudiences(io, finalOrder, 'payment:update', {
+                orderId: finalOrder.id || order.id,
+                status: finalOrder.status || 'confirmed',
+                order: finalOrder,
+                payment: {
+                    paymentStatus: PAYMENT_STATUS.PAID,
+                    paymentMethod: 'razorpay',
+                    paymentReference: razorpayPaymentId,
+                    razorpayOrderId: reconciledAttempt.razorpay_order_id
+                }
+            });
+            emitCouponChangedForOrder(req, finalOrder);
+        }
+        if (!reusedExistingOrder) {
+            notifyAdminsOfNewOrder(finalOrder, { source: 'checkout_public' });
+            void triggerOrderLifecycleEmail({
+                order,
+                stage: 'confirmed',
+                includeInvoice: true
+            });
+            void triggerPaymentLifecycleCommunication({
+                order,
+                stage: PAYMENT_STATUS.PAID,
+                payment: {
+                    paymentStatus: PAYMENT_STATUS.PAID,
+                    paymentMethod: 'razorpay',
+                    paymentReference: razorpayPaymentId,
+                    razorpayOrderId: reconciledAttempt.razorpay_order_id
+                }
+            });
+        }
+
+        return res.json({ order, verified: true });
+    } catch (error) {
+        if (createdOrder?.id) {
+            if (lockedAttemptId) {
+                try {
+                    await PaymentAttempt.markVerified({
+                        id: lockedAttemptId,
+                        paymentId: lockedPaymentId,
+                        signature: lockedSignature,
+                        localOrderId: createdOrder.id
+                    });
+                } catch {}
+            }
+            const persistedOrder = await Order.getById(createdOrder.id).catch(() => null);
+            return res.json({ order: persistedOrder || createdOrder, verified: true });
+        }
+        if (error?.reconciliationPending) {
+            const latestAttempt = lockedAttemptId ? await PaymentAttempt.getById(lockedAttemptId) : null;
+            return res.json(serializePaymentAttemptStatus({
+                attempt: latestAttempt || null,
+                message: error.message || 'Payment confirmation is taking longer than usual'
+            }));
+        }
+        if (lockedAttemptId) {
+            try {
+                await PaymentAttempt.markFailed({
+                    id: lockedAttemptId,
+                    paymentId: lockedPaymentId,
+                    signature: lockedSignature,
+                    errorMessage: error?.message || 'Verification failed'
+                });
+            } catch {}
+        }
+        return res.status(Number(error?.statusCode || 400) || 400).json({ message: error?.message || 'Failed to verify payment' });
+    }
+};
+
+const getPublicPaymentAttemptStatus = async (req, res) => {
+    try {
+        const attemptId = Number(req.params.id);
+        const attemptToken = String(req.query?.attemptToken || req.headers['x-checkout-attempt-token'] || '').trim();
+        verifyPublicAttemptToken({ attemptId, attemptToken });
+
+        let attempt = await PaymentAttempt.getById(attemptId);
+        if (!attempt) {
+            return res.status(404).json({ message: 'Payment attempt not found' });
+        }
+
+        if (attempt.local_order_id) {
+            const existingOrder = await Order.getById(attempt.local_order_id);
+            return res.json(serializePaymentAttemptStatus({
+                attempt,
+                order: existingOrder || null
+            }));
+        }
+
+        const paymentId = String(attempt.razorpay_payment_id || '').trim();
+        if (!paymentId || !PAYMENT_ATTEMPT_PROCESSING_STATUSES.has(String(attempt.status || '').trim().toLowerCase())) {
+            return res.json(serializePaymentAttemptStatus({ attempt }));
+        }
+
+        const lockAcquired = await PaymentAttempt.beginVerificationLock({
+            id: attempt.id,
+            paymentId,
+            signature: attempt.razorpay_signature || null
+        });
+
+        if (!lockAcquired) {
+            const latestAttempt = await PaymentAttempt.getById(attempt.id);
+            const existingOrder = latestAttempt?.local_order_id ? await Order.getById(latestAttempt.local_order_id) : null;
+            return res.json(serializePaymentAttemptStatus({
+                attempt: latestAttempt || attempt,
+                order: existingOrder || null
+            }));
+        }
+
+        try {
+            const reconciled = await ensureCapturedPaymentMatchesAttempt({
+                attempt,
+                razorpayPaymentId: paymentId,
+                razorpaySignature: attempt.razorpay_signature || null,
+                source: 'checkout_status_poll_public'
+            });
+            const order = await createOrderFromCheckoutPaymentAttempt(req, {
+                attempt: reconciled.attempt,
+                razorpayOrderId: reconciled.attempt.razorpay_order_id,
+                razorpayPaymentId: reconciled.paymentId,
+                razorpaySignature: attempt.razorpay_signature || null,
+                settlementId: reconciled.paymentDetails?.settlement_id || null,
+                settlementSnapshot: null
+            });
+
+            const latestAttempt = await PaymentAttempt.getById(attempt.id);
+            const finalOrder = order?.id ? (await Order.getById(order.id)) || order : null;
+
+            if (finalOrder?.id) {
+                try {
+                    await markRecoveredByOrder({ order: finalOrder, reason: 'order_paid_status_poll_public' });
+                } catch {}
+                emitOrderAndPaymentUpdate(req, {
+                    order: finalOrder,
+                    payment: {
+                        paymentStatus: PAYMENT_STATUS.PAID,
+                        paymentMethod: 'razorpay',
+                        paymentReference: reconciled.paymentId,
+                        razorpayOrderId: reconciled.attempt.razorpay_order_id
+                    }
+                });
+                if (!reconciled?.reusedExistingOrder) {
+                    notifyAdminsOfNewOrder(finalOrder, { source: 'checkout_status_poll_public' });
+                    void triggerOrderLifecycleEmail({
+                        order: finalOrder,
+                        stage: 'confirmed',
+                        includeInvoice: true
+                    });
+                    void triggerPaymentLifecycleCommunication({
+                        order: finalOrder,
+                        stage: PAYMENT_STATUS.PAID,
+                        payment: {
+                            paymentStatus: PAYMENT_STATUS.PAID,
+                            paymentMethod: 'razorpay',
+                            paymentReference: reconciled.paymentId,
+                            razorpayOrderId: reconciled.attempt.razorpay_order_id
+                        }
+                    });
+                }
+            }
+
+            return res.json(serializePaymentAttemptStatus({
+                attempt: latestAttempt || reconciled.attempt,
+                order: finalOrder
+            }));
+        } catch (error) {
+            const latestAttempt = await PaymentAttempt.getById(attempt.id);
+            const existingOrder = latestAttempt?.local_order_id ? await Order.getById(latestAttempt.local_order_id) : null;
+            return res.json(serializePaymentAttemptStatus({
+                attempt: latestAttempt || attempt,
+                order: existingOrder || null,
+                message: error?.message || null
+            }));
+        }
+    } catch (error) {
+        return res.status(Number(error?.statusCode || 401) || 401).json({ message: error?.message || 'Invalid payment attempt access' });
     }
 };
 
@@ -1868,10 +2217,15 @@ const validatePublicRecoveryCoupon = async (req, res) => {
         if (!selections.length) {
             return res.status(400).json({ message: 'Cart is empty' });
         }
-        const summary = await Order.getAdminManualQuote(null, {
+        const guestMobile = String(req.body?.guest?.mobile || '').replace(/\D/g, '').trim();
+        const resolved = guestMobile && isValidPhoneNumber(guestMobile)
+            ? await resolveGuestCheckoutAccountByMobile({ mobile: guestMobile })
+            : null;
+        const summary = await Order.getAdminManualQuote(resolved?.user?.id || null, {
             shippingAddress: safeShippingAddress,
             couponCode: code,
-            items: selections
+            items: selections,
+            allowSavedAddressFallback: true
         });
         return res.json({
             ok: true,
@@ -1903,7 +2257,11 @@ const getPublicAvailableCoupons = async (req, res) => {
         if (!selections.length) {
             return res.json({ coupons: [] });
         }
-        const coupons = await Order.getAvailableCouponsForSelection({ userId: null, items: selections });
+        const guestMobile = String(req.body?.guest?.mobile || '').replace(/\D/g, '').trim();
+        const resolved = guestMobile && isValidPhoneNumber(guestMobile)
+            ? await resolveGuestCheckoutAccountByMobile({ mobile: guestMobile })
+            : null;
+        const coupons = await Order.getAvailableCouponsForSelection({ userId: resolved?.user?.id || null, items: selections });
         return res.json({ coupons });
     } catch (error) {
         return res.status(400).json({ message: error?.message || 'Failed to fetch available coupons' });
@@ -2158,10 +2516,15 @@ const getPublicCheckoutSummary = async (req, res) => {
         if (!selections.length) {
             return res.status(400).json({ message: 'Cart is empty' });
         }
-        const summary = await Order.getAdminManualQuote(null, {
+        const guestMobile = String(req.body?.guest?.mobile || '').replace(/\D/g, '').trim();
+        const resolved = guestMobile && isValidPhoneNumber(guestMobile)
+            ? await resolveGuestCheckoutAccountByMobile({ mobile: guestMobile })
+            : null;
+        const summary = await Order.getAdminManualQuote(resolved?.user?.id || null, {
             shippingAddress: safeShippingAddress,
             couponCode: code,
-            items: selections
+            items: selections,
+            allowSavedAddressFallback: true
         });
         return res.json({ summary });
     } catch (error) {
@@ -3600,9 +3963,9 @@ module.exports = {
     createOrderFromCheckout,
     createRazorpayOrder,
     createPublicRazorpayOrder,
+    lookupGuestCheckoutAccount,
     getCheckoutSummary,
     getPublicCheckoutSummary,
-    startCheckoutAccountVerification,
     validateRecoveryCoupon,
     validatePublicRecoveryCoupon,
     getAvailableCoupons,
@@ -3613,7 +3976,9 @@ module.exports = {
     getPublicPopupData,
     retryRazorpayPayment,
     verifyRazorpayPayment,
+    verifyPublicRazorpayPayment,
     getMyPaymentAttemptStatus,
+    getPublicPaymentAttemptStatus,
     handleRazorpayWebhook,
     getAdminOrders,
     getAdminPaymentHealth,

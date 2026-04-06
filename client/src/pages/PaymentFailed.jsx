@@ -5,17 +5,24 @@ import { useToast } from '../context/ToastContext';
 import CheckoutFlowHeader from '../components/CheckoutFlowHeader';
 import paymentIllustration from '../assets/payment.svg';
 import { normalizePaymentFailureReason } from '../utils/paymentFailure';
+import { useAuth } from '../context/AuthContext';
 
 export default function PaymentFailed() {
     const toast = useToast();
     const navigate = useNavigate();
+    const { user } = useAuth();
     const [searchParams] = useSearchParams();
     const reason = normalizePaymentFailureReason(searchParams.get('reason'));
     const attemptId = searchParams.get('attemptId') || '';
     const [isRetrying, setIsRetrying] = useState(false);
+    const isGuestFailure = !user;
 
     const handleRetry = async () => {
         if (isRetrying) return;
+        if (!user) {
+            navigate('/checkout');
+            return;
+        }
         setIsRetrying(true);
         try {
             await orderService.retryRazorpayOrder({ attemptId: attemptId || undefined });
@@ -48,9 +55,15 @@ export default function PaymentFailed() {
                         >
                             {isRetrying ? 'Retrying...' : 'Retry Payment'}
                         </button>
-                        <Link to="/orders" className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 font-semibold">
-                            Go to Orders
-                        </Link>
+                        {isGuestFailure ? (
+                            <Link to="/checkout" className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 font-semibold">
+                                Back to Checkout
+                            </Link>
+                        ) : (
+                            <Link to="/orders" className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 font-semibold">
+                                Go to Orders
+                            </Link>
+                        )}
                     </div>
                 </div>
             </div>

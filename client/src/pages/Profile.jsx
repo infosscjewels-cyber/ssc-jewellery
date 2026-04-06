@@ -19,7 +19,7 @@ import { useToast } from '../context/ToastContext';
 import { authService } from '../services/authService';
 import { useMyOrders } from '../context/OrderContext';
 import { useShipping } from '../context/ShippingContext';
-import { formatTierLabel, getMembershipLabel, getNextTierFromCurrent, getTierSpendKey } from '../utils/tierFormat';
+import { formatTierLabel, getMembershipLabel } from '../utils/tierFormat';
 import { formatMissingProfileFields } from '../utils/membershipUnlock';
 import { getAllowedShippingStates, isAllowedShippingState, isValidIndianPincode, lookupStateByPincode, normalizePincodeInput, resolveAllowedStateName } from '../utils/addressValidation';
 import { billingAddressEnabled } from '../utils/billingAddressConfig';
@@ -103,7 +103,7 @@ const getOrderSavings = (order = {}) => {
 };
 
 export default function Profile() {
-    const { user, updateUser } = useAuth();
+    const { user, updateUser, refreshUser } = useAuth();
     const { zones } = useShipping();
     const toast = useToast();
     const [activeTab, setActiveTab] = useState('profile');
@@ -294,6 +294,7 @@ export default function Profile() {
             });
             if (res?.user) {
                 updateUser(res.user);
+                await refreshUser().catch(() => null);
                 toast.success('Profile updated successfully');
                 setHighlightProfileFields(false);
                 setIsEditing(false);
@@ -355,10 +356,9 @@ export default function Profile() {
     const tierTheme = TIER_THEME[tier] || TIER_THEME.regular;
     const tierLabel = formatTierLabel(loyaltyStatus?.profile?.label || tier);
     const progressPct = Number(loyaltyStatus?.progress?.progressPct || 0);
-    const spendKey = getTierSpendKey(tier);
-    const currentSpend = Number(loyaltyStatus?.spends?.[spendKey] || 0);
+    const currentSpend = Number(loyaltyStatus?.progress?.currentSpend ?? 0);
     const neededToNext = Number(loyaltyStatus?.progress?.needed || 0);
-    const nextTierKey = loyaltyStatus?.progress?.nextTier || getNextTierFromCurrent(tier);
+    const nextTierKey = loyaltyStatus?.progress?.nextTier || null;
     const nextTierLabel = nextTierKey ? formatTierLabel(loyaltyStatus?.nextTierProfile?.label || nextTierKey) : '';
     const progressMessage = String(loyaltyStatus?.progress?.message || '').trim();
     const isProgressMessageDuplicated = Boolean(

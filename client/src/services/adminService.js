@@ -62,10 +62,11 @@ export const adminService = {
         return data;
     },
 
-    deleteUser: async (id) => {
+    deleteUser: async (id, payload = {}) => {
         const res = await fetch(`${API_URL}/users/${id}`, { 
             method: 'DELETE',
-            headers: getAuthHeader() 
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
         });
         userCache = {};
         return handleResponse(res);

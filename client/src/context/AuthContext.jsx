@@ -13,6 +13,23 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const logoutInFlightRef = useRef(false);
 
+    const mergeUserWithLoyalty = useCallback((profileUser, loyaltyStatus = null) => ({
+        ...profileUser,
+        ...(loyaltyStatus?.effectiveTier || loyaltyStatus?.tier
+            ? { loyaltyTier: String(loyaltyStatus?.effectiveTier || loyaltyStatus?.tier || 'regular').toLowerCase() }
+            : {}),
+        ...(loyaltyStatus?.effectiveProfile || loyaltyStatus?.profile
+            ? { loyaltyProfile: loyaltyStatus?.effectiveProfile || loyaltyStatus?.profile }
+            : {}),
+        ...(loyaltyStatus?.eligibility ? { loyaltyEligibility: loyaltyStatus.eligibility } : {}),
+        ...(loyaltyStatus?.tier || loyaltyStatus?.earnedTier
+            ? { earnedLoyaltyTier: String(loyaltyStatus?.tier || loyaltyStatus?.earnedTier || 'regular').toLowerCase() }
+            : {}),
+        ...(loyaltyStatus?.earnedProfile || loyaltyStatus?.profile
+            ? { earnedLoyaltyProfile: loyaltyStatus?.earnedProfile || loyaltyStatus?.profile }
+            : {})
+    }), []);
+
     // 3. Centralized Logout Function
     const performLogout = useCallback(async () => {
         if (logoutInFlightRef.current) return;
@@ -67,11 +84,7 @@ export const AuthProvider = ({ children }) => {
                         );
 
                         if (profileUser) {
-                            const mergedUser = {
-                                ...profileUser,
-                                ...(loyaltyStatus?.tier ? { loyaltyTier: String(loyaltyStatus.tier).toLowerCase() } : {}),
-                                ...(loyaltyStatus?.profile ? { loyaltyProfile: loyaltyStatus.profile } : {})
-                            };
+                            const mergedUser = mergeUserWithLoyalty(profileUser, loyaltyStatus);
                             localStorage.setItem('user', JSON.stringify(mergedUser));
                             setUser(mergedUser);
                         } else if (!parsedStoredUser) {
@@ -121,11 +134,7 @@ export const AuthProvider = ({ children }) => {
                     return;
                 }
 
-                const mergedUser = {
-                    ...profileUser,
-                    ...(loyaltyStatus?.tier ? { loyaltyTier: String(loyaltyStatus.tier).toLowerCase() } : {}),
-                    ...(loyaltyStatus?.profile ? { loyaltyProfile: loyaltyStatus.profile } : {})
-                };
+                const mergedUser = mergeUserWithLoyalty(profileUser, loyaltyStatus);
                 localStorage.setItem('user', JSON.stringify(mergedUser));
                 setUser(mergedUser);
             } catch (error) {
@@ -161,7 +170,7 @@ export const AuthProvider = ({ children }) => {
             window.removeEventListener('auth:user-updated', handleUserUpdated);
             window.removeEventListener('auth:user-deleted', handleUserDeleted);
         };
-    }, [performLogout, user]);
+    }, [mergeUserWithLoyalty, performLogout, user]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
@@ -194,8 +203,28 @@ export const AuthProvider = ({ children }) => {
         });
     };
 
+    const refreshUser = useCallback(async () => {
+        const token = getStoredToken();
+        if (!token || token === 'undefined' || token === 'null') return null;
+        const [profileResult, loyaltyResult] = await Promise.allSettled([
+            authService.getProfile(),
+            authService.getLoyaltyStatus()
+        ]);
+        const profileUser = profileResult.status === 'fulfilled'
+            ? profileResult.value?.user || null
+            : null;
+        if (!profileUser) return null;
+        const loyaltyStatus = loyaltyResult.status === 'fulfilled'
+            ? loyaltyResult.value?.status || null
+            : null;
+        const mergedUser = mergeUserWithLoyalty(profileUser, loyaltyStatus);
+        localStorage.setItem('user', JSON.stringify(mergedUser));
+        setUser(mergedUser);
+        return mergedUser;
+    }, [mergeUserWithLoyalty]);
+
     return (
-        <AuthContext.Provider value={{ user, login, logout: performLogout, updateUser, loading }}>
+        <AuthContext.Provider value={{ user, login, logout: performLogout, updateUser, refreshUser, loading }}>
             {!loading && children}
         </AuthContext.Provider>
     );
