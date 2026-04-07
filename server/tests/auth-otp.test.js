@@ -28,7 +28,7 @@ test('sendOtp hides debug OTP outside test mode and sends general OTP through Wh
 
     const req = {
         body: {
-            mobile: '9876543210'
+            mobile: '9385635136'
         }
     };
     const res = createMockRes();
@@ -93,7 +93,7 @@ test('sendOtp returns 502 when no delivery channel actually succeeds', async () 
 
     const req = {
         body: {
-            mobile: '9876543210'
+            mobile: '9385635136'
         }
     };
     const res = createMockRes();

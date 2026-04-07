@@ -5,7 +5,7 @@ const OtpService = require('../services/otpService');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { getUserLoyaltyStatus, issueBirthdayCouponForUser } = require('../services/loyaltyService');
-const { sendEmailCommunication, deliverWorkflowEmail, sendWhatsapp } = require('../services/communications/communicationService');
+const { sendEmailCommunication, deliverWorkflowEmailWithPolicy, sendWhatsapp } = require('../services/communications/communicationService');
 const { emitToUserAudiences } = require('../utils/socketAudience');
 const { normalizeAndValidateAddress } = require('../utils/addressValidation');
 const { billingAddressEnabled, resolveBillingAddress } = require('../utils/billingAddressConfig');
@@ -277,36 +277,35 @@ const dispatchWelcomeCommunication = (user = {}) => {
         const template = email && isEmail(email)
             ? buildWelcomeEmailTemplate({ user: payloadUser })
             : null;
-        const [emailResult, whatsappResult] = await Promise.allSettled([
-            template
-                ? deliverWorkflowEmail({
-                    workflow: 'welcome',
-                    to: email,
-                    subject: template.subject,
-                    text: template.text,
-                    html: template.html,
-                    context: {
-                        userId: user?.id || null,
-                        email
-                    }
-                })
-                : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
-            mobile
-                ? sendWhatsapp({
-                    type: 'welcome',
-                    template: 'welcome',
-                    mobile,
-                    name: payloadUser.name,
-                    params: [payloadUser.name]
-                })
-                : Promise.resolve({ ok: false, skipped: true, reason: 'missing_mobile' })
-        ]);
+        const whatsappResult = mobile
+            ? await sendWhatsapp({
+                type: 'welcome',
+                template: 'welcome',
+                mobile,
+                name: payloadUser.name,
+                params: [payloadUser.name]
+            }).catch((error) => {
+                console.error('Welcome WhatsApp delivery failed:', error?.message || error);
+                return { ok: false, skipped: false, reason: 'whatsapp_send_failed', message: error?.message || 'whatsapp_send_failed' };
+            })
+            : { ok: false, skipped: true, reason: 'missing_mobile' };
 
-        if (emailResult.status === 'rejected') {
-            console.error('Welcome email delivery failed:', emailResult.reason?.message || emailResult.reason);
-        }
-        if (whatsappResult.status === 'rejected') {
-            console.error('Welcome WhatsApp delivery failed:', whatsappResult.reason?.message || whatsappResult.reason);
+        if (template) {
+            await deliverWorkflowEmailWithPolicy({
+                workflow: 'welcome',
+                recipientMobile: mobile,
+                whatsappResult,
+                to: email,
+                subject: template.subject,
+                text: template.text,
+                html: template.html,
+                context: {
+                    userId: user?.id || null,
+                    email
+                }
+            }).catch((error) => {
+                console.error('Welcome email delivery failed:', error?.message || error);
+            });
         }
     });
 };
@@ -464,7 +463,8 @@ exports.sendOtp = async (req, res) => {
                     to: userEmail,
                     subject: template.subject,
                     text: template.text,
-                    html: template.html
+                    html: template.html,
+                    workflow: purpose === 'password_reset' ? 'password_reset_otp' : 'login_otp'
                 }), 'email', delivery);
             }
             if (isWhatsappMobileValid && otpChannel !== 'email') {

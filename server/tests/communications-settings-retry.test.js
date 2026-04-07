@@ -44,9 +44,9 @@ test('company profile update keeps email enabled and applies WhatsApp toggle', a
 
     const writeCall = calls.find((entry) => entry.sql.includes('INSERT INTO company_profile'));
     assert.ok(writeCall);
-    assert.equal(writeCall.params[11], 1);
-    assert.equal(writeCall.params[12], 0);
-    assert.match(String(writeCall.params[13]), /"loginOtp":false/);
+    assert.equal(writeCall.params[23], 1);
+    assert.equal(writeCall.params[24], 0);
+    assert.match(String(writeCall.params[25]), /"loginOtp":false/);
 });
 
 test('sendEmailCommunication queues failed email attempts', async () => {
@@ -80,6 +80,149 @@ test('sendEmailCommunication queues failed email attempts', async () => {
     assert.equal(inserts[0].params[0], 'email');
     assert.equal(inserts[0].params[1], 'order');
     assert.equal(inserts[0].params[2], 'user@example.com');
+});
+
+test('eco mode skips fallback workflow email when WhatsApp succeeds', async () => {
+    let sendEmailCalls = 0;
+    const dbCalls = [];
+    await withPatched(emailChannel, {
+        sendEmail: async () => {
+            sendEmailCalls += 1;
+            return { ok: true, messageId: 'msg-1' };
+        }
+    }, async () => withPatched(db, {
+        execute: async (sql, params = []) => {
+            dbCalls.push({ sql: String(sql), params });
+            if (String(sql).includes('SELECT COUNT(*) AS total') && String(sql).includes('communication_delivery_logs')) {
+                return [[{ total: 54 }]];
+            }
+            if (String(sql).includes('INSERT INTO communication_delivery_logs')) {
+                return [{ insertId: 31 }];
+            }
+            return [[]];
+        }
+    }, async () => {
+        const communicationService = requireFresh('../services/communications/communicationService');
+        const result = await communicationService.deliverWorkflowEmailWithPolicy({
+            workflow: 'welcome',
+            recipientMobile: '919999999999',
+            whatsappResult: { ok: true, provider: 'mock-whatsapp' },
+            to: 'user@example.com',
+            subject: 'Welcome',
+            html: '<p>Hello</p>'
+        });
+        assert.equal(result.skipped, true);
+        assert.equal(result.reason, 'eco_mode_whatsapp_succeeded');
+        assert.equal(result.policy.classification, 'fallback_email');
+        assert.equal(result.policy.ecoModeActive, true);
+    }));
+
+    assert.equal(sendEmailCalls, 0);
+    assert.equal(dbCalls.filter((entry) => entry.sql.includes('INSERT INTO communication_delivery_logs')).length, 0);
+});
+
+test('eco mode allows fallback workflow email when WhatsApp is unavailable', async () => {
+    let sendEmailCalls = 0;
+    await withPatched(emailChannel, {
+        sendEmail: async () => {
+            sendEmailCalls += 1;
+            return { ok: true, messageId: 'msg-2' };
+        }
+    }, async () => withPatched(db, {
+        execute: async (sql) => {
+            if (String(sql).includes('SELECT COUNT(*) AS total') && String(sql).includes('communication_delivery_logs')) {
+                return [[{ total: 54 }]];
+            }
+            if (String(sql).includes('INSERT INTO communication_delivery_logs')) {
+                return [{ insertId: 32 }];
+            }
+            return [[]];
+        }
+    }, async () => {
+        const communicationService = requireFresh('../services/communications/communicationService');
+        const result = await communicationService.deliverWorkflowEmailWithPolicy({
+            workflow: 'coupon_issue',
+            recipientMobile: '',
+            whatsappResult: { ok: false, skipped: true, reason: 'missing_mobile' },
+            to: 'user@example.com',
+            subject: 'Coupon',
+            html: '<p>Hello</p>'
+        });
+        assert.equal(result.ok, true);
+        assert.equal(result.policy.classification, 'fallback_email');
+        assert.equal(result.policy.ecoModeActive, true);
+        assert.equal(result.policy.fallbackReason, 'missing_mobile');
+    }));
+
+    assert.equal(sendEmailCalls, 1);
+});
+
+test('eco mode does not suppress OTP workflow email', async () => {
+    let sendEmailCalls = 0;
+    await withPatched(emailChannel, {
+        sendEmail: async () => {
+            sendEmailCalls += 1;
+            return { ok: true, messageId: 'msg-otp' };
+        }
+    }, async () => withPatched(db, {
+        execute: async (sql) => {
+            if (String(sql).includes('SELECT COUNT(*) AS total') && String(sql).includes('communication_delivery_logs')) {
+                return [[{ total: 54 }]];
+            }
+            if (String(sql).includes('INSERT INTO communication_delivery_logs')) {
+                return [{ insertId: 33 }];
+            }
+            return [[]];
+        }
+    }, async () => {
+        const communicationService = requireFresh('../services/communications/communicationService');
+        const result = await communicationService.deliverWorkflowEmailWithPolicy({
+            workflow: 'login_otp',
+            recipientMobile: '919999999999',
+            whatsappResult: { ok: true, provider: 'mock-whatsapp' },
+            to: 'user@example.com',
+            subject: 'OTP',
+            html: '<p>123456</p>'
+        });
+        assert.equal(result.ok, true);
+        assert.equal(result.policy.classification, 'mandatory_email');
+        assert.equal(result.policy.ecoModeActive, true);
+    }));
+
+    assert.equal(sendEmailCalls, 1);
+});
+
+test('eco mode does not suppress order update email', async () => {
+    let sendEmailCalls = 0;
+    await withPatched(emailChannel, {
+        sendEmail: async () => {
+            sendEmailCalls += 1;
+            return { ok: true, messageId: 'msg-order' };
+        }
+    }, async () => withPatched(db, {
+        execute: async (sql) => {
+            if (String(sql).includes('SELECT COUNT(*) AS total') && String(sql).includes('communication_delivery_logs')) {
+                return [[{ total: 54 }]];
+            }
+            if (String(sql).includes('INSERT INTO communication_delivery_logs')) {
+                return [{ insertId: 34 }];
+            }
+            if (String(sql).includes('INSERT INTO communication_dedupe_keys')) return [{}];
+            if (String(sql).includes('UPDATE communication_dedupe_keys')) return [{}];
+            return [[]];
+        }
+    }, async () => {
+        const communicationService = requireFresh('../services/communications/communicationService');
+        const result = await communicationService.sendOrderLifecycleCommunication({
+            stage: 'confirmed',
+            customer: { name: 'Customer', email: 'user@example.com', mobile: '919999999999' },
+            order: { id: 99, order_ref: 'ORD-99', total: 1000 },
+            allowWhatsapp: false
+        });
+        assert.equal(result.email.ok, true);
+    }));
+
+    assert.equal(sendEmailCalls, 1);
 });
 
 test('sendWhatsapp queues failed provider responses', async () => {

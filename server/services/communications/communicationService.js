@@ -48,10 +48,11 @@ const resolveOrderTaxPriceMode = (order = {}) => {
     return 'exclusive';
 };
 
-const buildSkippedEmailResult = (reason = 'missing_email') => ({
+const buildSkippedEmailResult = (reason = 'missing_email', meta = {}) => ({
     ok: false,
     skipped: true,
-    reason
+    reason,
+    ...meta
 });
 
 const buildSkippedDuplicateResult = (channel = 'generic') => ({
@@ -63,6 +64,42 @@ const buildSkippedDuplicateResult = (channel = 'generic') => ({
 
 const EMAIL_DAILY_SEND_SOFT_LIMIT = Math.max(1, Number(process.env.EMAIL_DAILY_SEND_SOFT_LIMIT || 90));
 const EMAIL_DAILY_SEND_WINDOW_HOURS = Math.max(1, Number(process.env.EMAIL_DAILY_SEND_WINDOW_HOURS || 24));
+const EMAIL_ECO_MODE_REMAINING_RATIO = Math.min(1, Math.max(0, Number(process.env.EMAIL_ECO_MODE_REMAINING_RATIO || 0.4)));
+const WORKFLOW_EMAIL_CLASSIFICATIONS = {
+    mandatory_email: new Set([
+        'otp',
+        'login_otp',
+        'password_reset_otp',
+        'order',
+        'payment_status'
+    ]),
+    fallback_email: new Set([
+        'welcome',
+        'loyalty_upgrade',
+        'loyalty_downgrade',
+        'loyalty_monthly_summary',
+        'loyalty_progress',
+        'birthday_coupon',
+        'coupon_issue',
+        'abandoned_cart_recovery'
+    ])
+};
+
+const normalizeWorkflowName = (workflow = '') => String(workflow || '').trim().toLowerCase() || 'generic';
+
+const classifyWorkflowEmailPolicy = (workflow = '') => {
+    const normalized = normalizeWorkflowName(workflow);
+    if (WORKFLOW_EMAIL_CLASSIFICATIONS.mandatory_email.has(normalized)) {
+        return 'mandatory_email';
+    }
+    if (normalized.startsWith('order_')) {
+        return 'mandatory_email';
+    }
+    if (WORKFLOW_EMAIL_CLASSIFICATIONS.fallback_email.has(normalized)) {
+        return 'fallback_email';
+    }
+    return 'generic_email';
+};
 
 const getRecentSuccessfulCommunicationCount = async ({ channel = 'email', windowHours = EMAIL_DAILY_SEND_WINDOW_HOURS } = {}) => {
     const [rows] = await db.execute(
@@ -75,6 +112,43 @@ const getRecentSuccessfulCommunicationCount = async ({ channel = 'email', window
     );
     return Number(rows?.[0]?.total || 0);
 };
+
+const getEmailQuotaState = async () => {
+    const softLimit = Math.max(1, Number(EMAIL_DAILY_SEND_SOFT_LIMIT || 1));
+    const sentInWindow = await getRecentSuccessfulCommunicationCount({
+        channel: 'email',
+        windowHours: EMAIL_DAILY_SEND_WINDOW_HOURS
+    });
+    const remainingQuota = Math.max(0, softLimit - sentInWindow);
+    const remainingRatio = softLimit > 0 ? (remainingQuota / softLimit) : 0;
+    return {
+        softLimit,
+        windowHours: EMAIL_DAILY_SEND_WINDOW_HOURS,
+        sentInWindow,
+        remainingQuota,
+        remainingRatio,
+        ecoModeThresholdRatio: EMAIL_ECO_MODE_REMAINING_RATIO,
+        ecoModeActive: remainingRatio <= EMAIL_ECO_MODE_REMAINING_RATIO
+    };
+};
+
+const buildEmailPolicyMeta = ({
+    workflow = 'generic',
+    classification = 'generic_email',
+    quotaState = null,
+    fallbackReason = null,
+    recipientMobile = ''
+} = {}) => ({
+    workflow: normalizeWorkflowName(workflow),
+    classification,
+    ecoModeActive: Boolean(quotaState?.ecoModeActive),
+    softLimit: Number(quotaState?.softLimit || EMAIL_DAILY_SEND_SOFT_LIMIT),
+    sentInWindow: Number(quotaState?.sentInWindow || 0),
+    remainingQuota: Number(quotaState?.remainingQuota || 0),
+    remainingRatio: Number(quotaState?.remainingRatio || 0),
+    fallbackReason: fallbackReason || null,
+    recipientHasWhatsapp: /^[0-9]{10,12}$/.test(String(recipientMobile || '').trim())
+});
 
 const recordSuccessfulCommunicationDelivery = async ({
     channel,
@@ -312,6 +386,82 @@ const deliverWorkflowEmail = async ({
         });
         throw error;
     }
+};
+
+const deliverWorkflowEmailWithPolicy = async ({
+    workflow = 'generic',
+    recipientMobile = '',
+    whatsappResult = null,
+    to,
+    subject,
+    text = '',
+    html = '',
+    replyTo = null,
+    cc = null,
+    bcc = null,
+    attachments = [],
+    disableRetry = false,
+    context = {}
+} = {}) => {
+    const workflowName = normalizeWorkflowName(workflow);
+    const classification = classifyWorkflowEmailPolicy(workflowName);
+    const quotaState = await getEmailQuotaState();
+    const policyMetaBase = buildEmailPolicyMeta({
+        workflow: workflowName,
+        classification,
+        quotaState,
+        recipientMobile
+    });
+
+    if (classification === 'fallback_email' && quotaState.ecoModeActive) {
+        const hasWhatsappMobile = /^[0-9]{10,12}$/.test(String(recipientMobile || '').trim());
+        const whatsappDelivered = Boolean(whatsappResult?.ok);
+        if (hasWhatsappMobile && whatsappDelivered) {
+            const result = buildSkippedEmailResult('eco_mode_whatsapp_succeeded', {
+                policy: {
+                    ...policyMetaBase,
+                    fallbackReason: 'whatsapp_succeeded'
+                }
+            });
+            console.info('[email] eco mode skipped workflow email', {
+                workflow: workflowName,
+                reason: result.reason,
+                policy: result.policy,
+                context
+            });
+            return result;
+        }
+    }
+
+    const fallbackReason = classification === 'fallback_email' && quotaState.ecoModeActive
+        ? (whatsappResult?.ok
+            ? null
+            : (whatsappResult?.reason || whatsappResult?.message || (/^[0-9]{10,12}$/.test(String(recipientMobile || '').trim()) ? 'whatsapp_unavailable_or_failed' : 'missing_whatsapp')))
+        : null;
+
+    const result = await deliverWorkflowEmail({
+        workflow: workflowName,
+        to,
+        subject,
+        text,
+        html,
+        replyTo,
+        cc,
+        bcc,
+        attachments,
+        disableRetry,
+        context
+    });
+    return {
+        ...result,
+        policy: buildEmailPolicyMeta({
+            workflow: workflowName,
+            classification,
+            quotaState,
+            fallbackReason,
+            recipientMobile
+        })
+    };
 };
 
 const sendWhatsapp = async (payload = {}) => {
@@ -945,34 +1095,30 @@ const sendAbandonedCartRecoveryCommunication = async ({ customer = {}, cart = {}
         closing
     });
 
-    const [emailResult, whatsappResult] = await Promise.allSettled([
-        recipient.email
-            ? deliverWorkflowEmail({
-                workflow: 'abandoned_cart_recovery',
-                to: recipient.email,
-                subject: template.subject,
-                text: template.text,
-                html: template.html,
-                context: {
-                    itemCount
-                }
-            })
-            : Promise.resolve(buildSkippedEmailResult('missing_email')),
-        sendWhatsapp({
-            customer: recipient,
-            cart,
-            type: 'abandoned_cart_recovery',
-            template: 'abandoned_cart_recovery',
-            mobile: recipient.mobile
-        })
-    ]);
+    const whatsappResult = await sendWhatsapp({
+        customer: recipient,
+        cart,
+        type: 'abandoned_cart_recovery',
+        template: 'abandoned_cart_recovery',
+        mobile: recipient.mobile
+    }).catch((error) => toChannelFailure(error, 'whatsapp_send_failed'));
+    const emailResult = recipient.email
+        ? await deliverWorkflowEmailWithPolicy({
+            workflow: 'abandoned_cart_recovery',
+            recipientMobile: recipient.mobile,
+            whatsappResult,
+            to: recipient.email,
+            subject: template.subject,
+            text: template.text,
+            html: template.html,
+            context: {
+                itemCount
+            }
+        }).catch((error) => toChannelFailure(error, 'email_send_failed'))
+        : buildSkippedEmailResult('missing_email');
     return {
-        email: emailResult.status === 'fulfilled'
-            ? emailResult.value
-            : toChannelFailure(emailResult.reason, 'email_send_failed'),
-        whatsapp: whatsappResult.status === 'fulfilled'
-            ? whatsappResult.value
-            : toChannelFailure(whatsappResult.reason, 'whatsapp_send_failed')
+        email: emailResult,
+        whatsapp: whatsappResult
     };
 };
 
@@ -980,6 +1126,7 @@ module.exports = {
     verifyEmailTransport,
     sendEmailCommunication,
     deliverWorkflowEmail,
+    deliverWorkflowEmailWithPolicy,
     sendOrderLifecycleCommunication,
     sendPaymentLifecycleCommunication,
     sendAbandonedCartRecoveryCommunication,
@@ -987,5 +1134,7 @@ module.exports = {
 };
 module.exports.__test = {
     resolveOrderTaxPriceMode,
-    buildOrderLifecycleTemplate
+    buildOrderLifecycleTemplate,
+    classifyWorkflowEmailPolicy,
+    getEmailQuotaState
 };

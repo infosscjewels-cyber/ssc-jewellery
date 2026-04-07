@@ -15,6 +15,7 @@ const {
     verifyEmailTransport,
     sendEmailCommunication,
     deliverWorkflowEmail,
+    deliverWorkflowEmailWithPolicy,
     sendWhatsapp
 } = require('../services/communications/communicationService');
 const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded, reassessActiveCustomersForConfigChange } = require('../services/loyaltyService');
@@ -2459,92 +2460,92 @@ const issueCouponToUser = async (req, res) => {
             ? `Explore eligible products: ${categoryContext.categoryUrl || categoryContext.categoryLink}`
             : '';
         const message = `Hi ${customerName}, your coupon code is ${coupon.code}.`;
-        const [emailResult, whatsappResult] = await Promise.all([
-            user.email
-                ? deliverWorkflowEmail({
-                    workflow: 'coupon_issue',
-                    to: user.email,
-                    subject: `${customerName}, a little surprise from SSC Jewellery`,
-                    text: [
-                        `Hi ${customerName},`,
-                        '',
-                        `We are so glad to have you with us.`,
-                        `As a small thank-you, here is a special offer for your next order:`,
-                        '',
-                        `Coupon code: ${coupon.code}`,
-                        `Offer: ${offerLabel}`,
-                        `Valid till: ${expiryLabel}`,
-                        ...(categoryEligibilityLine ? [categoryEligibilityLine] : []),
-                        ...(categoryCtaLine ? [categoryCtaLine] : []),
-                        '',
-                        `Whenever you are ready, apply this code at checkout and enjoy your savings.`,
-                        '',
-                        `With warmth,`,
-                        `Team SSC Jewellery`
-                    ].join('\n'),
-                    html: `
-                        <div style="font-family:Arial,Helvetica,sans-serif;background:#f7f7f8;padding:20px;color:#111827;">
-                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;">
-                                <tr>
-                                    <td style="padding:22px 22px 8px;">
-                                        <div style="font-size:22px;font-weight:700;color:#111827;">A little surprise for you</div>
-                                        <div style="font-size:14px;color:#4b5563;margin-top:8px;">Hi ${customerName}, we are so glad to have you with us at SSC Jewellery.</div>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style="padding:0 22px 8px;">
-                                        <div style="font-size:14px;color:#111827;">As a small thank-you, here is a special offer for your next order:</div>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style="padding:8px 22px;">
-                                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:12px;background:#fafafa;">
-                                            <tr>
-                                                <td style="padding:14px 16px;">
-                                                    <div style="font-size:12px;color:#6b7280;letter-spacing:0.04em;text-transform:uppercase;">Coupon Code</div>
-                                                    <div style="font-size:22px;font-weight:700;color:#111827;margin-top:4px;">${coupon.code}</div>
-                                                    <div style="font-size:14px;color:#111827;margin-top:8px;">Offer: <strong>${offerLabel}</strong></div>
-                                                    <div style="font-size:14px;color:#111827;margin-top:4px;">Valid till: <strong>${expiryLabel}</strong></div>
-                                                    ${categoryEligibilityLine ? `<div style="font-size:14px;color:#92400e;margin-top:8px;"><strong>${categoryEligibilityLine}</strong></div>` : ''}
-                                                    ${categoryContext?.categoryLink ? `<div style="font-size:13px;color:#1f2937;margin-top:6px;"><a href="${categoryContext.categoryUrl || categoryContext.categoryLink}" style="color:#1f2937;text-decoration:underline;font-weight:600;">Browse eligible category products</a></div>` : ''}
-                                                </td>
-                                            </tr>
-                                        </table>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style="padding:8px 22px 20px;font-size:13px;color:#6b7280;">
-                                        Whenever you are ready, apply this code at checkout and enjoy your savings.
-                                        <br/><br/>
-                                        With warmth,<br/>
-                                        <strong>Team SSC Jewellery</strong>
-                                    </td>
-                                </tr>
-                            </table>
-                        </div>
-                    `,
-                    context: {
-                        userId: user?.id || null,
-                        couponCode: coupon.code
-                    }
-                }).catch(() => ({ ok: false }))
-                : Promise.resolve({ ok: false, skipped: true, reason: 'missing_email' }),
-            user.mobile
-                ? sendWhatsapp({
-                    type: 'coupon_issue',
-                    template: 'coupon_issue',
-                    mobile: user.mobile,
-                    message: `${message}${categoryEligibilityLine ? ` ${categoryEligibilityLine}` : ''}${categoryCtaLine ? ` ${categoryCtaLine}` : ''} Use once per order.`,
-                    data: {
-                        storeName: 'SSC Jewellery',
-                        couponCode: coupon.code,
-                        discount: offerLabel,
-                        validUntil: expiryLabel,
-                        shopUrl: categoryContext?.categoryUrl || process.env.APP_BASE_URL || process.env.CLIENT_BASE_URL || process.env.FRONTEND_URL || process.env.APP_URL || ''
-                    }
-                }).catch(() => ({ ok: false }))
-                : Promise.resolve({ ok: false, skipped: true, reason: 'missing_mobile' })
-        ]);
+        const whatsappResult = user.mobile
+            ? await sendWhatsapp({
+                type: 'coupon_issue',
+                template: 'coupon_issue',
+                mobile: user.mobile,
+                message: `${message}${categoryEligibilityLine ? ` ${categoryEligibilityLine}` : ''}${categoryCtaLine ? ` ${categoryCtaLine}` : ''} Use once per order.`,
+                data: {
+                    storeName: 'SSC Jewellery',
+                    couponCode: coupon.code,
+                    discount: offerLabel,
+                    validUntil: expiryLabel,
+                    shopUrl: categoryContext?.categoryUrl || process.env.APP_BASE_URL || process.env.CLIENT_BASE_URL || process.env.FRONTEND_URL || process.env.APP_URL || ''
+                }
+            }).catch(() => ({ ok: false, skipped: false, reason: 'whatsapp_send_failed' }))
+            : { ok: false, skipped: true, reason: 'missing_mobile' };
+        const emailResult = user.email
+            ? await deliverWorkflowEmailWithPolicy({
+                workflow: 'coupon_issue',
+                recipientMobile: user.mobile || '',
+                whatsappResult,
+                to: user.email,
+                subject: `${customerName}, a little surprise from SSC Jewellery`,
+                text: [
+                    `Hi ${customerName},`,
+                    '',
+                    `We are so glad to have you with us.`,
+                    `As a small thank-you, here is a special offer for your next order:`,
+                    '',
+                    `Coupon code: ${coupon.code}`,
+                    `Offer: ${offerLabel}`,
+                    `Valid till: ${expiryLabel}`,
+                    ...(categoryEligibilityLine ? [categoryEligibilityLine] : []),
+                    ...(categoryCtaLine ? [categoryCtaLine] : []),
+                    '',
+                    `Whenever you are ready, apply this code at checkout and enjoy your savings.`,
+                    '',
+                    `With warmth,`,
+                    `Team SSC Jewellery`
+                ].join('\n'),
+                html: `
+                    <div style="font-family:Arial,Helvetica,sans-serif;background:#f7f7f8;padding:20px;color:#111827;">
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;">
+                            <tr>
+                                <td style="padding:22px 22px 8px;">
+                                    <div style="font-size:22px;font-weight:700;color:#111827;">A little surprise for you</div>
+                                    <div style="font-size:14px;color:#4b5563;margin-top:8px;">Hi ${customerName}, we are so glad to have you with us at SSC Jewellery.</div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding:0 22px 8px;">
+                                    <div style="font-size:14px;color:#111827;">As a small thank-you, here is a special offer for your next order:</div>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding:8px 22px;">
+                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:12px;background:#fafafa;">
+                                        <tr>
+                                            <td style="padding:14px 16px;">
+                                                <div style="font-size:12px;color:#6b7280;letter-spacing:0.04em;text-transform:uppercase;">Coupon Code</div>
+                                                <div style="font-size:22px;font-weight:700;color:#111827;margin-top:4px;">${coupon.code}</div>
+                                                <div style="font-size:14px;color:#111827;margin-top:8px;">Offer: <strong>${offerLabel}</strong></div>
+                                                <div style="font-size:14px;color:#111827;margin-top:4px;">Valid till: <strong>${expiryLabel}</strong></div>
+                                                ${categoryEligibilityLine ? `<div style="font-size:14px;color:#92400e;margin-top:8px;"><strong>${categoryEligibilityLine}</strong></div>` : ''}
+                                                ${categoryContext?.categoryLink ? `<div style="font-size:13px;color:#1f2937;margin-top:6px;"><a href="${categoryContext.categoryUrl || categoryContext.categoryLink}" style="color:#1f2937;text-decoration:underline;font-weight:600;">Browse eligible category products</a></div>` : ''}
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding:8px 22px 20px;font-size:13px;color:#6b7280;">
+                                    Whenever you are ready, apply this code at checkout and enjoy your savings.
+                                    <br/><br/>
+                                    With warmth,<br/>
+                                    <strong>Team SSC Jewellery</strong>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                `,
+                context: {
+                    userId: user?.id || null,
+                    couponCode: coupon.code
+                }
+            }).catch(() => ({ ok: false }))
+            : { ok: false, skipped: true, reason: 'missing_email' };
 
         emitCouponChanged(req, {
             action: 'created',

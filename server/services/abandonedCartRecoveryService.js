@@ -4,7 +4,7 @@ const Order = require('../models/Order');
 const AbandonedCart = require('../models/AbandonedCart');
 const CompanyProfile = require('../models/CompanyProfile');
 const {
-    deliverWorkflowEmail,
+    deliverWorkflowEmailWithPolicy,
     sendWhatsapp
 } = require('./communications/communicationService');
 const { createStandardPaymentLink } = require('./razorpayPaymentLinkService');
@@ -801,46 +801,6 @@ const processDueAbandonedCartRecoveries = async ({ limit = 25, onJourneyUpdate =
                 const responses = {};
                 let hardFailureMessage = null;
 
-                if (campaign.sendEmail && user?.email) {
-                    try {
-                        const mail = buildRecoveryEmail({
-                            user,
-                            journey: { ...workingJourney, cart_snapshot_json: latestCart, cart_total_subunits: latestSummary.totalSubunits },
-                            attemptNo,
-                            discountCode,
-                            discountPercent: discount.percent,
-                            paymentLinkUrl: paymentLink?.shortUrl || null,
-                            checkoutUrl,
-                            shippingFeeSubunits,
-                            totalWithShippingSubunits: Number(latestSummary.totalSubunits || 0) + Number(shippingFeeSubunits || 0),
-                            linkExpiry: paymentExpiry ? paymentExpiry.toISOString() : null
-                        });
-                        responses.email = await deliverWorkflowEmail({
-                            workflow: 'abandoned_cart_recovery',
-                            to: user.email,
-                            subject: mail.subject,
-                            text: mail.text,
-                            html: mail.html,
-                            context: {
-                                userId: workingJourney.user_id,
-                                journeyId: workingJourney.id,
-                                attemptNo
-                            }
-                        });
-                        channels.push('email');
-                    } catch (emailError) {
-                        hardFailureMessage = emailError?.message || 'Email send failed';
-                        responses.email = {
-                            ok: false,
-                            skipped: false,
-                            reason: 'email_send_failed',
-                            message: hardFailureMessage
-                        };
-                    }
-                } else {
-                    responses.email = { ok: false, skipped: true, reason: 'email_disabled_or_missing' };
-                }
-
                 if (campaign.sendWhatsapp) {
                     try {
                         responses.whatsapp = await sendWhatsapp({
@@ -867,6 +827,50 @@ const processDueAbandonedCartRecoveries = async ({ limit = 25, onJourneyUpdate =
                     }
                 } else {
                     responses.whatsapp = { ok: false, skipped: true, reason: 'whatsapp_disabled' };
+                }
+
+                if (campaign.sendEmail && user?.email) {
+                    try {
+                        const mail = buildRecoveryEmail({
+                            user,
+                            journey: { ...workingJourney, cart_snapshot_json: latestCart, cart_total_subunits: latestSummary.totalSubunits },
+                            attemptNo,
+                            discountCode,
+                            discountPercent: discount.percent,
+                            paymentLinkUrl: paymentLink?.shortUrl || null,
+                            checkoutUrl,
+                            shippingFeeSubunits,
+                            totalWithShippingSubunits: Number(latestSummary.totalSubunits || 0) + Number(shippingFeeSubunits || 0),
+                            linkExpiry: paymentExpiry ? paymentExpiry.toISOString() : null
+                        });
+                        responses.email = await deliverWorkflowEmailWithPolicy({
+                            workflow: 'abandoned_cart_recovery',
+                            recipientMobile: user?.mobile || '',
+                            whatsappResult: responses.whatsapp,
+                            to: user.email,
+                            subject: mail.subject,
+                            text: mail.text,
+                            html: mail.html,
+                            context: {
+                                userId: workingJourney.user_id,
+                                journeyId: workingJourney.id,
+                                attemptNo
+                            }
+                        });
+                        if (responses.email?.ok) {
+                            channels.push('email');
+                        }
+                    } catch (emailError) {
+                        hardFailureMessage = emailError?.message || 'Email send failed';
+                        responses.email = {
+                            ok: false,
+                            skipped: false,
+                            reason: 'email_send_failed',
+                            message: hardFailureMessage
+                        };
+                    }
+                } else {
+                    responses.email = { ok: false, skipped: true, reason: 'email_disabled_or_missing' };
                 }
 
                 // If all enabled channels failed, mark this attempt as failed.
