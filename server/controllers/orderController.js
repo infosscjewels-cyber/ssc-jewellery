@@ -9,6 +9,7 @@ const { createRazorpayClient, getRazorpayConfig } = require('../services/razorpa
 const { ensureCapturedPaymentMatchesAttempt, reconcilePaymentAttemptById } = require('../services/paymentReconciliationService');
 const { markRecoveredByOrder } = require('../services/abandonedCartRecoveryService');
 const AbandonedCart = require('../models/AbandonedCart');
+const Wishlist = require('../models/Wishlist');
 const Coupon = require('../models/Coupon');
 const LoyaltyPopupConfig = require('../models/LoyaltyPopupConfig');
 const User = require('../models/User');
@@ -1240,6 +1241,11 @@ const verifyRazorpayPayment = async (req, res) => {
         createdOrder = order;
         try {
             await markRecoveredByOrder({ order, reason: 'order_paid_checkout' });
+            emitAbandonedRecoveryUpdate(req, {
+                journeyId: order.abandoned_journey_id || null,
+                userId: order.user_id || null,
+                reason: 'order_paid_checkout'
+            });
         } catch {}
 
         const latestAfterMaterialization = await PaymentAttempt.getById(attempt.id);
@@ -1457,6 +1463,11 @@ const verifyPublicRazorpayPayment = async (req, res) => {
         createdOrder = order;
         try {
             await markRecoveredByOrder({ order, reason: 'order_paid_checkout_public' });
+            emitAbandonedRecoveryUpdate(req, {
+                journeyId: order.abandoned_journey_id || null,
+                userId: order.user_id || null,
+                reason: 'order_paid_checkout_public'
+            });
         } catch {}
 
         const latestAfterMaterialization = await PaymentAttempt.getById(attempt.id);
@@ -1624,6 +1635,11 @@ const getPublicPaymentAttemptStatus = async (req, res) => {
             if (finalOrder?.id) {
                 try {
                     await markRecoveredByOrder({ order: finalOrder, reason: 'order_paid_status_poll_public' });
+                    emitAbandonedRecoveryUpdate(req, {
+                        journeyId: finalOrder.abandoned_journey_id || null,
+                        userId: finalOrder.user_id || null,
+                        reason: 'order_paid_status_poll_public'
+                    });
                 } catch {}
                 emitOrderAndPaymentUpdate(req, {
                     order: finalOrder,
@@ -1748,6 +1764,8 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
         }
     }
 
+    const preOrderCartItems = attempt?.user_id ? await Cart.getByUser(attempt.user_id).catch(() => []) : [];
+
     const order = await Order.createManualOrderFromAttempt({
         attempt,
         paymentGateway: 'razorpay',
@@ -1762,6 +1780,23 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
         sourceChannel: 'checkout_webhook_recovery'
     });
     if (order) {
+        try {
+            const orderedItems = Array.isArray(order.items) ? order.items : [];
+            const orderedKeys = new Set(
+                orderedItems.map((item) => `${String(item?.productId || '').trim()}::${String(item?.variantId || '').trim()}`)
+            );
+            const serverOnlyItems = (Array.isArray(preOrderCartItems) ? preOrderCartItems : []).filter((item) => {
+                const key = `${String(item?.productId || '').trim()}::${String(item?.variantId || '').trim()}`;
+                return !orderedKeys.has(key);
+            });
+            if (serverOnlyItems.length > 0) {
+                await Promise.all(
+                    serverOnlyItems.map((item) => Wishlist.addItem(order.user_id, item.productId, item.variantId || '').catch(() => null))
+                );
+            }
+            await Cart.clearUser(order.user_id);
+            await AbandonedCart.deleteCandidate(order.user_id);
+        } catch {}
         await emitProductUpdatesForIds(req, collectOrderProductIds(order));
     }
     if (order) emitCouponChangedForOrder(req, order);
@@ -2699,6 +2734,11 @@ const getMyPaymentAttemptStatus = async (req, res) => {
             if (finalOrder?.id) {
                 try {
                     await markRecoveredByOrder({ order: finalOrder, reason: 'order_paid_status_poll' });
+                    emitAbandonedRecoveryUpdate(req, {
+                        journeyId: finalOrder.abandoned_journey_id || null,
+                        userId: finalOrder.user_id || null,
+                        reason: 'order_paid_status_poll'
+                    });
                 } catch {}
                 emitOrderAndPaymentUpdate(req, {
                     order: finalOrder,
@@ -3458,14 +3498,6 @@ const fetchAdminPaymentStatus = async (req, res) => {
             paymentStatus = PAYMENT_STATUS.REFUNDED;
         }
 
-        const settlementId = String(
-            paymentDetails?.settlement_id
-            || order?.settlement_id
-            || ''
-        ).trim() || null;
-        const settlementSnapshot = settlementId
-            ? await fetchSettlementSnapshotSafe(razorpay, settlementId)
-            : null;
         let previousLinkedPaymentStatus = order?.payment_status || null;
 
         if (razorpayOrderId) {
@@ -3500,8 +3532,8 @@ const fetchAdminPaymentStatus = async (req, res) => {
                 razorpayOrderId,
                 paymentStatus,
                 razorpayPaymentId: razorpayPaymentId || null,
-                settlementId,
-                settlementSnapshot,
+                settlementId: null,
+                settlementSnapshot: null,
                 refundReference: null,
                 refundAmount: paymentDetails?.amount_refunded != null
                     ? Number(paymentDetails.amount_refunded || 0) / 100
@@ -3583,7 +3615,7 @@ const fetchAdminPaymentStatus = async (req, res) => {
                     error_description: paymentDetails.error_description || null,
                     error_reason: paymentDetails.error_reason || null
                 } : null,
-                settlement: settlementSnapshot
+                settlement: updatedOrder?.settlement_snapshot || order?.settlement_snapshot || null
             }
         });
     } catch (error) {

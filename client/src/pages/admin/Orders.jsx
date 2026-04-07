@@ -724,18 +724,11 @@ export function Orders({
         if (isAttemptEntry(order)) return false;
         return getFromLabelValidation(order).ok || getToLabelValidation(order).ok;
     }, [getFromLabelValidation, getToLabelValidation]);
-    const needsSettlementSync = (order) => {
-        if (!order || isAttemptEntry(order)) return false;
-        const paymentStatus = String(order?.payment_status || '').toLowerCase();
-        return paymentStatus === 'paid'
-            && Boolean(order?.razorpay_order_id || order?.razorpay_payment_id)
-            && !order?.settlement_snapshot;
-    };
     const canFetchPaymentStatus = (order) => {
+        if (isAttemptEntry(order)) return false;
         if (!order?.razorpay_order_id && !order?.razorpay_payment_id) return false;
         const paymentStatus = String(order?.payment_status || '').toLowerCase();
-        if (['pending', 'created', 'attempted'].includes(paymentStatus)) return true;
-        return paymentStatus === 'paid' && needsSettlementSync(order);
+        return ['pending', 'created', 'attempted', 'paid', 'refunded', 'failed'].includes(paymentStatus);
     };
     const filteredManualCustomers = useMemo(() => {
         const term = String(manualCustomerQuery || '').trim().toLowerCase();
@@ -3515,7 +3508,7 @@ export function Orders({
                                                         {canFetchPaymentStatus(selectedOrder) && (
                                                             <button type="button" onClick={() => handleFetchPaymentStatus({ reason: 'payment' })} disabled={isFetchingPaymentStatus} className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100 disabled:opacity-60">
                                                                 <RefreshCw size={14} className={isFetchingPaymentStatus ? 'animate-spin' : ''} />
-                                                                {isFetchingPaymentStatus ? 'Syncing...' : 'Sync Payment / Settlement'}
+                                                                {isFetchingPaymentStatus ? 'Syncing...' : 'Sync Payment Status'}
                                                             </button>
                                                         )}
                                                         {canCheckRefundStatus(selectedOrder) && (

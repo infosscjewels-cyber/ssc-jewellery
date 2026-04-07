@@ -284,6 +284,7 @@ test('verifyRazorpayPayment confirms a paid order on valid signature', async () 
     assert.equal(res.body.order.id, 'ord_1');
     assert.equal(verifiedPayload.localOrderId, 'ord_1');
     assert.deepEqual(emitted.map((entry) => `${entry.room}:${entry.event}`), [
+        'admin:abandoned_cart:recovered',
         'admin:order:create',
         'user:u1:order:create',
         'admin:order:update',

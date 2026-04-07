@@ -316,7 +316,7 @@ const buildWhatsappPreviewText = (attempt = {}, journey = {}) => {
     const message = payload?.discountCode
         ? `Hello ${name}, ${reminderMessage} Coupon: ${payload.discountCode}. Discount: ${discountLabel}. Valid Until: ${validUntil || 'Limited period'}.`
         : `Hello ${name}, ${reminderMessage} Cart Value: ${cartValue}.`;
-    const failure = firstNonEmpty(attempt?.error_message, response.message, response.reason);
+    const failure = firstNonEmpty(response.message, response.reason);
     return [message, paymentLinkUrl ? `Link: ${paymentLinkUrl}` : '', failure && failure !== message ? `Delivery note: ${failure}` : '']
         .filter(Boolean)
         .join('\n\n')

@@ -278,16 +278,98 @@ class PaymentAttempt {
         paymentId = null,
         signature = null
     }) {
-        await db.execute(
-            `UPDATE payment_attempts
-             SET status = ?,
-                 razorpay_payment_id = COALESCE(?, razorpay_payment_id),
-                 razorpay_signature = COALESCE(?, razorpay_signature),
-                 last_gateway_error = NULL,
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE razorpay_order_id = ?`,
-            [PAYMENT_STATUS.PAID_UNVERIFIED, paymentId, signature, razorpayOrderId]
-        );
+        const resolvedOrderId = String(razorpayOrderId || '').trim();
+        const resolvedPaymentId = String(paymentId || '').trim();
+        const resolvedSignature = String(signature || '').trim() || null;
+
+        if (!resolvedOrderId) return { updated: false, reason: 'missing_order_id' };
+
+        const targetAttempt = await PaymentAttempt.getByRazorpayOrderIdAny(resolvedOrderId);
+        if (!targetAttempt) return { updated: false, reason: 'attempt_not_found' };
+
+        if (resolvedPaymentId) {
+            const ownerAttempt = await PaymentAttempt.getByRazorpayPaymentId(resolvedPaymentId);
+            if (ownerAttempt && String(ownerAttempt.id) !== String(targetAttempt.id)) {
+                if (ownerAttempt.local_order_id && !targetAttempt.local_order_id) {
+                    await PaymentAttempt.linkToExistingOrder({
+                        id: targetAttempt.id,
+                        localOrderId: ownerAttempt.local_order_id,
+                        status: PAYMENT_STATUS.PAID
+                    });
+                    return {
+                        updated: true,
+                        reusedExistingPayment: true,
+                        existingAttemptId: ownerAttempt.id,
+                        localOrderId: ownerAttempt.local_order_id
+                    };
+                }
+
+                await db.execute(
+                    `UPDATE payment_attempts
+                     SET status = ?,
+                         razorpay_signature = COALESCE(?, razorpay_signature),
+                         last_gateway_error = NULL,
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE id = ?`,
+                    [PAYMENT_STATUS.PAID_UNVERIFIED, resolvedSignature, targetAttempt.id]
+                );
+                return {
+                    updated: true,
+                    reusedExistingPayment: true,
+                    existingAttemptId: ownerAttempt.id,
+                    localOrderId: ownerAttempt.local_order_id || null
+                };
+            }
+        }
+
+        try {
+            await db.execute(
+                `UPDATE payment_attempts
+                 SET status = ?,
+                     razorpay_payment_id = COALESCE(?, razorpay_payment_id),
+                     razorpay_signature = COALESCE(?, razorpay_signature),
+                     last_gateway_error = NULL,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?`,
+                [PAYMENT_STATUS.PAID_UNVERIFIED, resolvedPaymentId || null, resolvedSignature, targetAttempt.id]
+            );
+            return { updated: true, reusedExistingPayment: false };
+        } catch (error) {
+            const message = String(error?.message || '').toLowerCase();
+            if (!(message.includes('duplicate entry') && message.includes('uniq_payment_attempt_payment_id'))) {
+                throw error;
+            }
+
+            const ownerAttempt = resolvedPaymentId
+                ? await PaymentAttempt.getByRazorpayPaymentId(resolvedPaymentId)
+                : null;
+            if (ownerAttempt && String(ownerAttempt.id) !== String(targetAttempt.id)) {
+                if (ownerAttempt.local_order_id && !targetAttempt.local_order_id) {
+                    await PaymentAttempt.linkToExistingOrder({
+                        id: targetAttempt.id,
+                        localOrderId: ownerAttempt.local_order_id,
+                        status: PAYMENT_STATUS.PAID
+                    });
+                } else {
+                    await db.execute(
+                        `UPDATE payment_attempts
+                         SET status = ?,
+                             razorpay_signature = COALESCE(?, razorpay_signature),
+                             last_gateway_error = NULL,
+                             updated_at = CURRENT_TIMESTAMP
+                         WHERE id = ?`,
+                        [PAYMENT_STATUS.PAID_UNVERIFIED, resolvedSignature, targetAttempt.id]
+                    );
+                }
+                return {
+                    updated: true,
+                    reusedExistingPayment: true,
+                    existingAttemptId: ownerAttempt.id,
+                    localOrderId: ownerAttempt.local_order_id || null
+                };
+            }
+            throw error;
+        }
     }
 
     static async markAttemptedByRazorpayOrder({

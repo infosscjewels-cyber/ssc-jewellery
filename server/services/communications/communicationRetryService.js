@@ -88,9 +88,12 @@ const isRateLimitFailure = ({ error = null, result = null } = {}) => {
     return [
         'ratelimit',
         'rate limit',
+        'daily send cap',
+        'daily email cap',
         'too many auth commands',
         'too many authentication',
         'too many login',
+        'hostinger_daily_send_cap',
         'hostinger_out_ratelimit',
         '451 4.7.1',
         '450 4.7.1'

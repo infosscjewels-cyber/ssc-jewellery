@@ -57,6 +57,80 @@ const normalizeSettlementSnapshot = (settlement = null) => {
     };
 };
 
+const normalizeSettlementReconSnapshot = (entry = null) => {
+    if (!entry) return null;
+    const amount = Number(entry.amount || 0) / 100;
+    const fees = Number(entry.fee || 0) / 100;
+    const tax = Number(entry.tax || 0) / 100;
+    const credit = Number(entry.credit || 0) / 100;
+    const debit = Number(entry.debit || 0) / 100;
+    return {
+        id: entry.settlement_id || null,
+        entity: 'settlement_recon',
+        status: entry.settled ? 'settled' : 'pending',
+        amount,
+        fees,
+        tax,
+        net_amount: credit > 0 ? credit : Math.max(0, amount - fees - tax - debit),
+        utr: entry.settlement_utr || null,
+        created_at: entry.settled_at || entry.created_at || null,
+        fetched_at: Math.floor(Date.now() / 1000),
+        type: entry.type || null,
+        entity_id: entry.entity_id || null,
+        payment_id: entry.type === 'payment'
+            ? (entry.entity_id || null)
+            : (entry.payment_id || null),
+        order_id: entry.order_id || null,
+        method: entry.method || null,
+        gross_credit: credit,
+        gross_debit: debit
+    };
+};
+
+const getIstDateParts = (date = new Date()) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    }).formatToParts(date).reduce((acc, part) => {
+        acc[part.type] = part.value;
+        return acc;
+    }, {});
+    return {
+        year: Number(parts.year || 0),
+        month: Number(parts.month || 0),
+        day: Number(parts.day || 0)
+    };
+};
+
+const fetchSettlementReconItemsForDay = async (razorpay, {
+    year,
+    month,
+    day,
+    count = 1000,
+    maxPages = 5
+} = {}) => {
+    const items = [];
+    let skip = 0;
+    for (let page = 0; page < maxPages; page += 1) {
+        const response = await razorpay.settlements.reports({
+            year,
+            month,
+            day,
+            count,
+            skip
+        });
+        const batch = Array.isArray(response?.items) ? response.items : [];
+        items.push(...batch);
+        if (!batch.length || batch.length < count || items.length >= Number(response?.count || 0)) {
+            break;
+        }
+        skip += batch.length;
+    }
+    return items;
+};
+
 const isDuplicatePaymentClaimError = (error) => {
     const message = String(error?.message || '').toLowerCase();
     return message.includes('duplicate entry') && message.includes('uniq_payment_attempt_payment_id');
@@ -407,7 +481,8 @@ const runPaymentAttemptReconciliationPass = async ({
 
 const runSettlementSyncPass = async ({
     limit = 100,
-    minAgeHours = 24
+    minAgeHours = 1,
+    lookbackDays = 7
 } = {}) => {
     const candidates = await Order.listSettlementSyncCandidates({
         limit,
@@ -424,48 +499,59 @@ const runSettlementSyncPass = async ({
     if (!candidates.length) return summary;
 
     const razorpay = await createRazorpayClient();
-    for (const order of candidates) {
+    const unmatchedByOrderId = new Map();
+    const candidatePaymentIds = new Map();
+    const candidateRazorpayOrderIds = new Map();
+    candidates.forEach((order) => {
+        unmatchedByOrderId.set(String(order.id), order);
+        const paymentId = String(order?.razorpay_payment_id || '').trim();
+        const razorpayOrderId = String(order?.razorpay_order_id || '').trim();
+        if (paymentId) candidatePaymentIds.set(paymentId, order);
+        if (razorpayOrderId) candidateRazorpayOrderIds.set(razorpayOrderId, order);
+    });
+
+    const today = new Date();
+    for (let offset = 0; offset <= Math.max(0, Number(lookbackDays || 7)); offset += 1) {
+        if (!unmatchedByOrderId.size) break;
         try {
-            const paymentId = String(order?.razorpay_payment_id || '').trim();
-            if (!paymentId) {
-                summary.failed += 1;
-                continue;
-            }
-
-            const paymentDetails = await razorpay.payments.fetch(paymentId);
-            const settlementId = String(paymentDetails?.settlement_id || order?.settlement_id || '').trim();
-            if (!settlementId) {
-                summary.missingSettlementId += 1;
-                continue;
-            }
-
-            const settlement = await razorpay.settlements.fetch(settlementId);
-            const settlementSnapshot = normalizeSettlementSnapshot(settlement);
-            if (!settlementSnapshot) {
-                summary.pending += 1;
-                continue;
-            }
-
-            await Order.updateSettlementByOrderId({
-                orderId: order.id,
-                settlementId,
-                settlementSnapshot
+            const dayDate = new Date(today.getTime() - offset * 24 * 60 * 60 * 1000);
+            const { year, month, day } = getIstDateParts(dayDate);
+            const reconItems = await fetchSettlementReconItemsForDay(razorpay, {
+                year,
+                month,
+                day
             });
-            summary.updated += 1;
-        } catch (error) {
-            const message = String(error?.message || '').toLowerCase();
-            if (
-                message.includes('not found')
-                || message.includes('does not exist')
-                || message.includes('bad request')
-                || message.includes('invalid')
-            ) {
-                summary.pending += 1;
-            } else {
-                summary.failed += 1;
+
+            for (const entry of reconItems) {
+                if (!entry || String(entry.type || '').toLowerCase() !== 'payment') continue;
+                const paymentId = String(entry.entity_id || entry.payment_id || '').trim();
+                const razorpayOrderId = String(entry.order_id || '').trim();
+                const matchedOrder = candidatePaymentIds.get(paymentId) || candidateRazorpayOrderIds.get(razorpayOrderId) || null;
+                if (!matchedOrder || !unmatchedByOrderId.has(String(matchedOrder.id))) continue;
+
+                const settlementSnapshot = normalizeSettlementReconSnapshot(entry);
+                if (!settlementSnapshot?.id) {
+                    summary.pending += 1;
+                    unmatchedByOrderId.delete(String(matchedOrder.id));
+                    continue;
+                }
+
+                await Order.updateSettlementByOrderId({
+                    orderId: matchedOrder.id,
+                    settlementId: settlementSnapshot.id,
+                    settlementSnapshot
+                });
+                unmatchedByOrderId.delete(String(matchedOrder.id));
+                summary.updated += 1;
             }
+        } catch (error) {
+            summary.failed += 1;
         }
     }
+
+    unmatchedByOrderId.forEach(() => {
+        summary.missingSettlementId += 1;
+    });
 
     return summary;
 };

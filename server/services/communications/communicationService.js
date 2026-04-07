@@ -61,6 +61,45 @@ const buildSkippedDuplicateResult = (channel = 'generic') => ({
     channel
 });
 
+const EMAIL_DAILY_SEND_SOFT_LIMIT = Math.max(1, Number(process.env.EMAIL_DAILY_SEND_SOFT_LIMIT || 90));
+const EMAIL_DAILY_SEND_WINDOW_HOURS = Math.max(1, Number(process.env.EMAIL_DAILY_SEND_WINDOW_HOURS || 24));
+
+const getRecentSuccessfulCommunicationCount = async ({ channel = 'email', windowHours = EMAIL_DAILY_SEND_WINDOW_HOURS } = {}) => {
+    const [rows] = await db.execute(
+        `SELECT COUNT(*) AS total
+         FROM communication_delivery_logs
+         WHERE channel = ?
+           AND status = 'sent'
+           AND updated_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? HOUR)`,
+        [String(channel || 'email').slice(0, 20), Math.max(1, Number(windowHours || EMAIL_DAILY_SEND_WINDOW_HOURS))]
+    );
+    return Number(rows?.[0]?.total || 0);
+};
+
+const recordSuccessfulCommunicationDelivery = async ({
+    channel,
+    workflow = 'generic',
+    recipient,
+    payload = {},
+    result = null
+} = {}) => {
+    const safeChannel = String(channel || '').trim().toLowerCase();
+    const safeRecipient = String(recipient || '').trim();
+    if (!safeChannel || !safeRecipient) return;
+    await db.execute(
+        `INSERT INTO communication_delivery_logs
+            (channel, workflow, recipient, payload_json, status, attempt_count, max_attempts, last_result_json, next_retry_at)
+         VALUES (?, ?, ?, ?, 'sent', 1, 1, ?, NULL)`,
+        [
+            safeChannel,
+            String(workflow || 'generic').trim() || 'generic',
+            safeRecipient,
+            JSON.stringify(payload ?? null),
+            JSON.stringify(result ?? null)
+        ]
+    );
+};
+
 const reserveCommunicationDedupeKey = async ({
     dedupeKey,
     channel,
@@ -182,7 +221,20 @@ const sendEmailCommunication = async ({
     disableRetry = false
 }) => {
     try {
-        return await sendEmail({ to, subject, text, html, replyTo, cc, bcc, attachments });
+        const recipientList = normalizeEmailRecipients(to);
+        const sentInWindow = await getRecentSuccessfulCommunicationCount({ channel: 'email' });
+        if (sentInWindow >= EMAIL_DAILY_SEND_SOFT_LIMIT) {
+            throw new Error(`Email rate limit reached: hostinger_daily_send_cap (${sentInWindow}/${EMAIL_DAILY_SEND_SOFT_LIMIT} in ${EMAIL_DAILY_SEND_WINDOW_HOURS}h)`);
+        }
+        const result = await sendEmail({ to, subject, text, html, replyTo, cc, bcc, attachments });
+        await recordSuccessfulCommunicationDelivery({
+            channel: 'email',
+            workflow,
+            recipient: recipientList.join(', '),
+            payload: { to: recipientList, subject, text, html, replyTo, cc, bcc },
+            result
+        }).catch(() => {});
+        return result;
     } catch (error) {
         if (!disableRetry) {
             await queueCommunicationFailure({

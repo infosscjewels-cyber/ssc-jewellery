@@ -441,7 +441,8 @@ const scheduleSettlementSyncJob = () => {
             lastRunKey = dayKey;
             const result = await runSettlementSyncPass({
                 limit: 200,
-                minAgeHours: 24
+                minAgeHours: 1,
+                lookbackDays: 7
             });
             if (Number(result?.updated || 0) > 0 || Number(result?.failed || 0) > 0) {
                 console.log('Settlement sync job summary:', result);
