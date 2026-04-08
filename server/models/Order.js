@@ -76,6 +76,40 @@ const parseJsonSafe = (value) => {
         return null;
     }
 };
+const normalizePaymentSnapshot = (payment = null) => {
+    if (!payment || typeof payment !== 'object') return null;
+    return {
+        id: payment.id || null,
+        status: payment.status || null,
+        method: payment.method || null,
+        amount: payment.amount != null ? Number(payment.amount || 0) : null,
+        currency: payment.currency || null,
+        fee: payment.fee != null ? Number(payment.fee || 0) : null,
+        tax: payment.tax != null ? Number(payment.tax || 0) : null,
+        refunded: payment.refunded != null ? Number(payment.refunded || 0) : null,
+        refund_status: payment.refund_status || null,
+        bank: payment.bank || null,
+        wallet: payment.wallet || null,
+        vpa: payment.vpa || null,
+        card_type: payment.card_type || null,
+        card_network: payment.card_network || null,
+        card_issuer: payment.card_issuer || null,
+        card_last4: payment.card_last4 || null,
+        emi: payment.emi != null ? Boolean(payment.emi) : null,
+        rrn: payment.rrn || null,
+        upi_transaction_id: payment.upi_transaction_id || null,
+        captured: payment.captured != null ? Boolean(payment.captured) : null,
+        created_at: payment.created_at || null,
+        synced_at: payment.synced_at || null
+    };
+};
+const getPaymentSnapshotFromAttemptNotes = (notes = null) => {
+    const payload = notes && typeof notes === 'object' ? notes : parseJsonSafe(notes);
+    const attemptSnapshot = payload?.attemptSnapshot && typeof payload.attemptSnapshot === 'object'
+        ? payload.attemptSnapshot
+        : null;
+    return normalizePaymentSnapshot(attemptSnapshot?.payment || null);
+};
 const parseStringArray = (value) => {
     const parsed = parseJsonSafe(value);
     if (Array.isArray(parsed)) {
@@ -3017,6 +3051,16 @@ class Order {
             'SELECT * FROM order_status_events WHERE order_id = ? ORDER BY created_at ASC',
             [orderId]
         );
+        const [attemptRows] = await db.execute(
+            `SELECT notes
+             FROM payment_attempts
+             WHERE local_order_id = ?
+                OR (COALESCE(local_order_id, 0) = 0 AND razorpay_order_id = ?)
+             ORDER BY CASE WHEN local_order_id = ? THEN 0 ELSE 1 END, id DESC
+             LIMIT 1`,
+            [orderId, String(order?.razorpay_order_id || '').trim() || null, orderId]
+        );
+        const paymentSnapshot = getPaymentSnapshotFromAttemptNotes(attemptRows?.[0]?.notes || null);
         const parsedCompanySnapshot = parseJsonSafe(order.company_snapshot);
         const resolvedTaxPriceMode = resolveStoredOrderTaxPriceMode({
             taxPriceMode: order.tax_price_mode,
@@ -3040,6 +3084,7 @@ class Order {
                     try { return JSON.parse(order.coupon_meta); } catch { return null; }
                 })()
                 : order.coupon_meta || null,
+            payment_snapshot: paymentSnapshot,
             items: normalizedItems,
             events
         });

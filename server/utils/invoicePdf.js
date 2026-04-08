@@ -5,6 +5,7 @@ const { resolvePublicAssetPath } = require('./publicAssetResolver');
 
 const DEFAULT_SUPPORT_EMAIL = 'support@sscjewellery.com';
 const TAMIL_REGEX = /[\u0B80-\u0BFF]/;
+const NON_ASCII_REGEX = /[^\x00-\x7F]/;
 
 const toNumber = (value, fallback = 0) => {
     const n = Number(value);
@@ -29,6 +30,14 @@ const parseObject = (value) => {
     } catch {
         return null;
     }
+};
+const normalizeUtf8Text = (value = '') => {
+    const safe = String(value || '');
+    if (!safe) return '';
+    // Repair common mojibake case: UTF-8 bytes interpreted as latin1.
+    const repaired = Buffer.from(safe, 'latin1').toString('utf8');
+    if (TAMIL_REGEX.test(repaired)) return repaired;
+    return safe;
 };
 
 const inr = (value) => `INR ${toNumber(value).toLocaleString('en-IN', {
@@ -67,11 +76,16 @@ const buildDiscountCellParts = (item = {}) => {
         + toNumber(item.displayMemberDiscount ?? item.memberDiscount, 0)
         + toNumber(item.displayShippingBenefitShare ?? item.shippingBenefitShare, 0)
     );
-    const breakdown = [
-        `Product: ${inr(item.displayProductDiscount ?? item.discount)}`,
-        `Coupon: ${inr(item.displayCouponDiscount ?? item.couponDiscount)}`,
-        `Member: ${inr(item.displayMemberDiscount ?? item.memberDiscount)}`
-    ];
+    const breakdown = [];
+    if (toNumber(item.displayProductDiscount ?? item.discount, 0) > 0) {
+        breakdown.push(`Product: ${inr(item.displayProductDiscount ?? item.discount)}`);
+    }
+    if (toNumber(item.displayCouponDiscount ?? item.couponDiscount, 0) > 0) {
+        breakdown.push(`Coupon: ${inr(item.displayCouponDiscount ?? item.couponDiscount)}`);
+    }
+    if (toNumber(item.displayMemberDiscount ?? item.memberDiscount, 0) > 0) {
+        breakdown.push(`Member: ${inr(item.displayMemberDiscount ?? item.memberDiscount)}`);
+    }
     if (toNumber(item.displayShippingBenefitShare ?? item.shippingBenefitShare, 0) > 0) {
         breakdown.push(`Shipping Benefit: ${inr(item.displayShippingBenefitShare ?? item.shippingBenefitShare)}`);
     }
@@ -130,11 +144,11 @@ const getTierTheme = (tier) => {
 
 const normalizeAddressLines = (address) => {
     const source = parseObject(address) || {};
-    const line1 = source.line1 || source.addressLine1 || source.address || '';
-    const line2 = source.line2 || source.addressLine2 || '';
-    const cityState = [source.city, source.state].filter(Boolean).join(', ');
-    const zip = source.zip || source.pincode || source.postalCode || '';
-    const country = source.country || 'India';
+    const line1 = normalizeUtf8Text(source.line1 || source.addressLine1 || source.address || '');
+    const line2 = normalizeUtf8Text(source.line2 || source.addressLine2 || '');
+    const cityState = [source.city, source.state].map((part) => normalizeUtf8Text(part)).filter(Boolean).join(', ');
+    const zip = normalizeUtf8Text(source.zip || source.pincode || source.postalCode || '');
+    const country = normalizeUtf8Text(source.country || 'India');
     return [line1, line2, cityState, zip, country].filter(Boolean);
 };
 
@@ -145,16 +159,27 @@ const resolveFirstExistingPath = (candidates = []) => {
     return null;
 };
 
-const resolveLogoPath = (company = {}) => {
-    const brandedLogo = resolvePublicAssetPath(company.logoUrl || '');
-    if (brandedLogo) return brandedLogo;
-    return resolveFirstExistingPath([
+const isPdfKitImageFormatSupported = (filePath = '') => {
+    const ext = path.extname(String(filePath || '')).toLowerCase();
+    return ['.jpg', '.jpeg', '.png'].includes(ext);
+};
+const resolveLogoCandidates = (company = {}) => {
+    const candidates = [
+        resolvePublicAssetPath(company.logoUrl || ''),
+        resolvePublicAssetPath(company.faviconUrl || ''),
+        resolvePublicAssetPath(company.appleTouchIconUrl || ''),
+        resolvePublicAssetPath('/branding/logo.png'),
+        resolvePublicAssetPath('/branding/logo.jpg'),
+        resolvePublicAssetPath('/branding/logo.jpeg'),
+        resolvePublicAssetPath('/logo.png'),
+        resolvePublicAssetPath('/logo.jpg'),
+        resolvePublicAssetPath('/logo.jpeg'),
         path.join(__dirname, '../../client/public/apple-touch-icon.png'),
         path.join(__dirname, '../../client/public/logo.png'),
         path.join(__dirname, '../../client/public/logo.jpg'),
-        path.join(__dirname, '../../client/public/logo.jpeg'),
-        path.join(__dirname, '../../client/public/logo.webp')
-    ]);
+        path.join(__dirname, '../../client/public/logo.jpeg')
+    ].filter(Boolean);
+    return [...new Set(candidates)];
 };
 
 const resolvePaidStampPath = () => resolveFirstExistingPath([
@@ -169,16 +194,44 @@ const resolveCancelledStampPath = () => resolveFirstExistingPath([
     path.join(__dirname, '../../client/src/assets/cancelled-stamp.png'),
 ]);
 
-const resolveUnicodeFontPath = () => resolveFirstExistingPath([
-    '/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf',
+const resolveTamilFontPath = () => resolveFirstExistingPath([
     '/usr/share/fonts/truetype/noto/NotoSansTamilUI-Regular.ttf',
-    '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf'
+    '/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf',
+    '/usr/share/fonts/truetype/noto/NotoSerifTamil-Regular.ttf'
+]);
+const resolveUnicodeFontPath = () => resolveFirstExistingPath([
+    '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
+    '/usr/share/fonts/truetype/noto/NotoSansUI-Regular.ttf',
+    '/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf'
 ]);
 
-const containsTamil = (value) => TAMIL_REGEX.test(String(value || ''));
+const needsUnicodeFont = (value) => NON_ASCII_REGEX.test(String(value || ''));
+const splitTextRunsByScript = (value = '') => {
+    const safe = String(value || '');
+    if (!safe) return [];
+    const runs = [];
+    let current = '';
+    let currentScript = null;
+    for (const ch of safe) {
+        const script = TAMIL_REGEX.test(ch) ? 'tamil' : 'base';
+        if (current && script !== currentScript) {
+            runs.push({ text: current, script: currentScript });
+            current = ch;
+            currentScript = script;
+        } else {
+            current += ch;
+            currentScript = script;
+        }
+    }
+    if (current) runs.push({ text: current, script: currentScript || 'base' });
+    return runs;
+};
 
 const textHeight = (doc, text, width, size, fonts) => {
-    const font = containsTamil(text) ? (fonts.tamil || fonts.base) : fonts.base;
+    const safe = String(text || '');
+    const font = TAMIL_REGEX.test(safe)
+        ? (fonts.tamil || fonts.unicode || fonts.base)
+        : (needsUnicodeFont(safe) ? (fonts.unicode || fonts.base) : fonts.base);
     doc.font(font).fontSize(size);
     return doc.heightOfString(String(text || ''), { width, lineGap: 1 });
 };
@@ -188,22 +241,51 @@ const drawMixedText = (doc, text, x, y, options = {}, fonts = { base: 'Helvetica
     const color = options.color || '#111827';
     const width = options.width;
     const align = options.align || 'left';
-    const safe = String(text || '');
-    const font = containsTamil(safe) ? (fonts.tamil || fonts.base) : fonts.base;
-    doc.font(font).fontSize(size).fillColor(color).text(safe, x, y, {
-        width,
-        align
+    const safe = normalizeUtf8Text(text || '');
+    const hasTamil = TAMIL_REGEX.test(safe);
+    const hasAscii = /[A-Za-z0-9]/.test(safe);
+    const canRunSplit = align === 'left' && width && hasTamil && hasAscii;
+    if (!canRunSplit) {
+        const font = hasTamil
+            ? (fonts.tamil || fonts.unicode || fonts.base)
+            : (needsUnicodeFont(safe) ? (fonts.unicode || fonts.base) : fonts.base);
+        doc.font(font).fontSize(size).fillColor(color).text(safe, x, y, {
+            width,
+            align
+        });
+        return;
+    }
+
+    const runs = splitTextRunsByScript(safe);
+    if (!runs.length) return;
+    runs.forEach((run, idx) => {
+        const font = run.script === 'tamil'
+            ? (fonts.tamil || fonts.unicode || fonts.base)
+            : fonts.base;
+        const textOptions = {
+            width,
+            align,
+            continued: idx < runs.length - 1
+        };
+        if (idx === 0) {
+            doc.font(font).fontSize(size).fillColor(color).text(run.text, x, y, textOptions);
+        } else {
+            doc.font(font).fontSize(size).fillColor(color).text(run.text, textOptions);
+        }
     });
 };
 
 const getCompany = (order = {}) => {
     const snapshot = parseObject(order.company_snapshot || order.companySnapshot) || {};
     return {
-        displayName: String(snapshot.displayName || 'SSC Jewellery'),
-        contactNumber: String(snapshot.contactNumber || ''),
-        supportEmail: String(snapshot.supportEmail || ''),
-        address: String(snapshot.address || ''),
-        logoUrl: String(snapshot.logoUrl || snapshot.logo_url || '')
+        displayName: normalizeUtf8Text(snapshot.displayName || snapshot.display_name || 'SSC Jewellery'),
+        contactNumber: normalizeUtf8Text(snapshot.contactNumber || snapshot.contact_number || ''),
+        supportEmail: normalizeUtf8Text(snapshot.supportEmail || snapshot.support_email || ''),
+        address: normalizeUtf8Text(snapshot.address || ''),
+        gstNumber: normalizeUtf8Text(snapshot.gstNumber || snapshot.gst_number || ''),
+        logoUrl: String(snapshot.logoUrl || snapshot.logo_url || ''),
+        faviconUrl: String(snapshot.faviconUrl || snapshot.favicon_url || ''),
+        appleTouchIconUrl: String(snapshot.appleTouchIconUrl || snapshot.apple_touch_icon_url || '')
     };
 };
 
@@ -342,6 +424,13 @@ const getItems = (order = {}) => {
         const taxableValue = taxPriceMode === 'inclusive'
             ? Math.max(0, toNumber(item.discountedLineBase, discountedGross - toNumber(item.taxAmount, 0)))
             : Math.max(0, discountedGross);
+        const amountBeforeDiscount = taxPriceMode === 'inclusive'
+            ? Math.max(0, toNumber(item.lineTotalBase, lineGross) + toNumber(item.discount, 0))
+            : Math.max(0, toNumber(item.lineTotalBase, lineGross));
+        const rateBeforeDiscount = Math.max(
+            0,
+            roundCurrency(amountBeforeDiscount / Math.max(1, toNumber(item.qty, 0)))
+        );
         return {
             ...item,
             couponDiscount: couponShare,
@@ -354,12 +443,8 @@ const getItems = (order = {}) => {
             shippingBenefitShare: 0,
             netShippingShare: 0,
             taxableValue,
-            displayRate: taxPriceMode === 'inclusive'
-                ? Math.max(0, roundCurrency(lineGross / Math.max(1, toNumber(item.qty, 0))))
-                : Math.max(0, roundCurrency(toNumber(item.lineTotalBase, lineGross) / Math.max(1, toNumber(item.qty, 0)))),
-            displayAmount: taxPriceMode === 'inclusive'
-                ? lineGross
-                : Math.max(0, toNumber(item.lineTotalBase, lineGross)),
+            displayRate: rateBeforeDiscount,
+            displayAmount: amountBeforeDiscount,
             lineTotal: taxableValue,
             lineTotalInclTax: taxPriceMode === 'inclusive'
                 ? discountedGross
@@ -401,8 +486,12 @@ const buildShippingRow = (order = {}, items = []) => {
         displayShippingBenefitShare: shippingBenefitShare,
         netShippingShare: taxableValue,
         taxableValue,
-        displayRate: taxPriceMode === 'inclusive' ? shippingFeeGross : shippingFeeBase,
-        displayAmount: taxPriceMode === 'inclusive' ? shippingFeeGross : shippingFeeBase,
+        displayRate: taxPriceMode === 'inclusive'
+            ? Math.max(0, taxableValue + shippingBenefitShare)
+            : shippingFeeBase,
+        displayAmount: taxPriceMode === 'inclusive'
+            ? Math.max(0, taxableValue + shippingBenefitShare)
+            : shippingFeeBase,
         taxAmount: shippingTaxAmount,
         taxRatePercent: 0,
         lineTotal: taxableValue,
@@ -444,7 +533,7 @@ const drawAddressBlock = (doc, fonts, { x, y, width, heading, lines = [], forced
     return boxHeight;
 };
 
-const drawTableHeader = (doc, y, { showTaxColumns = false, taxPriceMode = 'exclusive' } = {}) => {
+const drawTableHeader = (doc, y, { showTaxColumns = false, showDiscountColumn = true, taxPriceMode = 'exclusive' } = {}) => {
     const left = 42;
     const tableWidth = 510;
     const headerHeight = showTaxColumns ? 30 : 22;
@@ -452,25 +541,44 @@ const drawTableHeader = (doc, y, { showTaxColumns = false, taxPriceMode = 'exclu
         ? 'Incl. GST'
         : 'GST';
     const cols = showTaxColumns
-        ? {
-            idx: { x: 46, width: 14, label: '#', align: 'left' },
-            name: { x: 62, width: 126, label: 'Item', align: 'left' },
-            rate: { x: 190, width: 54, label: 'Rate', align: 'right' },
-            qty: { x: 246, width: 24, label: 'Qty', align: 'right' },
-            amount: { x: 272, width: 70, label: 'Amount', align: 'right' },
-            discount: { x: 344, width: 92, label: 'Discount', align: 'right' },
-            gstAmount: { x: 438, width: 54, label: gstLabel, align: 'right' },
-            total: { x: 494, width: 54, label: 'Line Total', align: 'right' }
-        }
-        : {
-            idx: { x: 46, width: 18, label: '#', align: 'left' },
-            name: { x: 66, width: 184, label: 'Item', align: 'left' },
-            rate: { x: 252, width: 62, label: 'Rate', align: 'right' },
-            qty: { x: 316, width: 30, label: 'Qty', align: 'right' },
-            amount: { x: 348, width: 74, label: 'Amount', align: 'right' },
-            discount: { x: 424, width: 62, label: 'Discount', align: 'right' },
-            total: { x: 488, width: 60, label: 'Line Total', align: 'right' }
-        };
+        ? (showDiscountColumn
+            ? {
+                idx: { x: 46, width: 14, label: '#', align: 'left' },
+                name: { x: 62, width: 126, label: 'Item', align: 'left' },
+                rate: { x: 190, width: 54, label: 'Rate', align: 'right' },
+                qty: { x: 246, width: 24, label: 'Qty', align: 'right' },
+                amount: { x: 272, width: 70, label: 'Amount', align: 'right' },
+                discount: { x: 344, width: 92, label: 'Discount', align: 'right' },
+                gstAmount: { x: 438, width: 54, label: gstLabel, align: 'right' },
+                total: { x: 494, width: 54, label: 'Line Total', align: 'right' }
+            }
+            : {
+                idx: { x: 46, width: 14, label: '#', align: 'left' },
+                name: { x: 62, width: 126, label: 'Item', align: 'left' },
+                rate: { x: 190, width: 54, label: 'Rate', align: 'right' },
+                qty: { x: 246, width: 24, label: 'Qty', align: 'right' },
+                amount: { x: 272, width: 86, label: 'Amount', align: 'right' },
+                gstAmount: { x: 360, width: 60, label: gstLabel, align: 'right' },
+                total: { x: 422, width: 126, label: 'Line Total', align: 'right' }
+            })
+        : (showDiscountColumn
+            ? {
+                idx: { x: 46, width: 18, label: '#', align: 'left' },
+                name: { x: 66, width: 184, label: 'Item', align: 'left' },
+                rate: { x: 252, width: 62, label: 'Rate', align: 'right' },
+                qty: { x: 316, width: 30, label: 'Qty', align: 'right' },
+                amount: { x: 348, width: 74, label: 'Amount', align: 'right' },
+                discount: { x: 424, width: 62, label: 'Discount', align: 'right' },
+                total: { x: 488, width: 60, label: 'Line Total', align: 'right' }
+            }
+            : {
+                idx: { x: 46, width: 18, label: '#', align: 'left' },
+                name: { x: 66, width: 196, label: 'Item', align: 'left' },
+                rate: { x: 264, width: 68, label: 'Rate', align: 'right' },
+                qty: { x: 334, width: 34, label: 'Qty', align: 'right' },
+                amount: { x: 370, width: 82, label: 'Amount', align: 'right' },
+                total: { x: 454, width: 94, label: 'Line Total', align: 'right' }
+            });
 
     doc.rect(left, y, tableWidth, headerHeight).fill('#F9FAFB');
     doc.fillColor('#4B5563').font('Helvetica-Bold').fontSize(showTaxColumns ? 7 : 8);
@@ -480,9 +588,9 @@ const drawTableHeader = (doc, y, { showTaxColumns = false, taxPriceMode = 'exclu
     return { left, tableWidth, cols, nextY: y + headerHeight, showTaxColumns };
 };
 
-const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false, taxPriceMode = 'exclusive' } = {}) => {
+const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false, showDiscountColumn = true, taxPriceMode = 'exclusive' } = {}) => {
     const pageBottom = doc.page.height - 220;
-    const table = drawTableHeader(doc, startY, { showTaxColumns, taxPriceMode });
+    const table = drawTableHeader(doc, startY, { showTaxColumns, showDiscountColumn, taxPriceMode });
     let y = table.nextY;
 
     if (!items.length) {
@@ -506,19 +614,19 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
     items.forEach((item, idx) => {
         const itemText = [item.name, item.variantLine, item.subCategoryLine, item.warrantyLine].filter(Boolean).join('\n');
         const itemTextHeight = textHeight(doc, itemText, table.cols.name.width, 9, fonts);
-        const discountParts = showTaxColumns ? buildDiscountCellParts(item) : null;
-        const discountTextHeight = showTaxColumns
+        const discountParts = showDiscountColumn ? buildDiscountCellParts(item) : null;
+        const discountTextHeight = showDiscountColumn
             ? getBreakdownCellHeight(doc, table.cols.discount.width, discountParts, fonts)
-            : textHeight(doc, inr(item.discount), table.cols.discount.width, 9, fonts);
+            : 0;
         const gstParts = showTaxColumns ? buildGstCellParts(item) : null;
         const gstTextHeight = showTaxColumns
             ? getBreakdownCellHeight(doc, table.cols.gstAmount.width, gstParts, fonts)
             : 0;
-        const rowHeight = Math.max(24, itemTextHeight + 8, discountTextHeight + 8, gstTextHeight + 8);
+        const rowHeight = Math.max(24, itemTextHeight + 8, (showDiscountColumn ? discountTextHeight + 8 : 0), gstTextHeight + 8);
 
         if (y + rowHeight > pageBottom) {
             doc.addPage();
-            const next = drawTableHeader(doc, 52, { showTaxColumns, taxPriceMode });
+            const next = drawTableHeader(doc, 52, { showTaxColumns, showDiscountColumn, taxPriceMode });
             y = next.nextY;
         }
 
@@ -542,12 +650,16 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
         doc.font('Helvetica').fontSize(9).fillColor('#111827').text(String(item.qty), table.cols.qty.x, y + 6, { width: table.cols.qty.width, align: 'right' });
         doc.text(inr(displayedAmount), table.cols.amount.x, y + 6, { width: table.cols.amount.width, align: 'right' });
         if (showTaxColumns) {
-            drawBreakdownCell(doc, table.cols.discount.x, y + 5, table.cols.discount.width, discountParts, 'right', {}, fonts);
+            if (showDiscountColumn) {
+                drawBreakdownCell(doc, table.cols.discount.x, y + 5, table.cols.discount.width, discountParts, 'right', {}, fonts);
+            }
             drawBreakdownCell(doc, table.cols.gstAmount.x, y + 5, table.cols.gstAmount.width, gstParts, 'right', {}, fonts);
             doc.font('Helvetica').fontSize(9).fillColor('#111827');
             doc.text(inr(item.lineTotalInclTax), table.cols.total.x, y + 6, { width: table.cols.total.width, align: 'right' });
         } else {
-            doc.font('Helvetica').fontSize(9).fillColor('#111827').text(inr(item.discount), table.cols.discount.x, y + 5, { width: table.cols.discount.width, align: 'right' });
+            if (showDiscountColumn) {
+                drawBreakdownCell(doc, table.cols.discount.x, y + 5, table.cols.discount.width, discountParts, 'right', {}, fonts);
+            }
             doc.text(inr(item.lineTotal), table.cols.total.x, y + 6, { width: table.cols.total.width, align: 'right' });
         }
 
@@ -563,7 +675,7 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
         y += rowHeight;
     });
 
-    const totalsDiscountParts = showTaxColumns
+    const totalsDiscountParts = showDiscountColumn
         ? buildDiscountCellParts({
             discount: tableTotals.productDiscount,
             couponDiscount: tableTotals.couponDiscount,
@@ -575,13 +687,13 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
     const totalsRowHeight = showTaxColumns
         ? Math.max(
             30,
-            getBreakdownCellHeight(doc, table.cols.discount.width, totalsDiscountParts, fonts) + 8,
+            (showDiscountColumn ? getBreakdownCellHeight(doc, table.cols.discount.width, totalsDiscountParts, fonts) + 8 : 0),
             getBreakdownCellHeight(doc, table.cols.gstAmount.width, totalsGstParts, fonts) + 8
         )
-        : 24;
+        : (showDiscountColumn ? Math.max(24, getBreakdownCellHeight(doc, table.cols.discount.width, totalsDiscountParts, fonts) + 8) : 24);
     if (y + totalsRowHeight > pageBottom) {
         doc.addPage();
-        const next = drawTableHeader(doc, 52, { showTaxColumns, taxPriceMode });
+        const next = drawTableHeader(doc, 52, { showTaxColumns, showDiscountColumn, taxPriceMode });
         y = next.nextY;
     }
     doc.rect(table.left, y, table.tableWidth, totalsRowHeight).fill('#F9FAFB');
@@ -591,12 +703,16 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
     doc.text(`${Math.round(tableTotals.qty)}`, table.cols.qty.x, y + 7, { width: table.cols.qty.width, align: 'right' });
     doc.text(inr(roundCurrency(tableTotals.amount)), table.cols.amount.x, y + 7, { width: table.cols.amount.width, align: 'right' });
     if (showTaxColumns) {
-        drawBreakdownCell(doc, table.cols.discount.x, y + 5, table.cols.discount.width, totalsDiscountParts, 'right', { bold: true }, fonts);
+        if (showDiscountColumn) {
+            drawBreakdownCell(doc, table.cols.discount.x, y + 5, table.cols.discount.width, totalsDiscountParts, 'right', { bold: true }, fonts);
+        }
         drawBreakdownCell(doc, table.cols.gstAmount.x, y + 5, table.cols.gstAmount.width, totalsGstParts, 'right', { bold: true }, fonts);
         doc.font('Helvetica-Bold').fontSize(9).fillColor('#374151');
         doc.text(inr(tableTotals.lineTotalInclTax), table.cols.total.x, y + 7, { width: table.cols.total.width, align: 'right' });
     } else {
-        doc.font('Helvetica-Bold').fontSize(9).fillColor('#374151').text(inr(tableTotals.productDiscount), table.cols.discount.x, y + 5, { width: table.cols.discount.width, align: 'right' });
+        if (showDiscountColumn) {
+            drawBreakdownCell(doc, table.cols.discount.x, y + 5, table.cols.discount.width, totalsDiscountParts, 'right', { bold: true }, fonts);
+        }
         doc.text(inr(tableTotals.lineTotalBase), table.cols.total.x, y + 7, { width: table.cols.total.width, align: 'right' });
     }
     y += totalsRowHeight;
@@ -636,13 +752,19 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
 
     const unicodeFontPath = resolveUnicodeFontPath();
-    const unicodeFontName = unicodeFontPath ? 'InvoiceTamil' : null;
+    const tamilFontPath = resolveTamilFontPath();
+    const unicodeFontName = unicodeFontPath ? 'InvoiceUnicode' : null;
+    const tamilFontName = tamilFontPath ? 'InvoiceTamil' : null;
     if (unicodeFontPath) {
         doc.registerFont(unicodeFontName, unicodeFontPath);
     }
+    if (tamilFontPath) {
+        doc.registerFont(tamilFontName, tamilFontPath);
+    }
     const fonts = {
         base: 'Helvetica',
-        tamil: unicodeFontName || 'Helvetica'
+        unicode: unicodeFontName || 'Helvetica',
+        tamil: tamilFontName || unicodeFontName || 'Helvetica'
     };
 
     const company = getCompany(order);
@@ -677,6 +799,16 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     const roundOffAmount = toNumber(order.round_off_amount, 0);
     const showTaxTotals = taxTotal > 0;
     const showTaxColumns = toBoolean(companySnapshot.taxEnabled ?? companySnapshot.tax_enabled, false) || showTaxTotals;
+    const showDiscountColumn = tableItems.some((item) => {
+        const totalDiscount = Math.max(
+            0,
+            toNumber(item.displayProductDiscount ?? item.discount, 0)
+            + toNumber(item.displayCouponDiscount ?? item.couponDiscount, 0)
+            + toNumber(item.displayMemberDiscount ?? item.memberDiscount, 0)
+            + toNumber(item.displayShippingBenefitShare ?? item.shippingBenefitShare, 0)
+        );
+        return totalDiscount > 0;
+    });
     const totalDiscount = toNumber(order.discount_total, couponDiscount + loyaltyDiscount + loyaltyShippingDiscount);
     const total = toNumber(
         order.total,
@@ -687,11 +819,15 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     const couponCode = String(order.coupon_code || order.couponCode || '').trim();
     const tierTheme = getTierTheme(order.loyalty_tier || order.loyaltyTier || 'regular');
 
-    const logoPath = resolveLogoPath(company);
-    if (logoPath) {
+    const logoCandidates = resolveLogoCandidates(company);
+    for (const logoPath of logoCandidates) {
+        if (!isPdfKitImageFormatSupported(logoPath)) continue;
         try {
             doc.image(logoPath, 42, 36, { fit: [96, 52] });
-        } catch {}
+            break;
+        } catch {
+            // try next candidate
+        }
     }
 
     const isCancelledOrder = String(order?.status || '').toLowerCase() === 'cancelled';
@@ -710,7 +846,11 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     doc.font('Helvetica').fontSize(10).fillColor('#6B7280').text(`Invoice Date: ${formatDate(order.created_at || order.createdAt)}`, 360, 66, { width: 200, align: 'right' });
     doc.font('Helvetica').fontSize(10).fillColor('#6B7280').text(`Invoice No: INV-${orderRef}`, 340, 84, { width: 220, align: 'right' });
 
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827').text(company.displayName, 42, 94, { width: 300 });
+    drawMixedText(doc, company.displayName, 42, 94, {
+        size: 11,
+        color: '#111827',
+        width: 300
+    }, fonts);
     if (company.address) {
         drawMixedText(doc, company.address, 42, 111, {
             size: 9,
@@ -719,11 +859,22 @@ const buildInvoicePdfBuffer = async (order = {}) => {
         }, fonts);
     }
     const contactLine = [company.contactNumber, company.supportEmail || DEFAULT_SUPPORT_EMAIL].filter(Boolean).join(' | ');
-    doc.font('Helvetica').fontSize(8).fillColor('#6B7280').text(contactLine, 42, 137, { width: 320 });
+    drawMixedText(doc, contactLine, 42, 137, {
+        size: 8,
+        color: '#6B7280',
+        width: 320
+    }, fonts);
+    if (company.gstNumber) {
+        drawMixedText(doc, `GSTIN: ${company.gstNumber}`, 42, 149, {
+            size: 8,
+            color: '#6B7280',
+            width: 320
+        }, fonts);
+    }
 
     const billingLines = [
-        billing.name || billing.fullName || order.customer_name || 'Customer',
-        billing.mobile || billing.phone || order.customer_mobile || '',
+        normalizeUtf8Text(billing.name || billing.fullName || order.customer_name || 'Customer'),
+        normalizeUtf8Text(billing.mobile || billing.phone || order.customer_mobile || ''),
         ...normalizeAddressLines(billing)
     ].filter(Boolean);
     const shippingLines = normalizeAddressLines(shipping);
@@ -747,7 +898,7 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     doc.font('Helvetica').fontSize(9).fillColor('#6B7280').text('Membership:', 42, infoY + 16, { continued: true });
     doc.font('Helvetica-Bold').fillColor(tierTheme.color).text(` ${tierTheme.label}`);
 
-    let cursorY = drawItemsTable(doc, fonts, infoY + 34, tableItems, { showTaxColumns, taxPriceMode });
+    let cursorY = drawItemsTable(doc, fonts, infoY + 34, tableItems, { showTaxColumns, showDiscountColumn, taxPriceMode });
 
     doc.y = cursorY + 12;
     ensureSpace(doc, 230, 52);

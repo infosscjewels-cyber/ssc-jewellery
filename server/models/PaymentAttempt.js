@@ -32,6 +32,37 @@ const hydrateAttemptRow = (row = null) => {
         notes: parseJsonField(row.notes)
     };
 };
+const normalizeGatewayPaymentSnapshot = (paymentDetails = null) => {
+    if (!paymentDetails || typeof paymentDetails !== 'object') return null;
+    const card = paymentDetails.card && typeof paymentDetails.card === 'object' ? paymentDetails.card : null;
+    const acquirerData = paymentDetails.acquirer_data && typeof paymentDetails.acquirer_data === 'object'
+        ? paymentDetails.acquirer_data
+        : null;
+    return {
+        id: paymentDetails.id || null,
+        status: paymentDetails.status || null,
+        method: paymentDetails.method || null,
+        amount: paymentDetails.amount != null ? Number(paymentDetails.amount || 0) : null,
+        currency: paymentDetails.currency || null,
+        fee: paymentDetails.fee != null ? Number(paymentDetails.fee || 0) : null,
+        tax: paymentDetails.tax != null ? Number(paymentDetails.tax || 0) : null,
+        refunded: paymentDetails.amount_refunded != null ? Number(paymentDetails.amount_refunded || 0) : null,
+        refund_status: paymentDetails.refund_status || null,
+        bank: paymentDetails.bank || null,
+        wallet: paymentDetails.wallet || null,
+        vpa: paymentDetails.vpa || null,
+        card_type: card?.type || null,
+        card_network: card?.network || null,
+        card_issuer: card?.issuer || null,
+        card_last4: card?.last4 || null,
+        emi: paymentDetails.emi != null ? Boolean(paymentDetails.emi) : null,
+        rrn: acquirerData?.rrn || null,
+        upi_transaction_id: acquirerData?.upi_transaction_id || null,
+        captured: paymentDetails.captured != null ? Boolean(paymentDetails.captured) : null,
+        created_at: paymentDetails.created_at || null,
+        synced_at: new Date().toISOString()
+    };
+};
 
 class PaymentAttempt {
     static async getLatestRetryableByUser(userId) {
@@ -409,6 +440,45 @@ class PaymentAttempt {
                 razorpayOrderId
             ]
         );
+    }
+
+    static async upsertPaymentSnapshot({
+        id = null,
+        razorpayOrderId = null,
+        paymentDetails = null
+    } = {}) {
+        const snapshot = normalizeGatewayPaymentSnapshot(paymentDetails);
+        if (!snapshot) return { updated: false, reason: 'missing_snapshot' };
+
+        let attempt = null;
+        if (Number.isFinite(Number(id)) && Number(id) > 0) {
+            attempt = await PaymentAttempt.getById(Number(id));
+        } else if (String(razorpayOrderId || '').trim()) {
+            attempt = await PaymentAttempt.getByRazorpayOrderIdAny(String(razorpayOrderId).trim());
+        }
+        if (!attempt?.id) return { updated: false, reason: 'attempt_not_found' };
+
+        const notes = attempt?.notes && typeof attempt.notes === 'object' ? { ...attempt.notes } : {};
+        const attemptSnapshot = notes?.attemptSnapshot && typeof notes.attemptSnapshot === 'object'
+            ? { ...notes.attemptSnapshot }
+            : {};
+        const existingPayment = attemptSnapshot?.payment && typeof attemptSnapshot.payment === 'object'
+            ? attemptSnapshot.payment
+            : {};
+        attemptSnapshot.payment = {
+            ...existingPayment,
+            ...snapshot
+        };
+        notes.attemptSnapshot = attemptSnapshot;
+
+        await db.execute(
+            `UPDATE payment_attempts
+             SET notes = ?,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [JSON.stringify(notes), attempt.id]
+        );
+        return { updated: true, attemptId: attempt.id };
     }
 
     static async markExpired({ id, reason = 'Payment attempt expired' }) {

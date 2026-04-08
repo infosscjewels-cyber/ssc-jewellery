@@ -236,6 +236,11 @@ const ensureCapturedPaymentMatchesAttempt = async ({
         throw buildError('Payment is not captured yet', 409, { reconciliationPending: true });
     }
 
+    await PaymentAttempt.upsertPaymentSnapshot({
+        id: attempt.id,
+        paymentDetails: resolvedPaymentDetails
+    }).catch(() => {});
+
     const existingOrder = await attachAttemptToExistingPaidOrder({
         attempt,
         paymentId: resolvedPaymentId

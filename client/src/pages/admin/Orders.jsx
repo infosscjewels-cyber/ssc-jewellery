@@ -251,6 +251,83 @@ const getPaymentHeaderBadgeClasses = (status) => {
     if (normalized === 'refunded') return 'bg-sky-50/95 text-sky-900 border border-sky-100';
     return 'bg-fuchsia-50/95 text-fuchsia-900 border border-fuchsia-100';
 };
+const toPaymentMethodInfoLabel = (method = '') => {
+    const normalized = String(method || '').trim().toLowerCase();
+    if (!normalized) return '';
+    if (normalized === 'upi') return 'UPI';
+    if (normalized === 'debit_card') return 'Debit Card';
+    if (normalized === 'credit_card') return 'Credit Card';
+    if (normalized === 'card') return 'Card (Debit/Credit)';
+    if (normalized === 'card_swipe') return 'Card Swipe';
+    if (normalized === 'netbanking' || normalized === 'net_banking') return 'Net Banking';
+    if (normalized === 'wallet') return 'Wallet';
+    if (normalized === 'emi') return 'EMI';
+    if (normalized === 'paylater' || normalized === 'pay_later') return 'Pay Later';
+    if (normalized === 'bank_transfer' || normalized === 'bank') return 'Bank Transfer';
+    if (normalized === 'cash') return 'Cash';
+    if (normalized === 'cod') return 'Cash on Delivery';
+    if (normalized === 'manual') return 'Manual';
+    return normalized
+        .split('_')
+        .map((part) => part ? `${part.charAt(0).toUpperCase()}${part.slice(1)}` : '')
+        .join(' ')
+        .trim();
+};
+const getPaymentMethodInfoLabel = (order = {}, paymentMethodContext = null) => {
+    const gateway = String(order?.payment_gateway || order?.paymentGateway || '').trim().toLowerCase();
+    const snapshotCardType = String(order?.payment_snapshot?.card_type || '').trim().toLowerCase();
+    const contextCardType = String(paymentMethodContext?.card?.type || '').trim().toLowerCase();
+    const methodCandidates = [
+        order?.payment_snapshot?.method,
+        snapshotCardType ? `${snapshotCardType}_card` : '',
+        paymentMethodContext?.method,
+        contextCardType ? `${contextCardType}_card` : '',
+        order?.payment_method,
+        order?.paymentMethod,
+        order?.method,
+        order?.gateway_payment_method,
+        order?.gatewayPaymentMethod
+    ];
+    for (const candidate of methodCandidates) {
+        const label = toPaymentMethodInfoLabel(candidate);
+        if (label) return label;
+    }
+    if (gateway === 'razorpay') return 'Not available (sync to fetch)';
+    const fallbackByGateway = toPaymentMethodInfoLabel(gateway);
+    return fallbackByGateway || '—';
+};
+const needsPaymentMethodSync = (order = {}) => {
+    const gateway = String(order?.payment_gateway || order?.paymentGateway || '').trim().toLowerCase();
+    if (gateway !== 'razorpay') return false;
+    const status = String(order?.payment_status || order?.paymentStatus || '').trim().toLowerCase();
+    if (!['paid', 'captured', 'refunded'].includes(status)) return false;
+    const hasRazorpayTrace = Boolean(order?.razorpay_order_id || order?.razorpay_payment_id);
+    if (!hasRazorpayTrace) return false;
+    return !String(order?.payment_snapshot?.method || '').trim();
+};
+const needsSettlementSync = (order = {}) => {
+    const paymentStatus = String(order?.payment_status || order?.paymentStatus || '').trim().toLowerCase();
+    if (!['paid', 'captured', 'refunded'].includes(paymentStatus)) return false;
+
+    const hasRazorpayTrace = Boolean(order?.razorpay_order_id || order?.razorpay_payment_id);
+    if (!hasRazorpayTrace) return false;
+
+    const settlementId = String(
+        order?.settlement_id
+        || order?.settlementId
+        || order?.settlement_snapshot?.id
+        || order?.settlementSnapshot?.id
+        || ''
+    ).trim();
+    const settlementStatus = String(
+        order?.settlement_snapshot?.status
+        || order?.settlementSnapshot?.status
+        || ''
+    ).trim().toLowerCase();
+
+    if (!settlementId || !settlementStatus) return true;
+    return ['pending', 'processing', 'queued', 'failed'].includes(settlementStatus);
+};
 const getManualUnitPrice = (product = {}, variant = null) => {
     return Number(
         variant?.discount_price
@@ -555,6 +632,7 @@ export function Orders({
     const [isConvertingAttempt, setIsConvertingAttempt] = useState(false);
     const [reconcilingAttemptId, setReconcilingAttemptId] = useState(null);
     const [settlementContext, setSettlementContext] = useState({ mode: null, isTestMode: false });
+    const [paymentMethodContext, setPaymentMethodContext] = useState(null);
     const [deletingOrderId, setDeletingOrderId] = useState(null);
     const [isExporting, setIsExporting] = useState(false);
     const [downloadingInvoiceId, setDownloadingInvoiceId] = useState(null);
@@ -1898,6 +1976,7 @@ export function Orders({
         const hasSeedData = Boolean(order && !isAttemptEntry(order));
         setIsDetailsLoading(!hasSeedData);
         setSettlementContext({ mode: null, isTestMode: false });
+        setPaymentMethodContext(null);
         if (order) {
             setSelectedOrder((prev) => ({ ...(prev || {}), ...order }));
             setPendingStatus('');
@@ -1923,7 +2002,7 @@ export function Orders({
             setSelectedOrder(nextOrder);
             setPendingStatus('');
             setDetailsLastSyncedAt(new Date().toISOString());
-            if (nextOrder && needsSettlementSync(nextOrder)) {
+            if (nextOrder && (needsSettlementSync(nextOrder) || needsPaymentMethodSync(nextOrder))) {
                 try {
                     const sync = await orderService.fetchAdminPaymentStatus({
                         orderId: nextOrder.order_id || nextOrder.id,
@@ -1938,6 +2017,9 @@ export function Orders({
                     }
                     if (sync?.settlementContext) {
                         setSettlementContext(sync.settlementContext);
+                    }
+                    if (sync?.razorpay?.payment) {
+                        setPaymentMethodContext(sync.razorpay.payment);
                     }
                 } catch (error) {
                     void error;
@@ -2067,6 +2149,9 @@ export function Orders({
             }
             if (data?.settlementContext) {
                 setSettlementContext(data.settlementContext);
+            }
+            if (data?.razorpay?.payment) {
+                setPaymentMethodContext(data.razorpay.payment);
             }
             if (reason === 'refund') {
                 toast.success(`Refund status synced: ${data?.order?.refund_status || data?.paymentStatus || 'updated'}`);
@@ -3478,6 +3563,7 @@ export function Orders({
                                                     <p className="text-xs text-gray-400 font-semibold uppercase">Payment Details</p>
                                                     <div className="mt-2 space-y-1 text-sm text-gray-700">
                                                         <p><span className="text-gray-500">Method:</span> {getPaymentMethodLabel(selectedOrder)}</p>
+                                                        <p><span className="text-gray-500">Payment Method Info:</span> {getPaymentMethodInfoLabel(selectedOrder, paymentMethodContext)}</p>
                                                         <p><span className="text-gray-500">Status:</span> {getPaymentStatusLabel(selectedOrder)}</p>
                                                         <p><span className="text-gray-500">Reference:</span> <span className="font-mono text-xs">{getPaymentReference(selectedOrder)}</span></p>
                                                         <p><span className="text-gray-500">Invoice No:</span> <span className="font-mono text-xs">{getInvoiceNumber(selectedOrder)}</span></p>
@@ -3494,13 +3580,7 @@ export function Orders({
                                                                 <p><span className="text-gray-500">Manual Ref:</span> <span className="font-mono text-xs">{selectedOrder?.manual_refund_ref || '—'}</span></p>
                                                                 <p><span className="text-gray-500">Manual UTR:</span> <span className="font-mono text-xs">{selectedOrder?.manual_refund_utr || '—'}</span></p>
                                                                 <p><span className="text-gray-500">Refund Voucher:</span> <span className="font-mono text-xs">{getRefundVoucherCode(selectedOrder) || '—'}</span></p>
-                                                                <p><span className="text-gray-500">Non-refundable Shipping:</span> ₹{Number(selectedOrder?.refund_notes?.nonRefundableShippingFee ?? selectedOrder?.shipping_fee ?? 0).toLocaleString('en-IN')}</p>
                                                             </>
-                                                        )}
-                                                        {String(selectedOrder?.payment_gateway || '').toLowerCase() === 'razorpay' && (
-                                                            <p className="text-xs text-amber-700 mt-2">
-                                                                EMI refund reversals are controlled by the customer&apos;s issuing bank timeline. Shipping charge is non-refundable.
-                                                            </p>
                                                         )}
                                                         {normalizeOrderStatus(selectedOrder.status) === 'pending' && (
                                                             <p><span className="text-gray-500">Pending For:</span> {getPendingDurationLabel(selectedOrder.created_at)}</p>

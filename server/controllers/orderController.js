@@ -2008,6 +2008,12 @@ const handleRazorpayWebhook = async (req, res) => {
                 paymentId: razorpayPaymentId
             });
         }
+        if (paymentEntity && razorpayOrderId) {
+            await PaymentAttempt.upsertPaymentSnapshot({
+                razorpayOrderId,
+                paymentDetails: paymentEntity
+            }).catch(() => {});
+        }
 
         const refundEntity = req.body?.payload?.refund?.entity || null;
         const existingLinkedOrder = razorpayOrderId
@@ -3472,6 +3478,12 @@ const fetchAdminPaymentStatus = async (req, res) => {
                 }
             } catch {}
         }
+        if (paymentDetails && razorpayOrderId) {
+            await PaymentAttempt.upsertPaymentSnapshot({
+                razorpayOrderId,
+                paymentDetails
+            }).catch(() => {});
+        }
 
         let paymentStatus = mapRazorpayOrderStatusToLocalPayment(razorpayOrder?.status);
         const paymentStatusFromPayment = mapRazorpayPaymentStatusToLocalPayment(paymentDetails?.status);
@@ -3659,21 +3671,23 @@ const hydrateOrderForInvoice = async (order = {}) => {
         const snapshot = orderForInvoice.company_snapshot && typeof orderForInvoice.company_snapshot === 'object'
             ? { ...orderForInvoice.company_snapshot }
             : {};
-        const missingAddress = !String(snapshot.address || '').trim();
-        const missingSupport = !String(snapshot.supportEmail || '').trim();
-        const missingContact = !String(snapshot.contactNumber || '').trim();
-        const missingLogo = !String(snapshot.logoUrl || snapshot.logo_url || '').trim();
-        if (missingAddress || missingSupport || missingContact || missingLogo) {
-            const profile = await CompanyProfile.get();
-            orderForInvoice.company_snapshot = {
-                ...profile,
-                ...snapshot,
-                address: snapshot.address || profile.address || '',
-                supportEmail: snapshot.supportEmail || profile.supportEmail || '',
-                contactNumber: snapshot.contactNumber || profile.contactNumber || '',
-                logoUrl: snapshot.logoUrl || snapshot.logo_url || profile.logoUrl || ''
-            };
-        }
+        const profile = await CompanyProfile.get();
+        const liveDisplayName = String(profile?.displayName || '').trim();
+        const liveAddress = String(profile?.address || '').trim();
+        const liveSupportEmail = String(profile?.supportEmail || '').trim();
+        const liveContactNumber = String(profile?.contactNumber || '').trim();
+        const liveLogoUrl = String(profile?.logoUrl || '').trim();
+        const liveGstNumber = String(profile?.gstNumber || '').trim();
+        orderForInvoice.company_snapshot = {
+            ...snapshot,
+            ...profile,
+            displayName: liveDisplayName || snapshot.displayName || snapshot.display_name || '',
+            address: liveAddress || snapshot.address || '',
+            supportEmail: liveSupportEmail || snapshot.supportEmail || snapshot.support_email || '',
+            contactNumber: liveContactNumber || snapshot.contactNumber || snapshot.contact_number || '',
+            logoUrl: liveLogoUrl || snapshot.logoUrl || snapshot.logo_url || '',
+            gstNumber: liveGstNumber || snapshot.gstNumber || snapshot.gst_number || ''
+        };
     } catch {}
     return orderForInvoice;
 };
