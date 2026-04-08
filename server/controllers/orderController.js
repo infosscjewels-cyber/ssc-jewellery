@@ -131,6 +131,54 @@ const emitCouponChangedForOrder = (req, order = null) => {
     io.to(`user:${order.user_id}`).emit('coupon:changed', payload);
 };
 
+const emitWishlistUpdateForUser = async (req, userId) => {
+    if (!userId) return;
+    const io = req.app.get('io');
+    if (!io) return;
+    const items = await Wishlist.getByUser(userId);
+    io.to(`user:${userId}`).emit('wishlist:update', {
+        items,
+        productIds: [...new Set(items.map((entry) => String(entry?.productId || '').trim()).filter(Boolean))]
+    });
+};
+
+const reconcilePostOrderCartState = async (req, {
+    order = null,
+    preOrderCartItems = [],
+    source = 'post_order'
+} = {}) => {
+    if (!order?.user_id) return;
+
+    const orderedItems = Array.isArray(order.items) ? order.items : [];
+    const orderedKeys = new Set(
+        orderedItems.map((item) => `${String(item?.productId || item?.product_id || '').trim()}::${String(item?.variantId || item?.variant_id || '').trim()}`)
+    );
+
+    try {
+        const fallbackCartItems = Array.isArray(preOrderCartItems) && preOrderCartItems.length
+            ? preOrderCartItems
+            : await Cart.getByUser(order.user_id).catch(() => []);
+        const serverOnlyItems = (Array.isArray(fallbackCartItems) ? fallbackCartItems : []).filter((item) => {
+            const key = `${String(item?.productId || item?.product_id || '').trim()}::${String(item?.variantId || item?.variant_id || '').trim()}`;
+            return !orderedKeys.has(key);
+        });
+
+        if (serverOnlyItems.length > 0) {
+            await Promise.all(
+                serverOnlyItems.map((item) => Wishlist.addItem(order.user_id, item.productId || item.product_id, item.variantId || item.variant_id || '').catch(() => null))
+            );
+            await emitWishlistUpdateForUser(req, order.user_id).catch(() => {});
+        }
+
+        await Cart.clearUser(order.user_id);
+        await AbandonedCart.deleteCandidate(order.user_id);
+    } catch (error) {
+        console.error(`[${source}] Post-order cart reconciliation failed:`, error?.message || error);
+    }
+
+    await emitProductUpdatesForIds(req, collectOrderProductIds(order));
+};
+
 const PAYMENT_ATTEMPT_PROCESSING_STATUSES = new Set([
     PAYMENT_STATUS.CREATED,
     PAYMENT_STATUS.CHECKOUT_OPENED,
@@ -402,6 +450,8 @@ const createOrderFromRecoveryPayment = async (req, {
         billingAddress: parseAddressObject(user?.billingAddress) || shippingAddress || {}
     }) || shippingAddress || {};
 
+    const preOrderCartItems = userId ? await Cart.getByUser(userId).catch(() => []) : [];
+
     const createdOrder = await Order.createFromRecoveryJourney(userId, {
         journey,
         payment: {
@@ -425,7 +475,11 @@ const createOrderFromRecoveryPayment = async (req, {
     }
 
     if (createdOrder) {
-        await emitProductUpdatesForIds(req, collectOrderProductIds(createdOrder));
+        await reconcilePostOrderCartState(req, {
+            order: createdOrder,
+            preOrderCartItems,
+            source: 'recovery_payment_order_created'
+        });
         try {
             await markRecoveredByOrder({ order: createdOrder, reason: 'payment_paid_webhook' });
             emitAbandonedRecoveryUpdate(req, {
@@ -1750,7 +1804,15 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
     if (!attempt?.id) return null;
     if (attempt.local_order_id) {
         const existingOrder = await Order.getById(attempt.local_order_id);
-        if (existingOrder) return existingOrder;
+        if (existingOrder) {
+            await reconcilePostOrderCartState(req, {
+                order: existingOrder,
+                preOrderCartItems: [],
+                source: 'checkout_attempt_existing_order'
+            });
+            emitCouponChangedForOrder(req, existingOrder);
+            return existingOrder;
+        }
     }
     if (razorpayPaymentId) {
         const existingByPayment = await Order.getByRazorpayPaymentId(razorpayPaymentId);
@@ -1760,6 +1822,12 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
                 localOrderId: existingByPayment.id,
                 status: PAYMENT_STATUS.PAID
             }).catch(() => {});
+            await reconcilePostOrderCartState(req, {
+                order: existingByPayment,
+                preOrderCartItems: [],
+                source: 'checkout_attempt_existing_payment'
+            });
+            emitCouponChangedForOrder(req, existingByPayment);
             return existingByPayment;
         }
     }
@@ -1780,24 +1848,11 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
         sourceChannel: 'checkout_webhook_recovery'
     });
     if (order) {
-        try {
-            const orderedItems = Array.isArray(order.items) ? order.items : [];
-            const orderedKeys = new Set(
-                orderedItems.map((item) => `${String(item?.productId || '').trim()}::${String(item?.variantId || '').trim()}`)
-            );
-            const serverOnlyItems = (Array.isArray(preOrderCartItems) ? preOrderCartItems : []).filter((item) => {
-                const key = `${String(item?.productId || '').trim()}::${String(item?.variantId || '').trim()}`;
-                return !orderedKeys.has(key);
-            });
-            if (serverOnlyItems.length > 0) {
-                await Promise.all(
-                    serverOnlyItems.map((item) => Wishlist.addItem(order.user_id, item.productId, item.variantId || '').catch(() => null))
-                );
-            }
-            await Cart.clearUser(order.user_id);
-            await AbandonedCart.deleteCandidate(order.user_id);
-        } catch {}
-        await emitProductUpdatesForIds(req, collectOrderProductIds(order));
+        await reconcilePostOrderCartState(req, {
+            order,
+            preOrderCartItems,
+            source: 'checkout_attempt_order_created'
+        });
     }
     if (order) emitCouponChangedForOrder(req, order);
     return order;
@@ -3334,6 +3389,9 @@ const createAdminManualOrder = async (req, res) => {
         if (!MANUAL_PAYMENT_MODES.includes(paymentMode)) {
             return res.status(400).json({ message: 'Select a valid manual payment mode' });
         }
+        const preOrderCartItems = useCustomerCart
+            ? await Cart.getByUser(userId).catch(() => [])
+            : [];
         const order = useCustomerCart
             ? await Order.createFromCart(userId, {
                 billingAddress,
@@ -3389,7 +3447,15 @@ const createAdminManualOrder = async (req, res) => {
             });
         }
         notifyAdminsOfNewOrder(finalOrder, { source: 'manual' });
-        await emitProductUpdatesForIds(req, collectOrderProductIds(finalOrder));
+        if (useCustomerCart) {
+            await reconcilePostOrderCartState(req, {
+                order: finalOrder,
+                preOrderCartItems,
+                source: 'admin_manual_order_from_cart'
+            });
+        } else {
+            await emitProductUpdatesForIds(req, collectOrderProductIds(finalOrder));
+        }
         emitCouponChangedForOrder(req, finalOrder);
         void triggerOrderLifecycleEmail({
             order: finalOrder,

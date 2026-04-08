@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, X, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus, Send, Printer, Phone, RotateCw } from 'lucide-react';
+import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, ArrowLeft, ArrowRight, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus, Send, Printer, Phone, RotateCw } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
@@ -10,6 +10,7 @@ import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { formatAdminDate, formatAdminDateTime } from '../../utils/dateFormat';
 import { getGstDisplayDetails } from '../../utils/gst';
 import { billingAddressEnabled } from '../../utils/billingAddressConfig';
+import { computeOrderTotalsDisplay } from '../../utils/orderTotalsComputation';
 import Modal from '../../components/Modal';
 import { useAdminKPI } from '../../context/AdminKPIContext';
 import { useAuth } from '../../context/AuthContext';
@@ -386,9 +387,9 @@ const buildVisiblePages = (currentPage, totalPages, windowSize = 4) => {
 };
 const MOBILE_ORDER_CARD_THEMES = {
     confirmed: {
-        shell: 'border-sky-200 bg-gradient-to-br from-white via-sky-50/60 to-cyan-50/75 shadow-sky-100/70',
+        shell: 'border-sky-200 bg-white/95 shadow-sky-100/50',
         strip: 'from-sky-400 via-cyan-400 to-sky-300',
-        meta: 'border-sky-100 bg-sky-50/80',
+        meta: 'border-sky-100 bg-sky-50/45',
         divider: 'border-sky-100',
         amount: 'text-sky-950',
         actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
@@ -398,9 +399,9 @@ const MOBILE_ORDER_CARD_THEMES = {
         actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
     },
     completed: {
-        shell: 'border-emerald-200 bg-gradient-to-br from-white via-emerald-50/60 to-lime-50/75 shadow-emerald-100/70',
+        shell: 'border-emerald-200 bg-white/95 shadow-emerald-100/50',
         strip: 'from-emerald-400 via-lime-400 to-emerald-300',
-        meta: 'border-emerald-100 bg-emerald-50/80',
+        meta: 'border-emerald-100 bg-emerald-50/45',
         divider: 'border-emerald-100',
         amount: 'text-emerald-950',
         actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
@@ -410,9 +411,9 @@ const MOBILE_ORDER_CARD_THEMES = {
         actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
     },
     pending: {
-        shell: 'border-amber-200 bg-gradient-to-br from-white via-amber-50/60 to-orange-50/75 shadow-amber-100/70',
+        shell: 'border-amber-200 bg-white/95 shadow-amber-100/50',
         strip: 'from-amber-400 via-orange-400 to-amber-300',
-        meta: 'border-amber-100 bg-amber-50/80',
+        meta: 'border-amber-100 bg-amber-50/45',
         divider: 'border-amber-100',
         amount: 'text-stone-950',
         actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
@@ -422,9 +423,9 @@ const MOBILE_ORDER_CARD_THEMES = {
         actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
     },
     failed: {
-        shell: 'border-rose-200 bg-gradient-to-br from-white via-rose-50/60 to-red-50/75 shadow-rose-100/70',
+        shell: 'border-rose-200 bg-white/95 shadow-rose-100/50',
         strip: 'from-rose-400 via-red-400 to-rose-300',
-        meta: 'border-rose-100 bg-rose-50/80',
+        meta: 'border-rose-100 bg-rose-50/45',
         divider: 'border-rose-100',
         amount: 'text-rose-950',
         actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
@@ -434,9 +435,9 @@ const MOBILE_ORDER_CARD_THEMES = {
         actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
     },
     cancelled: {
-        shell: 'border-red-200 bg-gradient-to-br from-white via-red-50/60 to-rose-50/75 shadow-red-100/70',
+        shell: 'border-red-200 bg-white/95 shadow-red-100/50',
         strip: 'from-red-400 via-rose-400 to-red-300',
-        meta: 'border-red-100 bg-red-50/80',
+        meta: 'border-red-100 bg-red-50/45',
         divider: 'border-red-100',
         amount: 'text-red-950',
         actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
@@ -446,9 +447,9 @@ const MOBILE_ORDER_CARD_THEMES = {
         actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
     },
     default: {
-        shell: 'border-slate-200 bg-gradient-to-br from-white via-slate-50/60 to-gray-50/75 shadow-slate-100/70',
+        shell: 'border-slate-200 bg-white/95 shadow-slate-100/50',
         strip: 'from-slate-400 via-gray-400 to-slate-300',
-        meta: 'border-slate-100 bg-slate-50/80',
+        meta: 'border-slate-100 bg-slate-50/45',
         divider: 'border-slate-100',
         amount: 'text-slate-950',
         actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
@@ -459,6 +460,13 @@ const MOBILE_ORDER_CARD_THEMES = {
     }
 };
 const getMobileOrderCardTheme = (status = '') => MOBILE_ORDER_CARD_THEMES[normalizeOrderStatus(status)] || MOBILE_ORDER_CARD_THEMES.default;
+const getOrderDateKey = (order = {}) => {
+    const value = order?.created_at || order?.createdAt || order?.updated_at || order?.updatedAt;
+    const ts = new Date(value || 0).getTime();
+    if (!Number.isFinite(ts) || ts <= 0) return '';
+    const localDate = new Date(ts - (new Date(ts).getTimezoneOffset() * 60000));
+    return localDate.toISOString().slice(0, 10);
+};
 
 const getCouponDiscountSplit = (order = {}) => {
     const type = String(order?.coupon_type || '').toLowerCase();
@@ -470,6 +478,34 @@ const getCouponDiscountSplit = (order = {}) => {
         return { productDiscount: 0, shippingDiscount: couponTotal };
     }
     return { productDiscount: couponTotal, shippingDiscount: 0 };
+};
+const roundCurrency = (value) => Math.round(Number(value || 0) * 100) / 100;
+const getCouponTypeFromSource = (source = {}) => String(
+    source?.coupon_type
+    || source?.couponType
+    || source?.coupon?.type
+    || ''
+).trim().toLowerCase();
+const getCouponShippingDiscountForTotals = (source = {}, totals = {}) => {
+    const type = getCouponTypeFromSource(source);
+    if (type !== 'shipping_full' && type !== 'shipping_partial') return 0;
+    const couponDiscount = Math.max(0, Number(totals?.discounts?.coupon || 0));
+    const shippingBase = Math.max(0, Number(totals?.shipping || 0));
+    return roundCurrency(Math.min(couponDiscount, shippingBase));
+};
+const getShippingPresentation = (source = {}, totals = {}) => {
+    const shippingBase = roundCurrency(Math.max(0, Number(totals?.shipping || 0)));
+    const couponShippingDiscount = getCouponShippingDiscountForTotals(source, totals);
+    const memberShippingBenefit = roundCurrency(Math.max(0, Number(totals?.discounts?.memberShippingBenefit || 0)));
+    const shippingSavings = roundCurrency(Math.min(shippingBase, couponShippingDiscount + memberShippingBenefit));
+    const effectiveShipping = roundCurrency(Math.max(0, shippingBase - shippingSavings));
+    const isFree = effectiveShipping <= 0.0001;
+    return {
+        shippingBase,
+        shippingSavings,
+        effectiveShipping,
+        isFree
+    };
 };
 const getOrderItemSnapshot = (item = {}) => {
     return item?.item_snapshot && typeof item.item_snapshot === 'object'
@@ -967,6 +1003,30 @@ export function Orders({
         if ((manualOrderItems || []).length > 0) return fallbackManualSummary;
         return null;
     }, [fallbackManualSummary, manualOrderItems, manualSummary]);
+    const selectedOrderTotals = useMemo(
+        () => computeOrderTotalsDisplay(selectedOrder),
+        [selectedOrder]
+    );
+    const selectedOrderCouponCode = useMemo(
+        () => String(selectedOrder?.coupon_code || selectedOrder?.couponCode || selectedOrderTotals?.couponCode || '').trim(),
+        [selectedOrder, selectedOrderTotals]
+    );
+    const selectedOrderHasAppliedCoupon = useMemo(
+        () => Number(selectedOrderTotals?.discounts?.coupon || 0) > 0 && Boolean(selectedOrderCouponCode),
+        [selectedOrderCouponCode, selectedOrderTotals]
+    );
+    const manualTotals = useMemo(
+        () => computeOrderTotalsDisplay(effectiveManualSummary),
+        [effectiveManualSummary]
+    );
+    const selectedOrderShippingPresentation = useMemo(
+        () => getShippingPresentation(selectedOrder, selectedOrderTotals),
+        [selectedOrder, selectedOrderTotals]
+    );
+    const manualShippingPresentation = useMemo(
+        () => getShippingPresentation(effectiveManualSummary, manualTotals),
+        [effectiveManualSummary, manualTotals]
+    );
     const isAddressComplete = (address = null) => {
         const value = address || {};
         return ['line1', 'city', 'state', 'zip'].every((field) => String(value?.[field] || '').trim());
@@ -2395,6 +2455,27 @@ export function Orders({
         const option = QUICK_RANGES.find((entry) => entry.value === quickRange);
         return option?.label || '';
     }, [endDate, quickRange, startDate]);
+    const mobileOrdersWithDateBadges = useMemo(() => {
+        const list = [];
+        let previousDateKey = '';
+        (Array.isArray(orders) ? orders : []).forEach((order, idx) => {
+            const dateKey = getOrderDateKey(order);
+            if (dateKey && dateKey !== previousDateKey) {
+                list.push({
+                    type: 'date_badge',
+                    key: `date-${dateKey}`,
+                    label: formatAdminDate(order?.created_at || order?.createdAt || order?.updated_at || order?.updatedAt)
+                });
+                previousDateKey = dateKey;
+            }
+            list.push({
+                type: 'order',
+                key: `order-${order?.id || order?.order_id || order?.attempt_id || idx}`,
+                order
+            });
+        });
+        return list;
+    }, [orders]);
     const sortOptions = [
         { value: 'newest', label: 'Newest First' },
         { value: 'oldest', label: 'Oldest First' },
@@ -2709,7 +2790,7 @@ export function Orders({
                             />
                         </div>
                     )}
-                    <div className="grid grid-cols-5 gap-1">
+                    <div className="grid grid-cols-5 gap-1.5">
                         {mobileStatusChips.map((chip) => {
                             const active = statusFilter === chip.value;
                             return (
@@ -2717,7 +2798,7 @@ export function Orders({
                                     key={chip.value}
                                     type="button"
                                     onClick={() => handleStatusFilterChange(chip.value)}
-                                    className={`min-w-0 rounded-full border px-1 py-1.5 text-[9px] font-semibold leading-none tracking-tight transition ${
+                                    className={`min-w-0 rounded-full border px-1.5 py-2 text-[10px] font-semibold leading-none tracking-tight transition ${
                                         active ? getOrderStatusBadgeClasses(chip.value) : 'border-gray-200 bg-white text-gray-600'
                                     }`}
                                 >
@@ -2937,25 +3018,35 @@ export function Orders({
                         </div>
 
                         <div className="md:hidden divide-y divide-gray-100">
-                            {orders.map((order) => {
+                            {mobileOrdersWithDateBadges.map((entry) => {
+                                if (entry.type === 'date_badge') {
+                                    return (
+                                        <div key={entry.key} className="sticky top-0 z-[2] flex justify-center bg-white/90 py-2 backdrop-blur-sm">
+                                            <span className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
+                                                {entry.label}
+                                            </span>
+                                        </div>
+                                    );
+                                }
+                                const order = entry.order;
                                 const pendingDurationLabel = order.status === 'pending'
                                     ? getPendingDurationLabel(order.created_at)
                                     : '';
                                 const theme = getMobileOrderCardTheme(order.status);
                                 return (
                                 <div
-                                    key={order.id}
+                                    key={entry.key}
                                     onClick={() => openDetails(order)}
-                                    className={`w-full text-left p-4 transition-colors ${isFailedRow(order) ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50'}`}
+                                    className="w-full text-left p-4 transition-colors hover:bg-slate-50/70"
                                 >
                                     <div className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${theme.shell}`}>
                                         <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${theme.strip}`} />
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0">
-                                                <p className="text-base font-semibold text-gray-900 break-all">#{order.order_ref}</p>
-                                                <p className="mt-1 text-sm font-medium text-gray-700">{order.customer_name || 'Guest'}</p>
+                                                <p className="text-base font-semibold text-slate-900 break-all">#{order.order_ref}</p>
+                                                <p className="mt-1 text-sm font-semibold text-slate-800">{order.customer_name || 'Guest'}</p>
                                                 {order.customer_mobile && (
-                                                    <p className="mt-1 text-xs text-gray-400">{order.customer_mobile}</p>
+                                                    <p className="mt-1 text-xs text-slate-600">{order.customer_mobile}</p>
                                                 )}
                                             </div>
                                             <div className="flex shrink-0 flex-col items-end gap-2">
@@ -2977,11 +3068,11 @@ export function Orders({
 
                                         <div className={`mt-4 grid grid-cols-2 gap-3 rounded-2xl border px-3 py-3 ${theme.meta}`}>
                                             <div>
-                                                <p className="text-[11px] uppercase tracking-widest text-gray-400 font-semibold">Placed</p>
-                                                <p className="mt-1 text-sm text-gray-700">{formatAdminDate(order.created_at)}</p>
+                                                <p className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">Placed</p>
+                                                <p className="mt-1 text-sm text-slate-700">{formatAdminDateTime(order.created_at)}</p>
                                             </div>
                                             <div className="text-right">
-                                                <p className="text-[11px] uppercase tracking-widest text-gray-400 font-semibold">Amount</p>
+                                                <p className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">Amount</p>
                                                 <p className={`mt-1 text-lg font-semibold ${theme.amount}`}>₹{Number(order.total || 0).toLocaleString()}</p>
                                             </div>
                                         </div>
@@ -2998,6 +3089,9 @@ export function Orders({
                                                     {pendingDurationLabel}
                                                 </span>
                                             )}
+                                            <span className="ml-auto inline-flex items-center justify-center w-6 h-6 rounded-full border border-slate-200 bg-white text-slate-500 cursor-pointer transition-colors transition-transform hover:bg-primary/10 hover:text-primary hover:border-primary/30 active:scale-95">
+                                                <ArrowRight size={13} />
+                                            </span>
                                         </div>
 
                                         <div className={`mt-4 flex items-center justify-end gap-2 flex-wrap border-t pt-3 ${theme.divider}`}>
@@ -3124,14 +3218,15 @@ export function Orders({
             {isDetailsOpen && createPortal(
                 <div className="fixed inset-0 z-[70] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
                     <div className="bg-white w-full max-w-xl h-full shadow-2xl p-6 overflow-y-auto">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-xl font-semibold text-gray-900">Order Details</h3>
+                        <div className="flex items-center gap-2 mb-4">
                             <button
                                 onClick={() => setIsDetailsOpen(false)}
-                                className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
+                                className="inline-flex items-center justify-center p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                                aria-label="Back"
                             >
-                                <X size={18} />
+                                <ArrowLeft size={18} />
                             </button>
+                            <h3 className="text-xl font-semibold text-gray-900">Order Details</h3>
                         </div>
                         {!selectedOrder ? (
                             <div className="py-16 text-center text-gray-400">Loading order details...</div>
@@ -3167,6 +3262,9 @@ export function Orders({
                                                     <div>
                                                         <p className={`text-[11px] uppercase tracking-[0.24em] font-semibold ${headerTheme.rowLabel}`}>Order</p>
                                                         <h3 className="mt-2 font-sans text-2xl font-black tracking-tight text-white">#{selectedOrder.order_ref}</h3>
+                                                        <p className={`mt-1 text-sm font-semibold ${headerTheme.subtle}`}>
+                                                            Order Value: ₹{Number(selectedOrderTotals.grandTotal || selectedOrder.total || 0).toLocaleString('en-IN')}
+                                                        </p>
                                                         <p className={`mt-2 text-sm font-medium ${headerTheme.subtle}`}>{formatAdminDateTime(selectedOrder.created_at)}</p>
                                                         {detailsLastSyncedAt && (
                                                             <p className={`mt-1 text-[11px] ${headerTheme.micro}`}>
@@ -3437,9 +3535,9 @@ export function Orders({
                                                                     {itemImageUrl && <img src={itemImageUrl} alt={itemTitle} className="w-full h-full object-cover" />}
                                                                 </div>
                                                                 <div className="flex-1 min-w-0">
-                                                                    <p className="text-sm font-semibold text-gray-800 line-clamp-1">{itemTitle}</p>
+                                                                    <p className="text-sm font-semibold text-gray-800 break-words whitespace-normal">{itemTitle}</p>
                                                                     {itemVariantTitle && <p className="text-xs text-gray-500 line-clamp-1">{itemVariantTitle}</p>}
-                                                                    {itemCategoryLabel && <p className="text-[11px] text-gray-400 line-clamp-1">Category: {itemCategoryLabel}</p>}
+                                                                    {itemCategoryLabel && <p className="text-[11px] text-gray-400 break-words whitespace-normal">Category: {itemCategoryLabel}</p>}
                                                                     {itemWarrantyMonths && <p className="text-[11px] text-gray-400 line-clamp-1">Polish Warranty: {itemWarrantyMonths} months</p>}
                                                                     <p className="text-xs text-gray-400 mt-1">₹{unitPrice.toLocaleString()} x {quantity}</p>
                                                                     {isInclusivePricingOrder(selectedOrder) && itemTax > 0 && (
@@ -3464,64 +3562,74 @@ export function Orders({
                                             </div>
 
                                             <div className={`mt-5 grid grid-cols-1 gap-2 rounded-2xl border p-4 text-sm ${drawerTheme.shell}`}>
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-gray-500">Subtotal</span>
-                                                    <span className="font-semibold text-gray-800">₹{Number((getDisplayPricing(selectedOrder)?.displaySubtotalBase ?? selectedOrder.subtotal ?? 0)).toLocaleString()}</span>
+                                                <div className="flex items-center justify-between font-semibold text-gray-900">
+                                                    <span>Subtotal</span>
+                                                    <span>₹{Number(selectedOrderTotals.subtotal || 0).toLocaleString()}</span>
                                                 </div>
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-gray-500">Shipping</span>
-                                                    <span className="font-semibold text-gray-800">₹{Number((getDisplayPricing(selectedOrder)?.displayShippingBase ?? selectedOrder.shipping_fee ?? 0)).toLocaleString()}</span>
+                                                <div className={`flex items-center justify-between ${selectedOrderShippingPresentation.isFree ? 'text-sm text-gray-600' : 'text-xs text-gray-400'}`}>
+                                                    <span>Shipping</span>
+                                                    {selectedOrderShippingPresentation.isFree ? (
+                                                        <span className="font-semibold text-emerald-600">FREE</span>
+                                                    ) : (
+                                                        <span>₹{Number(selectedOrderTotals.shipping || 0).toLocaleString()}</span>
+                                                    )}
                                                 </div>
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-gray-500">Base Price (Before Discounts)</span>
-                                                    <span className="font-semibold text-gray-800">₹{Number(getDisplayPricing(selectedOrder)?.displayBaseBeforeDiscounts ?? Math.max(0, Number(selectedOrder.subtotal || 0) + Number(selectedOrder.shipping_fee || 0))).toLocaleString()}</span>
-                                                </div>
-                                                {Number(selectedOrder.coupon_discount_value || 0) > 0 && (
-                                                    <div className="flex items-center justify-between text-emerald-700">
-                                                        <span>Coupon{selectedOrder.coupon_code ? ` (${selectedOrder.coupon_code})` : ''}</span>
-                                                        <span className="font-semibold">- ₹{Number(selectedOrder.coupon_discount_value || 0).toLocaleString()}</span>
+                                                {selectedOrderTotals.hasAnyDiscount && (
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-gray-500">Price Before Discounts</span>
+                                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrderTotals.priceBeforeDiscounts || 0).toLocaleString()}</span>
                                                     </div>
                                                 )}
-                                                {Number(selectedOrder.loyalty_discount_total || 0) > 0 && (
+                                                {selectedOrderTotals.discounts.coupon > 0 && (
+                                                    <div className="flex items-center justify-between text-emerald-700">
+                                                        <span>Coupon{selectedOrderCouponCode ? ` (${selectedOrderCouponCode})` : ''}</span>
+                                                        <span className="font-semibold">- ₹{Number(selectedOrderTotals.discounts.coupon || 0).toLocaleString()}</span>
+                                                    </div>
+                                                )}
+                                                {selectedOrderTotals.discounts.member > 0 && (
                                                     <div className="flex items-center justify-between text-blue-700">
                                                         <span>Member Discount</span>
-                                                        <span className="font-semibold">- ₹{Number(selectedOrder.loyalty_discount_total || 0).toLocaleString()}</span>
+                                                        <span className="font-semibold">- ₹{Number(selectedOrderTotals.discounts.member || 0).toLocaleString()}</span>
                                                     </div>
                                                 )}
-                                                {Number(selectedOrder.loyalty_shipping_discount_total || 0) > 0 && (
+                                                {selectedOrderTotals.discounts.memberShippingBenefit > 0 && (
                                                     <div className="flex items-center justify-between text-blue-700">
                                                         <span>Member Shipping Benefit</span>
-                                                        <span className="font-semibold">- ₹{Number(selectedOrder.loyalty_shipping_discount_total || 0).toLocaleString()}</span>
+                                                        <span className="font-semibold">- ₹{Number(selectedOrderTotals.discounts.memberShippingBenefit || 0).toLocaleString()}</span>
                                                     </div>
                                                 )}
-                                                <div className="flex items-center justify-between text-emerald-700">
-                                                    <span>Total Savings</span>
-                                                    <span className="font-semibold">₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</span>
-                                                </div>
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-gray-500">{getOrderTaxPriceMode(selectedOrder) === 'inclusive' ? 'Value After Discounts' : 'Taxable Value After Discounts'}</span>
-                                                    <span className="font-semibold text-gray-800">₹{Number(getDisplayPricing(selectedOrder)?.displayValueAfterDiscountsBase ?? Math.max(0, Number(selectedOrder.subtotal || 0) + Number(selectedOrder.shipping_fee || 0) - Number(selectedOrder.coupon_discount_value || 0) - Number(selectedOrder.loyalty_discount_total || 0) - Number(selectedOrder.loyalty_shipping_discount_total || 0))).toLocaleString()}</span>
-                                                </div>
-                                                {Number(selectedOrder.tax_total || 0) > 0 && (
-                                                    <div className="flex items-start justify-between">
-                                                        <span className="text-gray-500">
-                                                            {getOrderTaxPriceMode(selectedOrder) === 'inclusive' ? 'GST Breakdown' : 'GST'}
+                                                {selectedOrderTotals.hasAnyDiscount && selectedOrderTotals.discounts.totalSavings > 0 && (
+                                                    <div className="flex items-center justify-between text-emerald-700">
+                                                        <span>Total Savings</span>
+                                                        <span className="font-semibold">₹{Number(selectedOrderTotals.discounts.totalSavings || 0).toLocaleString()}</span>
+                                                    </div>
+                                                )}
+                                                {selectedOrderTotals.hasAnyDiscount && (
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-gray-500">Price After Discounts</span>
+                                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrderTotals.priceAfterDiscounts || 0).toLocaleString()}</span>
+                                                    </div>
+                                                )}
+                                                {selectedOrderTotals.gstTotal > 0 && (
+                                                    <div className="flex items-start justify-between text-xs text-gray-400">
+                                                        <span>
+                                                            {selectedOrderTotals.taxRegime === 'inclusive' ? 'GST Breakdown' : 'GST'}
                                                             <span className="block text-[11px] text-gray-400">
-                                                                {getGstDisplayDetails({ taxAmount: Number(selectedOrder.tax_total || 0) }).splitAmountLabel}
+                                                                {getGstDisplayDetails({ taxAmount: Number(selectedOrderTotals.gstTotal || 0) }).splitAmountLabel}
                                                             </span>
                                                         </span>
-                                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.tax_total || 0).toLocaleString()}</span>
+                                                        <span>₹{Number(selectedOrderTotals.gstTotal || 0).toLocaleString()}</span>
                                                     </div>
                                                 )}
-                                                {Number(selectedOrder.round_off_amount || 0) !== 0 && (
+                                                {Number(selectedOrderTotals.roundOffAmount || 0) !== 0 && (
                                                     <div className="flex items-center justify-between">
                                                         <span className="text-gray-500">Round Off</span>
-                                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrder.round_off_amount || 0).toLocaleString()}</span>
+                                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrderTotals.roundOffAmount || 0).toLocaleString()}</span>
                                                     </div>
                                                 )}
                                                 <div className="flex items-center justify-between text-base font-semibold">
                                                     <span>Total</span>
-                                                    <span>₹{Number(selectedOrder.total || 0).toLocaleString()}</span>
+                                                    <span>₹{Number(selectedOrderTotals.grandTotal || 0).toLocaleString()}</span>
                                                 </div>
                                             </div>
 
@@ -3638,7 +3746,9 @@ export function Orders({
                                                             return (
                                                                 <>
                                                                     <p><span className="text-gray-500">Membership Tier:</span> {getTierLabel(selectedOrder)}</p>
-                                                                    <p><span className="text-gray-500">Coupon:</span> {selectedOrder.coupon_code || '—'}</p>
+                                                                    {selectedOrderHasAppliedCoupon && (
+                                                                        <p><span className="text-gray-500">Coupon:</span> {selectedOrderCouponCode}</p>
+                                                                    )}
                                                                     <p><span className="text-gray-500">Type:</span> {selectedOrder.coupon_type || '—'}</p>
                                                                     <p><span className="text-gray-500">Coupon Discount:</span> ₹{Number(selectedOrder.coupon_discount_value || 0).toLocaleString()}</p>
                                                                     <p><span className="text-gray-500">Coupon Product Discount:</span> ₹{couponSplit.productDiscount.toLocaleString()}</p>
@@ -3949,35 +4059,48 @@ export function Orders({
                                     )}
                                     {!isManualSummaryLoading && effectiveManualSummary && (
                                         <div className="mt-3 space-y-2 text-sm">
-                                            <div className="flex items-center justify-between"><span className="text-gray-500">Subtotal</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.displayPricing?.displaySubtotalBase ?? effectiveManualSummary.subtotal)}</span></div>
-                                            <div className="flex items-center justify-between"><span className="text-gray-500">Shipping</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.displayPricing?.displayShippingBase ?? effectiveManualSummary.shippingFee)}</span></div>
-                                            <div className="flex items-center justify-between"><span className="text-gray-500">Base Price (Before Discounts)</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.displayPricing?.displayBaseBeforeDiscounts ?? Math.max(0, Number(effectiveManualSummary.subtotal || 0) + Number(effectiveManualSummary.shippingFee || 0)))}</span></div>
-                                            {Number(effectiveManualSummary.couponDiscountTotal || 0) > 0 && (
-                                                <div className="flex items-center justify-between text-emerald-700"><span>Coupon Discount</span><span className="font-semibold">- {formatInrOrDash(effectiveManualSummary.couponDiscountTotal)}</span></div>
+                                            <div className="flex items-center justify-between font-semibold text-gray-900"><span>Subtotal</span><span>{formatInrOrDash(manualTotals.subtotal)}</span></div>
+                                            <div className={`flex items-center justify-between ${manualShippingPresentation.isFree ? 'text-sm text-gray-600' : 'text-xs text-gray-400'}`}>
+                                                <span>Shipping</span>
+                                                {manualShippingPresentation.isFree ? (
+                                                    <span className="font-semibold text-emerald-600">FREE</span>
+                                                ) : (
+                                                    <span>{formatInrOrDash(manualTotals.shipping)}</span>
+                                                )}
+                                            </div>
+                                            {manualTotals.hasAnyDiscount && (
+                                                <div className="flex items-center justify-between"><span className="text-gray-500">Price Before Discounts</span><span className="font-semibold">{formatInrOrDash(manualTotals.priceBeforeDiscounts)}</span></div>
                                             )}
-                                            {Number(effectiveManualSummary.loyaltyDiscountTotal || 0) > 0 && (
-                                                <div className="flex items-center justify-between text-blue-700"><span>Member Discount</span><span className="font-semibold">- {formatInrOrDash(effectiveManualSummary.loyaltyDiscountTotal)}</span></div>
+                                            {manualTotals.discounts.coupon > 0 && (
+                                                <div className="flex items-center justify-between text-emerald-700"><span>Coupon Discount</span><span className="font-semibold">- {formatInrOrDash(manualTotals.discounts.coupon)}</span></div>
                                             )}
-                                            {Number(effectiveManualSummary.loyaltyShippingDiscountTotal || 0) > 0 && (
-                                                <div className="flex items-center justify-between text-blue-700"><span>Member Shipping Benefit</span><span className="font-semibold">- {formatInrOrDash(effectiveManualSummary.loyaltyShippingDiscountTotal)}</span></div>
+                                            {manualTotals.discounts.member > 0 && (
+                                                <div className="flex items-center justify-between text-blue-700"><span>Member Discount</span><span className="font-semibold">- {formatInrOrDash(manualTotals.discounts.member)}</span></div>
                                             )}
-                                            <div className="flex items-center justify-between"><span className="text-emerald-700">Total Savings</span><span className="font-semibold text-emerald-700">{formatInrOrDash(effectiveManualSummary.discountTotal)}</span></div>
-                                            <div className="flex items-center justify-between"><span className="text-gray-500">{String(effectiveManualSummary.taxPriceMode || 'exclusive').toLowerCase() === 'inclusive' ? 'Value After Discounts' : 'Taxable Value After Discounts'}</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.displayPricing?.displayValueAfterDiscountsBase ?? Math.max(0, Number(effectiveManualSummary.subtotal || 0) + Number(effectiveManualSummary.shippingFee || 0) - Number(effectiveManualSummary.couponDiscountTotal || 0) - Number(effectiveManualSummary.loyaltyDiscountTotal || 0) - Number(effectiveManualSummary.loyaltyShippingDiscountTotal || 0)))}</span></div>
-                                            {Number(effectiveManualSummary.taxTotal || 0) > 0 && (
-                                                <div className="flex items-start justify-between">
-                                                    <span className="text-gray-500">
-                                                        {String(effectiveManualSummary.taxPriceMode || 'exclusive').toLowerCase() === 'inclusive' ? 'GST Breakdown' : 'GST'}
+                                            {manualTotals.discounts.memberShippingBenefit > 0 && (
+                                                <div className="flex items-center justify-between text-blue-700"><span>Member Shipping Benefit</span><span className="font-semibold">- {formatInrOrDash(manualTotals.discounts.memberShippingBenefit)}</span></div>
+                                            )}
+                                            {manualTotals.hasAnyDiscount && manualTotals.discounts.totalSavings > 0 && (
+                                                <div className="flex items-center justify-between"><span className="text-emerald-700">Total Savings</span><span className="font-semibold text-emerald-700">{formatInrOrDash(manualTotals.discounts.totalSavings)}</span></div>
+                                            )}
+                                            {manualTotals.hasAnyDiscount && (
+                                                <div className="flex items-center justify-between"><span className="text-gray-500">Price After Discounts</span><span className="font-semibold">{formatInrOrDash(manualTotals.priceAfterDiscounts)}</span></div>
+                                            )}
+                                            {manualTotals.gstTotal > 0 && (
+                                                <div className="flex items-start justify-between text-xs text-gray-400">
+                                                    <span>
+                                                        {manualTotals.taxRegime === 'inclusive' ? 'GST Breakdown' : 'GST'}
                                                         <span className="block text-[10px] text-gray-400">
-                                                            {getGstDisplayDetails({ taxAmount: Number(effectiveManualSummary.taxTotal || 0) }).splitAmountLabel}
+                                                            {getGstDisplayDetails({ taxAmount: Number(manualTotals.gstTotal || 0) }).splitAmountLabel}
                                                         </span>
                                                     </span>
-                                                    <span className="font-semibold">{formatInrOrDash(effectiveManualSummary.taxTotal)}</span>
+                                                    <span>{formatInrOrDash(manualTotals.gstTotal)}</span>
                                                 </div>
                                             )}
-                                            {Number(effectiveManualSummary.roundOffAmount || 0) !== 0 && (
-                                                <div className="flex items-center justify-between"><span className="text-gray-500">Round Off</span><span className="font-semibold">{formatInrOrDash(effectiveManualSummary.roundOffAmount)}</span></div>
+                                            {Number(manualTotals.roundOffAmount || 0) !== 0 && (
+                                                <div className="flex items-center justify-between"><span className="text-gray-500">Round Off</span><span className="font-semibold">{formatInrOrDash(manualTotals.roundOffAmount)}</span></div>
                                             )}
-                                            <div className="flex items-center justify-between text-base border-t border-gray-100 pt-2"><span className="font-semibold text-gray-700">Total</span><span className="font-bold text-gray-900">{formatInrOrDash(effectiveManualSummary.total)}</span></div>
+                                            <div className="flex items-center justify-between text-base border-t border-gray-100 pt-2"><span className="font-semibold text-gray-700">Total</span><span className="font-bold text-gray-900">{formatInrOrDash(manualTotals.grandTotal)}</span></div>
                                             {!manualSummary && (
                                                 <p className="text-xs text-gray-500">
                                                     Add shipping address and select coupon to fetch exact shipping and membership benefit calculations.

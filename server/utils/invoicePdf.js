@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const PDFDocument = require('pdfkit');
 const { resolvePublicAssetPath } = require('./publicAssetResolver');
+const { computeInvoiceComputation } = require('../domain/computation/orderComputation');
 
 const DEFAULT_SUPPORT_EMAIL = 'support@sscjewellery.com';
 const TAMIL_REGEX = /[\u0B80-\u0BFF]/;
@@ -769,7 +770,6 @@ const buildInvoicePdfBuffer = async (order = {}) => {
 
     const company = getCompany(order);
     const companySnapshot = parseObject(order.company_snapshot || order.companySnapshot) || {};
-    const displayPricing = parseObject(order.display_pricing || order.displayPricing) || {};
     const billing = parseObject(order.billing_address || order.billingAddress) || {};
     const shipping = parseObject(order.shipping_address || order.shippingAddress) || {};
     const items = getItems(order);
@@ -778,25 +778,15 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     const orderRef = order.order_ref || order.orderRef || `ORDER-${order.id || 'N/A'}`;
     const taxPriceMode = resolveInvoiceTaxPriceMode(order);
 
-    const subtotal = taxPriceMode === 'inclusive'
-        ? toNumber(displayPricing.displaySubtotalGross, items.reduce((sum, item) => sum + toNumber(item.lineTotalGross, 0), 0))
-        : toNumber(displayPricing.displaySubtotalBase, items.reduce((sum, item) => sum + toNumber(item.lineTotal, 0), 0));
-    const subtotalBeforeTax = toNumber(
-        displayPricing.displaySubtotalBase,
-        items.reduce((sum, item) => sum + toNumber(item.lineTotalBase ?? item.lineTotal, 0), 0)
-    );
-    const shippingFee = taxPriceMode === 'inclusive'
-        ? toNumber(displayPricing.displayShippingGross, shippingRow ? toNumber(shippingRow.lineTotalGross, 0) : toNumber(order.shipping_fee, 0))
-        : toNumber(displayPricing.displayShippingBase, shippingRow ? toNumber(shippingRow.lineTotal, 0) : toNumber(order.shipping_fee, 0));
-    const shippingBeforeTax = toNumber(
-        displayPricing.displayShippingBase,
-        shippingRow ? toNumber(shippingRow.taxableValue ?? shippingRow.lineTotal, 0) : toNumber(order.shipping_fee, 0)
-    );
-    const couponDiscount = toNumber(order.coupon_discount_value, 0);
-    const loyaltyDiscount = toNumber(order.loyalty_discount_total, 0);
-    const loyaltyShippingDiscount = toNumber(order.loyalty_shipping_discount_total, 0);
+    const couponCode = String(order.coupon_code || order.couponCode || '').trim();
+    const tierTheme = getTierTheme(order.loyalty_tier || order.loyaltyTier || 'regular');
+    const computation = computeInvoiceComputation({
+        order,
+        tableItems,
+        taxRegime: taxPriceMode
+    });
     const taxTotal = toNumber(order.tax_total, tableItems.reduce((sum, item) => sum + toNumber(item.taxAmount, 0), 0));
-    const roundOffAmount = toNumber(order.round_off_amount, 0);
+    const roundOffAmount = toNumber(computation.roundOffAmount, 0);
     const showTaxTotals = taxTotal > 0;
     const showTaxColumns = toBoolean(companySnapshot.taxEnabled ?? companySnapshot.tax_enabled, false) || showTaxTotals;
     const showDiscountColumn = tableItems.some((item) => {
@@ -809,15 +799,7 @@ const buildInvoicePdfBuffer = async (order = {}) => {
         );
         return totalDiscount > 0;
     });
-    const totalDiscount = toNumber(order.discount_total, couponDiscount + loyaltyDiscount + loyaltyShippingDiscount);
-    const total = toNumber(
-        order.total,
-        taxPriceMode === 'inclusive'
-            ? subtotal + shippingFee - totalDiscount
-            : subtotal + shippingFee + taxTotal - totalDiscount
-    );
-    const couponCode = String(order.coupon_code || order.couponCode || '').trim();
-    const tierTheme = getTierTheme(order.loyalty_tier || order.loyaltyTier || 'regular');
+    const total = toNumber(order.total, computation.grandTotal);
 
     const logoCandidates = resolveLogoCandidates(company);
     for (const logoPath of logoCandidates) {
@@ -924,30 +906,35 @@ const buildInvoicePdfBuffer = async (order = {}) => {
         return y + rowHeight + rowGap;
     };
 
-    const basePriceBeforeDiscounts = toNumber(
-        displayPricing.displayBaseBeforeDiscounts,
-        Math.max(0, subtotalBeforeTax + shippingBeforeTax)
-    );
-    const taxableValueAfterDiscounts = toNumber(
-        displayPricing.displayValueAfterDiscountsBase,
-        Math.max(0, tableItems.reduce((sum, item) => sum + toNumber(item.taxableValue, item.lineTotal), 0))
-    );
     let runningY = totalsY;
-    runningY = writeTotal('Subtotal (Before GST)', inr(subtotalBeforeTax), runningY);
-    runningY = writeTotal('Shipping', inr(shippingBeforeTax), runningY);
-    runningY = writeTotal('Price Before Discounts', inr(basePriceBeforeDiscounts), runningY);
-    runningY = writeTotal(
-        `Coupon Discount${couponCode ? ` (${couponCode})` : ''}`,
-        `- ${inr(couponDiscount)}`,
-        runningY
-    );
-    runningY = writeTotal(`Member Discount (${tierTheme.label})`, `- ${inr(loyaltyDiscount)}`, runningY);
-    runningY = writeTotal('Member Shipping Benefit', `- ${inr(loyaltyShippingDiscount)}`, runningY);
-    runningY = writeTotal('Total Savings', inr(totalDiscount), runningY);
-    runningY = writeTotal('Price After Discounts', inr(taxableValueAfterDiscounts), runningY);
+    runningY = writeTotal('Subtotal', inr(computation.subtotalBaseExShipping), runningY);
+    runningY = writeTotal('Shipping', inr(computation.shippingBase), runningY);
+    if (computation.hasAnyDiscount) {
+        runningY = writeTotal('Price Before Discounts', inr(computation.priceBeforeDiscounts), runningY);
+        if (computation.discounts.product > 0) {
+            runningY = writeTotal('Product Discount', `- ${inr(computation.discounts.product)}`, runningY);
+        }
+        if (computation.discounts.coupon > 0) {
+            runningY = writeTotal(
+                `Coupon Discount${couponCode ? ` (${couponCode})` : ''}`,
+                `- ${inr(computation.discounts.coupon)}`,
+                runningY
+            );
+        }
+        if (computation.discounts.member > 0) {
+            runningY = writeTotal(`Member Discount (${tierTheme.label})`, `- ${inr(computation.discounts.member)}`, runningY);
+        }
+        if (computation.discounts.memberShippingBenefit > 0) {
+            runningY = writeTotal('Member Shipping Benefit', `- ${inr(computation.discounts.memberShippingBenefit)}`, runningY);
+        }
+        if (computation.discounts.totalSavings > 0) {
+            runningY = writeTotal('Total Savings', inr(computation.discounts.totalSavings), runningY);
+        }
+        runningY = writeTotal('Price After Discounts', inr(computation.priceAfterDiscounts), runningY);
+    }
     if (showTaxTotals) {
-        const taxSplit = getGstAmountSplit(taxTotal);
-        runningY = writeTotal('GST Breakdown', inr(taxTotal), runningY, false, { rowGap: 3 });
+        const taxSplit = getGstAmountSplit(computation.tableGstTotal);
+        runningY = writeTotal('GST Breakdown', inr(computation.tableGstTotal), runningY, false, { rowGap: 3 });
         doc.font('Helvetica').fontSize(8).fillColor('#6B7280').text(taxSplit.label, totalsX, runningY, { width: 215, align: 'right' });
         runningY += doc.heightOfString(taxSplit.label, { width: 215, align: 'right' }) + 4;
     }
@@ -999,5 +986,6 @@ module.exports = { buildInvoicePdfBuffer };
 module.exports.__test = {
     resolveInvoiceTaxPriceMode,
     getItems,
-    buildShippingRow
+    buildShippingRow,
+    computeInvoiceComputation
 };

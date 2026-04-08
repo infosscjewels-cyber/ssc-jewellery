@@ -63,6 +63,34 @@ const normalizeGatewayPaymentSnapshot = (paymentDetails = null) => {
         synced_at: new Date().toISOString()
     };
 };
+const isDuplicatePaymentClaimError = (error) => {
+    const message = String(error?.message || '').toLowerCase();
+    return message.includes('duplicate entry') && message.includes('uniq_payment_attempt_payment_id');
+};
+const sanitizeFailureReason = (message = '') => {
+    const raw = String(message || '').trim();
+    if (!raw) return null;
+    const lower = raw.toLowerCase();
+    if (lower.includes('uniq_payment_attempt_payment_id') || lower.includes('duplicate entry')) {
+        return 'Payment already linked to an existing checkout. Please retry with a new payment session.';
+    }
+    if (lower.includes('signature')) {
+        return 'Payment could not be verified due to signature mismatch.';
+    }
+    if (lower.includes('amount mismatch')) {
+        return 'Payment amount did not match this checkout.';
+    }
+    if (lower.includes('currency mismatch')) {
+        return 'Payment currency did not match this checkout.';
+    }
+    if (lower.includes('order mismatch')) {
+        return 'Payment belongs to a different checkout session.';
+    }
+    if (lower.includes('expired')) {
+        return 'Payment session expired.';
+    }
+    return raw.slice(0, 500);
+};
 
 class PaymentAttempt {
     static async getLatestRetryableByUser(userId) {
@@ -182,7 +210,6 @@ class PaymentAttempt {
                  END,
                  verify_started_at = CURRENT_TIMESTAMP,
                  verification_retry_count = COALESCE(verification_retry_count, 0) + 1,
-                 razorpay_payment_id = COALESCE(?, razorpay_payment_id),
                  razorpay_signature = COALESCE(?, razorpay_signature),
                  reconciliation_due_at = NULL,
                  last_gateway_error = NULL,
@@ -196,7 +223,6 @@ class PaymentAttempt {
                 PAYMENT_STATUS.CHECKOUT_OPENED,
                 PAYMENT_STATUS.RECONCILIATION_PENDING,
                 PAYMENT_STATUS.VERIFICATION_PENDING,
-                paymentId,
                 signature,
                 id,
                 PAYMENT_STATUS.CREATED,
@@ -207,27 +233,62 @@ class PaymentAttempt {
                 PAYMENT_STATUS.RECONCILIATION_PENDING
             ]
         );
-        return Number(result?.affectedRows || 0) > 0;
+        const locked = Number(result?.affectedRows || 0) > 0;
+        if (!locked) return false;
+        const resolvedPaymentId = String(paymentId || '').trim();
+        if (!resolvedPaymentId) return true;
+        const claim = await PaymentAttempt.claimPaymentForAttempt({
+            attemptId: id,
+            paymentId: resolvedPaymentId,
+            signature,
+            source: 'begin_verification_lock'
+        });
+        if (claim?.linkedToExistingOrder || claim?.claimedByAnotherPendingAttempt) {
+            return false;
+        }
+        return true;
     }
 
     static async markPaidUnverified({ id, paymentId = null, signature = null }) {
+        const resolvedPaymentId = String(paymentId || '').trim();
+        if (resolvedPaymentId) {
+            const claim = await PaymentAttempt.claimPaymentForAttempt({
+                attemptId: id,
+                paymentId: resolvedPaymentId,
+                signature,
+                source: 'mark_paid_unverified'
+            });
+            if (claim?.linkedToExistingOrder || claim?.claimedByAnotherPendingAttempt) {
+                return claim;
+            }
+        }
         await db.execute(
             `UPDATE payment_attempts
              SET status = ?,
-                 razorpay_payment_id = COALESCE(?, razorpay_payment_id),
                  razorpay_signature = COALESCE(?, razorpay_signature),
                  last_gateway_error = NULL,
+                 failure_reason = NULL,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ?`,
-            [PAYMENT_STATUS.PAID_UNVERIFIED, paymentId, signature, id]
+            [PAYMENT_STATUS.PAID_UNVERIFIED, signature, id]
         );
+        return { claimedBySelf: true };
     }
 
     static async markReconciliationPending({ id, paymentId = null, signature = null, errorMessage = null, delayMinutes = 5 }) {
+        const resolvedPaymentId = String(paymentId || '').trim();
+        if (resolvedPaymentId) {
+            const claim = await PaymentAttempt.claimPaymentForAttempt({
+                attemptId: id,
+                paymentId: resolvedPaymentId,
+                signature,
+                source: 'mark_reconciliation_pending'
+            });
+            if (claim?.linkedToExistingOrder) return claim;
+        }
         await db.execute(
             `UPDATE payment_attempts
              SET status = ?,
-                 razorpay_payment_id = COALESCE(?, razorpay_payment_id),
                  razorpay_signature = COALESCE(?, razorpay_signature),
                  verify_started_at = NULL,
                  reconciliation_due_at = DATE_ADD(NOW(), INTERVAL ? MINUTE),
@@ -236,22 +297,33 @@ class PaymentAttempt {
              WHERE id = ?`,
             [
                 PAYMENT_STATUS.RECONCILIATION_PENDING,
-                paymentId,
                 signature,
                 Math.max(1, Number(delayMinutes || 5)),
-                errorMessage ? String(errorMessage).slice(0, 500) : null,
+                sanitizeFailureReason(errorMessage) || null,
                 id
             ]
         );
     }
 
     static async markFailed({ id, paymentId = null, signature = null, errorMessage = null }) {
+        const resolvedPaymentId = String(paymentId || '').trim();
+        if (resolvedPaymentId) {
+            const claim = await PaymentAttempt.claimPaymentForAttempt({
+                attemptId: id,
+                paymentId: resolvedPaymentId,
+                signature,
+                source: 'mark_failed'
+            });
+            if (claim?.linkedToExistingOrder || claim?.claimedByAnotherPendingAttempt) {
+                return claim;
+            }
+        }
+        const safeFailureReason = sanitizeFailureReason(errorMessage);
         await db.execute(
             `UPDATE payment_attempts
              SET status = ?,
                  verify_started_at = NULL,
                  finalized_at = CURRENT_TIMESTAMP,
-                 razorpay_payment_id = ?,
                  razorpay_signature = ?,
                  failure_reason = ?,
                  last_gateway_error = ?,
@@ -259,13 +331,13 @@ class PaymentAttempt {
              WHERE id = ?`,
             [
                 PAYMENT_STATUS.FAILED,
-                paymentId,
                 signature,
-                errorMessage ? String(errorMessage).slice(0, 500) : null,
-                errorMessage ? String(errorMessage).slice(0, 500) : null,
+                safeFailureReason,
+                safeFailureReason,
                 id
             ]
         );
+        return { failed: true };
     }
 
     static async markVerified({ id, paymentId, signature, localOrderId }) {
@@ -319,101 +391,57 @@ class PaymentAttempt {
         if (!targetAttempt) return { updated: false, reason: 'attempt_not_found' };
 
         if (resolvedPaymentId) {
-            const ownerAttempt = await PaymentAttempt.getByRazorpayPaymentId(resolvedPaymentId);
-            if (ownerAttempt && String(ownerAttempt.id) !== String(targetAttempt.id)) {
-                if (ownerAttempt.local_order_id && !targetAttempt.local_order_id) {
-                    await PaymentAttempt.linkToExistingOrder({
-                        id: targetAttempt.id,
-                        localOrderId: ownerAttempt.local_order_id,
-                        status: PAYMENT_STATUS.PAID
-                    });
-                    return {
-                        updated: true,
-                        reusedExistingPayment: true,
-                        existingAttemptId: ownerAttempt.id,
-                        localOrderId: ownerAttempt.local_order_id
-                    };
-                }
-
-                await db.execute(
-                    `UPDATE payment_attempts
-                     SET status = ?,
-                         razorpay_signature = COALESCE(?, razorpay_signature),
-                         last_gateway_error = NULL,
-                         updated_at = CURRENT_TIMESTAMP
-                     WHERE id = ?`,
-                    [PAYMENT_STATUS.PAID_UNVERIFIED, resolvedSignature, targetAttempt.id]
-                );
+            const claim = await PaymentAttempt.claimPaymentForAttempt({
+                attemptId: targetAttempt.id,
+                paymentId: resolvedPaymentId,
+                signature: resolvedSignature,
+                source: 'mark_paid_by_order'
+            });
+            if (claim?.linkedToExistingOrder || claim?.claimedByAnotherPendingAttempt) {
                 return {
                     updated: true,
                     reusedExistingPayment: true,
-                    existingAttemptId: ownerAttempt.id,
-                    localOrderId: ownerAttempt.local_order_id || null
+                    existingAttemptId: claim?.existingAttemptId || null,
+                    localOrderId: claim?.localOrderId || null
                 };
             }
         }
-
-        try {
-            await db.execute(
-                `UPDATE payment_attempts
-                 SET status = ?,
-                     razorpay_payment_id = COALESCE(?, razorpay_payment_id),
-                     razorpay_signature = COALESCE(?, razorpay_signature),
-                     last_gateway_error = NULL,
-                     updated_at = CURRENT_TIMESTAMP
-                 WHERE id = ?`,
-                [PAYMENT_STATUS.PAID_UNVERIFIED, resolvedPaymentId || null, resolvedSignature, targetAttempt.id]
-            );
-            return { updated: true, reusedExistingPayment: false };
-        } catch (error) {
-            const message = String(error?.message || '').toLowerCase();
-            if (!(message.includes('duplicate entry') && message.includes('uniq_payment_attempt_payment_id'))) {
-                throw error;
-            }
-
-            const ownerAttempt = resolvedPaymentId
-                ? await PaymentAttempt.getByRazorpayPaymentId(resolvedPaymentId)
-                : null;
-            if (ownerAttempt && String(ownerAttempt.id) !== String(targetAttempt.id)) {
-                if (ownerAttempt.local_order_id && !targetAttempt.local_order_id) {
-                    await PaymentAttempt.linkToExistingOrder({
-                        id: targetAttempt.id,
-                        localOrderId: ownerAttempt.local_order_id,
-                        status: PAYMENT_STATUS.PAID
-                    });
-                } else {
-                    await db.execute(
-                        `UPDATE payment_attempts
-                         SET status = ?,
-                             razorpay_signature = COALESCE(?, razorpay_signature),
-                             last_gateway_error = NULL,
-                             updated_at = CURRENT_TIMESTAMP
-                         WHERE id = ?`,
-                        [PAYMENT_STATUS.PAID_UNVERIFIED, resolvedSignature, targetAttempt.id]
-                    );
-                }
-                return {
-                    updated: true,
-                    reusedExistingPayment: true,
-                    existingAttemptId: ownerAttempt.id,
-                    localOrderId: ownerAttempt.local_order_id || null
-                };
-            }
-            throw error;
-        }
+        await db.execute(
+            `UPDATE payment_attempts
+             SET status = ?,
+                 razorpay_signature = COALESCE(?, razorpay_signature),
+                 last_gateway_error = NULL,
+                 failure_reason = NULL,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [PAYMENT_STATUS.PAID_UNVERIFIED, resolvedSignature, targetAttempt.id]
+        );
+        return { updated: true, reusedExistingPayment: false };
     }
 
     static async markAttemptedByRazorpayOrder({
         razorpayOrderId,
         paymentId = null
     }) {
+        const resolvedOrderId = String(razorpayOrderId || '').trim();
+        if (!resolvedOrderId) return;
+        const targetAttempt = await PaymentAttempt.getByRazorpayOrderIdAny(resolvedOrderId);
+        if (!targetAttempt) return;
+        const resolvedPaymentId = String(paymentId || '').trim();
+        if (resolvedPaymentId) {
+            const claim = await PaymentAttempt.claimPaymentForAttempt({
+                attemptId: targetAttempt.id,
+                paymentId: resolvedPaymentId,
+                source: 'mark_attempted_by_order'
+            });
+            if (claim?.linkedToExistingOrder) return;
+        }
         await db.execute(
             `UPDATE payment_attempts
              SET status = ?,
-                 razorpay_payment_id = COALESCE(?, razorpay_payment_id),
                  updated_at = CURRENT_TIMESTAMP
-             WHERE razorpay_order_id = ?`,
-            [PAYMENT_STATUS.ATTEMPTED, paymentId, razorpayOrderId]
+             WHERE id = ?`,
+            [PAYMENT_STATUS.ATTEMPTED, targetAttempt.id]
         );
     }
 
@@ -422,24 +450,119 @@ class PaymentAttempt {
         paymentId = null,
         errorMessage = null
     }) {
+        const resolvedOrderId = String(razorpayOrderId || '').trim();
+        if (!resolvedOrderId) return;
+        const targetAttempt = await PaymentAttempt.getByRazorpayOrderIdAny(resolvedOrderId);
+        if (!targetAttempt?.id) return;
+        const resolvedPaymentId = String(paymentId || '').trim();
+        if (resolvedPaymentId) {
+            const claim = await PaymentAttempt.claimPaymentForAttempt({
+                attemptId: targetAttempt.id,
+                paymentId: resolvedPaymentId,
+                source: 'mark_failed_by_order'
+            });
+            if (claim?.linkedToExistingOrder || claim?.claimedByAnotherPendingAttempt) {
+                return claim;
+            }
+        }
+        const safeFailureReason = sanitizeFailureReason(errorMessage);
         await db.execute(
             `UPDATE payment_attempts
                  SET status = ?,
                  verify_started_at = NULL,
                  finalized_at = CURRENT_TIMESTAMP,
-                 razorpay_payment_id = COALESCE(?, razorpay_payment_id),
                  failure_reason = COALESCE(?, failure_reason),
                  last_gateway_error = COALESCE(?, last_gateway_error),
                  updated_at = CURRENT_TIMESTAMP
-             WHERE razorpay_order_id = ?`,
+             WHERE id = ?`,
             [
                 PAYMENT_STATUS.FAILED,
-                paymentId,
-                errorMessage ? String(errorMessage).slice(0, 500) : null,
-                errorMessage ? String(errorMessage).slice(0, 500) : null,
-                razorpayOrderId
+                safeFailureReason,
+                safeFailureReason,
+                targetAttempt.id
             ]
         );
+        return { failed: true };
+    }
+
+    static async claimPaymentForAttempt({
+        attemptId,
+        paymentId = null,
+        signature = null,
+        source = 'unknown'
+    } = {}) {
+        const resolvedAttemptId = Number(attemptId || 0);
+        const resolvedPaymentId = String(paymentId || '').trim();
+        const resolvedSignature = String(signature || '').trim() || null;
+        if (!Number.isFinite(resolvedAttemptId) || resolvedAttemptId <= 0 || !resolvedPaymentId) {
+            return { skipped: true, reason: 'missing_attempt_or_payment' };
+        }
+        const targetAttempt = await PaymentAttempt.getById(resolvedAttemptId);
+        if (!targetAttempt?.id) return { skipped: true, reason: 'attempt_not_found' };
+
+        const resolveExistingOwner = async () => {
+            const ownerAttempt = await PaymentAttempt.getByRazorpayPaymentId(resolvedPaymentId);
+            if (!ownerAttempt || String(ownerAttempt.id) === String(targetAttempt.id)) {
+                return { claimedBySelf: true };
+            }
+            if (ownerAttempt.local_order_id && !targetAttempt.local_order_id) {
+                await PaymentAttempt.linkToExistingOrder({
+                    id: targetAttempt.id,
+                    localOrderId: ownerAttempt.local_order_id,
+                    status: PAYMENT_STATUS.PAID
+                });
+                return {
+                    claimedBySelf: false,
+                    linkedToExistingOrder: true,
+                    existingAttemptId: ownerAttempt.id,
+                    localOrderId: ownerAttempt.local_order_id
+                };
+            }
+            await db.execute(
+                `UPDATE payment_attempts
+                 SET status = ?,
+                     verify_started_at = NULL,
+                     reconciliation_due_at = DATE_ADD(NOW(), INTERVAL 2 MINUTE),
+                     razorpay_signature = COALESCE(?, razorpay_signature),
+                     failure_reason = NULL,
+                     last_gateway_error = ?,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?
+                   AND local_order_id IS NULL`,
+                [
+                    PAYMENT_STATUS.RECONCILIATION_PENDING,
+                    resolvedSignature,
+                    `PAYMENT_ALREADY_LINKED:${source}`,
+                    targetAttempt.id
+                ]
+            );
+            return {
+                claimedBySelf: false,
+                claimedByAnotherPendingAttempt: true,
+                existingAttemptId: ownerAttempt.id,
+                localOrderId: ownerAttempt.local_order_id || null
+            };
+        };
+
+        const ownerAttempt = await PaymentAttempt.getByRazorpayPaymentId(resolvedPaymentId);
+        if (ownerAttempt && String(ownerAttempt.id) !== String(targetAttempt.id)) {
+            return resolveExistingOwner();
+        }
+
+        try {
+            await db.execute(
+                `UPDATE payment_attempts
+                 SET razorpay_payment_id = COALESCE(?, razorpay_payment_id),
+                     razorpay_signature = COALESCE(?, razorpay_signature),
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?`,
+                [resolvedPaymentId, resolvedSignature, targetAttempt.id]
+            );
+            return { claimedBySelf: true };
+        } catch (error) {
+            if (!isDuplicatePaymentClaimError(error)) throw error;
+            return resolveExistingOwner();
+        }
     }
 
     static async upsertPaymentSnapshot({

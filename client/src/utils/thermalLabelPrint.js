@@ -1,7 +1,7 @@
 const PRINTER_STORAGE_KEY = 'thermal_label_printer_v1';
 const PRINTER_SERVICE_UUIDS = [0xffe0, 0x18f0, 0x180a, 0x180f];
 const WRITE_CHUNK_BYTES = 180;
-const LABEL_MAX_ADDRESS_LINES = 4;
+const LABEL_MAX_ADDRESS_LINES = 6;
 const LABEL_MAX_LINE_CHARS = 30;
 const USB_PRINTER_FILTERS = [{ classCode: 0x07 }];
 const USB_REQUEST_TIMEOUT_MS = 10_000;
@@ -17,6 +17,39 @@ const splitTextLines = (value = '', maxChars = LABEL_MAX_LINE_CHARS, maxLines = 
     const tokens = text.split(/[,\n]+/).map((part) => safeText(part)).filter(Boolean);
     const lines = [];
     let current = '';
+    const pushLine = (line = '') => {
+        const normalized = safeText(line);
+        if (!normalized) return;
+        if (normalized.length <= maxChars) {
+            lines.push(normalized);
+            return;
+        }
+        const words = normalized.split(' ').filter(Boolean);
+        let buffer = '';
+        words.forEach((word) => {
+            if (word.length > maxChars) {
+                if (buffer) {
+                    lines.push(buffer);
+                    buffer = '';
+                }
+                for (let idx = 0; idx < word.length; idx += maxChars) {
+                    lines.push(word.slice(idx, idx + maxChars));
+                    if (lines.length >= maxLines) return;
+                }
+                return;
+            }
+            const candidate = buffer ? `${buffer} ${word}` : word;
+            if (candidate.length <= maxChars) {
+                buffer = candidate;
+                return;
+            }
+            lines.push(buffer);
+            buffer = word;
+        });
+        if (buffer && lines.length < maxLines) {
+            lines.push(buffer);
+        }
+    };
     for (const token of tokens) {
         if (!current) {
             current = token;
@@ -27,12 +60,12 @@ const splitTextLines = (value = '', maxChars = LABEL_MAX_LINE_CHARS, maxLines = 
             current = next;
             continue;
         }
-        lines.push(current);
+        pushLine(current);
         current = token;
         if (lines.length >= maxLines) break;
     }
     if (current && lines.length < maxLines) {
-        lines.push(current);
+        pushLine(current);
     }
     return lines.slice(0, maxLines);
 };
@@ -251,24 +284,48 @@ export const buildShippingLabelPayload = (order = {}, companyProfile = {}) => {
 
 const escPosText = (text = '') => new TextEncoder().encode(`${safeText(text)}\n`);
 const escPosBytes = (...parts) => Uint8Array.from(parts.flatMap((part) => Array.from(part)));
+const escPosLeftAlign = () => Uint8Array.from([0x1b, 0x61, 0x00]);
+const escPosNormalSize = () => Uint8Array.from([0x1d, 0x21, 0x00]);
+const escPosBoldOn = () => Uint8Array.from([0x1b, 0x45, 0x01]);
+const escPosBoldOff = () => Uint8Array.from([0x1b, 0x45, 0x00]);
+
+const appendSmallHeading = (body = [], heading = '') => {
+    body.push(escPosLeftAlign());
+    body.push(escPosNormalSize());
+    body.push(escPosBoldOn());
+    body.push(escPosText(heading));
+    body.push(escPosBoldOff());
+};
+
+const appendRecipientBlock = (body = [], payload = {}) => {
+    body.push(escPosLeftAlign());
+    body.push(escPosNormalSize());
+    body.push(escPosText(String(payload?.recipient?.name || '')));
+    (payload?.recipient?.addressLines || []).forEach((line) => body.push(escPosText(line)));
+    body.push(escPosText(`Phone: ${payload?.recipient?.phone || ''}`));
+    body.push(escPosBoldOn());
+    body.push(escPosText(`Order Ref: ${payload?.orderRef || ''}`));
+    body.push(escPosBoldOff());
+};
+
+const appendSenderBlock = (body = [], payload = {}) => {
+    body.push(escPosLeftAlign());
+    body.push(escPosNormalSize());
+    body.push(escPosText(String(payload?.sender?.name || '')));
+    (payload?.sender?.addressLines || []).forEach((line) => body.push(escPosText(line)));
+    body.push(escPosText(`Phone: ${payload?.sender?.phone || ''}`));
+    if (payload?.orderRef) {
+        body.push(escPosBoldOn());
+        body.push(escPosText(`Order Ref: ${payload.orderRef}`));
+        body.push(escPosBoldOff());
+    }
+};
 
 export const buildEscPosFromLabel = (payload = {}) => {
     const body = [];
     body.push(Uint8Array.from([0x1b, 0x40]));
-    body.push(Uint8Array.from([0x1b, 0x61, 0x01]));
-    body.push(Uint8Array.from([0x1d, 0x21, 0x11]));
-    body.push(escPosText('FROM'));
-    body.push(Uint8Array.from([0x1d, 0x21, 0x00]));
-    body.push(Uint8Array.from([0x1b, 0x61, 0x00]));
-    body.push(escPosText(payload?.sender?.name || ''));
-    body.push(escPosText(`Phone: ${payload?.sender?.phone || ''}`));
-    (payload?.sender?.addressLines || []).forEach((line) => body.push(escPosText(line)));
-    if (payload?.orderRef) {
-        body.push(escPosText(''));
-        body.push(Uint8Array.from([0x1b, 0x45, 0x01]));
-        body.push(escPosText(`Order Ref: ${payload.orderRef}`));
-        body.push(Uint8Array.from([0x1b, 0x45, 0x00]));
-    }
+    appendSmallHeading(body, 'From');
+    appendSenderBlock(body, payload);
     body.push(Uint8Array.from([0x1b, 0x64, 0x04]));
     body.push(Uint8Array.from([0x1d, 0x56, 0x42, 0x00]));
     return escPosBytes(...body);
@@ -277,18 +334,8 @@ export const buildEscPosFromLabel = (payload = {}) => {
 export const buildEscPosToLabel = (payload = {}) => {
     const body = [];
     body.push(Uint8Array.from([0x1b, 0x40]));
-    body.push(Uint8Array.from([0x1b, 0x61, 0x01]));
-    body.push(Uint8Array.from([0x1d, 0x21, 0x11]));
-    body.push(escPosText('SHIP TO'));
-    body.push(Uint8Array.from([0x1d, 0x21, 0x00]));
-    body.push(Uint8Array.from([0x1b, 0x61, 0x00]));
-    body.push(escPosText(`Name: ${payload?.recipient?.name || ''}`));
-    body.push(escPosText(`Phone: ${payload?.recipient?.phone || ''}`));
-    (payload?.recipient?.addressLines || []).forEach((line) => body.push(escPosText(line)));
-    body.push(escPosText(''));
-    body.push(Uint8Array.from([0x1b, 0x45, 0x01]));
-    body.push(escPosText(`Order Ref: ${payload?.orderRef || ''}`));
-    body.push(Uint8Array.from([0x1b, 0x45, 0x00]));
+    appendSmallHeading(body, 'Ship To');
+    appendRecipientBlock(body, payload);
     body.push(Uint8Array.from([0x1b, 0x64, 0x04]));
     body.push(Uint8Array.from([0x1d, 0x56, 0x42, 0x00]));
     return escPosBytes(...body);
@@ -297,25 +344,12 @@ export const buildEscPosToLabel = (payload = {}) => {
 export const buildEscPosLabel = (payload = {}) => {
     const body = [];
     body.push(Uint8Array.from([0x1b, 0x40])); // init
-    body.push(Uint8Array.from([0x1b, 0x61, 0x01])); // center
-    body.push(Uint8Array.from([0x1d, 0x21, 0x11])); // double size
-    body.push(escPosText('SHIP TO'));
-    body.push(Uint8Array.from([0x1d, 0x21, 0x00]));
-    body.push(Uint8Array.from([0x1b, 0x61, 0x00])); // left
-    body.push(escPosText(`Name: ${payload?.recipient?.name || ''}`));
-    body.push(escPosText(`Phone: ${payload?.recipient?.phone || ''}`));
-    (payload?.recipient?.addressLines || []).forEach((line) => body.push(escPosText(line)));
+    appendSmallHeading(body, 'Ship To');
+    appendRecipientBlock(body, payload);
     body.push(escPosText(''));
-    body.push(Uint8Array.from([0x1b, 0x45, 0x01])); // bold on
-    body.push(escPosText(`Order Ref: ${payload?.orderRef || ''}`));
-    body.push(Uint8Array.from([0x1b, 0x45, 0x00])); // bold off
     body.push(escPosText(''));
-    body.push(Uint8Array.from([0x1b, 0x61, 0x01])); // center
-    body.push(escPosText('FROM'));
-    body.push(Uint8Array.from([0x1b, 0x61, 0x00])); // left
-    body.push(escPosText(payload?.sender?.name || ''));
-    body.push(escPosText(`Phone: ${payload?.sender?.phone || ''}`));
-    (payload?.sender?.addressLines || []).forEach((line) => body.push(escPosText(line)));
+    appendSmallHeading(body, 'From');
+    appendSenderBlock(body, payload);
     body.push(Uint8Array.from([0x1b, 0x64, 0x04])); // feed
     body.push(Uint8Array.from([0x1d, 0x56, 0x42, 0x00])); // partial cut if supported
     return escPosBytes(...body);

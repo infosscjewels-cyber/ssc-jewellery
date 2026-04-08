@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, ChevronRight, Heart, Search, Medal, Crown, Gem } from 'lucide-react';
+import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, ChevronRight, Heart, Search, Medal, Crown, Gem, Home, Info, Phone, Store, Package } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { productService } from '../services/productService';
@@ -400,9 +400,9 @@ export default function Navbar() {
     };
 
     const navLinks = [
-        { name: 'Home', path: '/' },
-        { name: 'About', path: '/about' },
-        { name: 'Contact', path: '/contact' },
+        { name: 'Home', path: '/', icon: Home },
+        { name: 'About', path: '/about', icon: Info },
+        { name: 'Contact', path: '/contact', icon: Phone },
     ];
 
     const isActive = (path) => location.pathname === path;
@@ -552,24 +552,24 @@ export default function Navbar() {
         // [FIX] Dynamic Classes for Animation
         // - 'py-4' -> 'py-2': Shrinks height
         // - 'shadow-none' -> 'shadow-md': Adds depth
-        <nav className={`fixed top-0 w-full z-[80] bg-white/90 backdrop-blur-2xl transition-all duration-300 ease-in-out py-4 shadow-sm border-b border-white/70`}>
+        <nav className={`fixed top-0 w-full z-[80] bg-white/90 backdrop-blur-2xl transition-all duration-300 ease-in-out py-2 md:py-4 shadow-sm border-b border-white/70`}>
             <div className="container mx-auto px-4 md:px-8">
                 <div className="flex justify-between items-center">
                     
                     
-                    <Link to="/" className="flex items-center gap-2.5 min-w-0 group">
+                    <Link to="/" className="flex items-center gap-1.5 md:gap-2.5 min-w-0 group">
                         <img 
                             src={BRAND_LOGO_URL} 
                             alt="Logo" 
-                            className="h-10 w-auto shrink-0 object-contain transition-all duration-300"
+                            className="h-12 md:h-10 w-auto shrink-0 object-contain transition-all duration-300"
                             decoding="async"
                             fetchPriority="high"
                         />
                         <span className="flex min-w-0 flex-col justify-center leading-none">
-                            <span className="truncate font-serif text-[1.05rem] font-bold tracking-[0.08em] text-primary transition-all duration-300 md:text-[1.2rem]">
+                            <span className="truncate font-serif text-[0.9rem] font-bold tracking-[0.04em] text-primary transition-all duration-300 md:text-[1.2rem] md:tracking-[0.08em]">
                                 Sree Sai Collections
                             </span>
-                            <span className="mt-1 inline-flex w-fit max-w-full items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.18em] text-amber-800 md:text-[10px]">
+                            <span className="mt-0.5 inline-flex w-fit max-w-full items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[7px] font-semibold uppercase tracking-[0.12em] text-amber-800 md:mt-1 md:text-[10px] md:tracking-[0.18em]">
                                 1 gm Imitiation Jewellery
                             </span>
                         </span>
@@ -933,29 +933,40 @@ export default function Navbar() {
                             <button
                                 type="button"
                                 onClick={() => setMobileMenuView('shop')}
-                                className={`flex items-center justify-between rounded-2xl border border-gray-100 bg-gray-50/60 px-4 py-3 text-left text-lg font-medium ${isShopActive() ? 'text-accent-deep' : 'text-gray-700'}`}
+                                className={`flex w-full items-center justify-between border-b border-gray-100 py-3 text-left text-lg font-medium ${isShopActive() ? 'text-accent-deep font-bold' : 'text-gray-600'}`}
                             >
-                                <span>Shop</span>
+                                <span className="flex items-center gap-3">
+                                    <Store size={20} />
+                                    Shop
+                                </span>
                                 <ChevronRight size={18} className="text-gray-400" />
                             </button>
                             {navLinks.map((link) => (
-                                <Link 
+                                <Link
                                     key={link.name} 
                                     to={link.path}
-                                    className={`block w-full border-b border-gray-100 py-3 text-left text-lg font-medium ${isActive(link.path) ? 'text-accent-deep font-bold' : 'text-gray-600'}`}
+                                    className={`flex w-full items-center justify-between border-b border-gray-100 py-3 text-left text-lg font-medium ${isActive(link.path) ? 'text-accent-deep font-bold' : 'text-gray-600'}`}
                                     onClick={() => setIsOpen(false)}
                                 >
-                                    {link.name}
+                                    <span className="flex items-center gap-3">
+                                        <link.icon size={20} />
+                                        {link.name}
+                                    </span>
+                                    <ChevronRight size={18} className="text-gray-300" />
                                 </Link>
                             ))}
                             <a
                                 href={CUSTOM_ORDER_URL}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="block w-full border-b border-gray-100 py-3 text-left text-lg font-medium text-gray-600"
+                                className="flex w-full items-center justify-between border-b border-gray-100 py-3 text-left text-lg font-medium text-gray-600"
                                 onClick={() => setIsOpen(false)}
                             >
-                                Custom Order
+                                <span className="flex items-center gap-3">
+                                    <Store size={20} />
+                                    Custom Order
+                                </span>
+                                <ChevronRight size={18} className="text-gray-300" />
                             </a>
                         </>
                     )}
@@ -1121,15 +1132,6 @@ export default function Navbar() {
                     )}
                     {effectiveUser ? (
                         <>
-                            {showTierBadge && (
-                                <div className="text-xs text-gray-500 py-2 border-b border-gray-100">
-                                    Tier:
-                                    {' '}
-                                    <span className={`inline-flex px-2 py-0.5 rounded-full border font-bold tracking-wider ${tierStyle.badge}`}>
-                                        {tierLabel}
-                                    </span>
-                                </div>
-                            )}
                             <button
                                 type="button"
                                 onClick={() => {
@@ -1141,34 +1143,61 @@ export default function Navbar() {
                                 <span className="flex items-center gap-2">
                                     <ShoppingCart size={20} /> Cart
                                 </span>
-                                {itemCount > 0 ? (
-                                    <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-accent">
-                                        {itemCount}
-                                    </span>
-                                ) : null}
+                                <span className="flex items-center gap-2">
+                                    {itemCount > 0 ? (
+                                        <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-accent">
+                                            {itemCount}
+                                        </span>
+                                    ) : null}
+                                    <ChevronRight size={18} className="text-gray-300" />
+                                </span>
                             </button>
                             <Link
                                 to="/profile"
-                                className="flex w-full items-center gap-2 border-b border-gray-100 py-3 text-left text-lg font-medium text-gray-600"
+                                className="flex w-full items-center justify-between border-b border-gray-100 py-3 text-left text-lg font-medium text-gray-600"
                                 onClick={() => setIsOpen(false)}
                             >
-                                <User size={20} /> Profile
+                                <span className="flex items-center gap-2">
+                                    <User size={20} /> Profile
+                                </span>
+                                <ChevronRight size={18} className="text-gray-300" />
                             </Link>
                             <Link
                                 to="/track-order"
-                                className="block w-full border-b border-gray-100 py-3 text-left text-lg font-medium text-gray-600"
+                                className="flex w-full items-center justify-between border-b border-gray-100 py-3 text-left text-lg font-medium text-gray-600"
                                 onClick={() => setIsOpen(false)}
                             >
-                                Track Order
+                                <span className="flex items-center gap-2">
+                                    <Package size={20} /> Track Order
+                                </span>
+                                <ChevronRight size={18} className="text-gray-300" />
                             </Link>
-                            <button onClick={handleLogout} className="flex w-full items-center gap-2 pt-4 text-left font-bold text-red-500">
-                                <LogOut size={20} /> Logout
+                            <button
+                                onClick={handleLogout}
+                                className="flex w-full items-center justify-between border-b border-gray-100 py-3 text-left text-lg font-medium text-red-500"
+                            >
+                                <span className="flex items-center gap-2">
+                                    <LogOut size={20} /> Logout
+                                </span>
+                                <ChevronRight size={18} className="text-red-300" />
                             </button>
                         </>
                     ) : (
-                        <Link to="/login" className="flex w-full items-center gap-2 pt-4 text-left font-bold text-primary" onClick={() => setIsOpen(false)}>
-                            <User size={20} /> Login
+                        <Link to="/login" className="flex w-full items-center justify-between border-b border-gray-100 py-3 text-left text-lg font-medium text-primary" onClick={() => setIsOpen(false)}>
+                            <span className="flex items-center gap-2">
+                                <User size={20} /> Login
+                            </span>
+                            <ChevronRight size={18} className="text-primary/60" />
                         </Link>
+                    )}
+                    {showTierBadge && (
+                        <div className="border-b border-gray-100 py-3 text-left text-sm text-gray-500">
+                            Tier:
+                            {' '}
+                            <span className={`inline-flex px-2 py-0.5 rounded-full border font-bold tracking-wider ${tierStyle.badge}`}>
+                                {tierLabel}
+                            </span>
+                        </div>
                     )}
                     <div className="pt-3 text-center text-[10px] tracking-wide text-gray-300">
                         Build {BUILD_VERSION}

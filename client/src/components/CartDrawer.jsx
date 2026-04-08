@@ -22,6 +22,9 @@ const EXTRA_DISCOUNT_BY_TIER = {
     gold: 3,
     platinum: 5
 };
+const CART_DRAWER_RECOMMENDATIONS_ENABLED = String(import.meta.env.VITE_ENABLE_CART_DRAWER_RECOMMENDATIONS ?? 'true')
+    .trim()
+    .toLowerCase() !== 'false';
 
 export default function CartDrawer() {
     const { isOpen, closeCart, items, itemCount, subtotal, updateQuantity, removeItem, isSyncing, addItem, openQuickAdd } = useCart();
@@ -39,7 +42,12 @@ export default function CartDrawer() {
     const prevHasFreeShippingRef = useRef(false);
     const prevShippingFeeRef = useRef(0);
     const freeFxTimerRef = useRef(null);
-    const { recommendations } = useCartRecommendations({ items, wishlistProductIds: wishlist, limit: 4 });
+    const { recommendations } = useCartRecommendations({
+        items,
+        wishlistProductIds: wishlist,
+        limit: 4,
+        enabled: CART_DRAWER_RECOMMENDATIONS_ENABLED
+    });
 
     const totalWeightKg = useMemo(() => items.reduce((sum, item) => {
         const weight = Number(item.weightKg || 0);

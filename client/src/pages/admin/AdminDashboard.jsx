@@ -25,6 +25,7 @@ import { orderService } from '../../services/orderService';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { getGstDisplayDetails } from '../../utils/gst';
+import { computeOrderTotalsDisplay } from '../../utils/orderTotalsComputation';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { BRAND_LOGO_URL } from '../../utils/branding.js';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
@@ -343,6 +344,19 @@ export default function AdminDashboard() {
             .map((order) => String(order?.order_ref || order?.orderRef || order?.id || '').trim())
             .filter(Boolean);
     }, [incomingOrders]);
+    const incomingPrimaryOrder = useMemo(() => incomingOrders[0] || null, [incomingOrders]);
+    const incomingPrimaryTotals = useMemo(
+        () => computeOrderTotalsDisplay(incomingPrimaryOrder),
+        [incomingPrimaryOrder]
+    );
+    const incomingPrimaryCouponCode = useMemo(
+        () => String(incomingPrimaryOrder?.coupon_code || incomingPrimaryOrder?.couponCode || incomingPrimaryTotals?.couponCode || '').trim(),
+        [incomingPrimaryOrder, incomingPrimaryTotals]
+    );
+    const incomingPrimaryHasAppliedCoupon = useMemo(
+        () => Number(incomingPrimaryTotals?.discounts?.coupon || 0) > 0 && Boolean(incomingPrimaryCouponCode),
+        [incomingPrimaryCouponCode, incomingPrimaryTotals]
+    );
 
     useEffect(() => {
         const visible = activePopupType === 'order' && incomingSummary.count > 0;
@@ -652,33 +666,73 @@ export default function AdminDashboard() {
                                         <>
                                             <p className="text-sm text-gray-500">A new order has been received.</p>
                                             <p className="mt-1 text-base font-semibold text-gray-900">
-                                                {incomingOrders[0]?.order_ref || `Order #${incomingOrders[0]?.id || ''}`}
+                                                {incomingPrimaryOrder?.order_ref || `Order #${incomingPrimaryOrder?.id || ''}`}
                                             </p>
                                             <p className="mt-1 text-sm text-gray-700">
-                                                Customer: {incomingOrders[0]?.customer_name || 'Guest'} {incomingOrders[0]?.customer_mobile ? `(${incomingOrders[0].customer_mobile})` : ''}
+                                                Customer: {incomingPrimaryOrder?.customer_name || 'Guest'} {incomingPrimaryOrder?.customer_mobile ? `(${incomingPrimaryOrder.customer_mobile})` : ''}
                                             </p>
                                             <p className="mt-1 text-sm text-gray-700">
-                                                Total Order Value: ₹{Number(incomingOrders[0]?.total || 0).toLocaleString()}
+                                                Total Order Value: ₹{Number(incomingPrimaryTotals.grandTotal || 0).toLocaleString()}
                                             </p>
                                             <p className="mt-1 text-sm text-gray-700">
-                                                Discounts: ₹{Number(incomingOrders[0]?.discount_total || 0).toLocaleString()}
+                                                Subtotal: ₹{Number(incomingPrimaryTotals.subtotal || 0).toLocaleString()}
                                             </p>
                                             <p className="mt-1 text-sm text-gray-700">
-                                                Shipping: ₹{Number(incomingOrders[0]?.shipping_fee || 0).toLocaleString()}
+                                                Shipping: ₹{Number(incomingPrimaryTotals.shipping || 0).toLocaleString()}
                                             </p>
-                                            {Number(incomingOrders[0]?.tax_total || 0) > 0 && (
+                                            {incomingPrimaryTotals.hasAnyDiscount && (
                                                 <p className="mt-1 text-sm text-gray-700">
-                                                    GST: ₹{Number(incomingOrders[0]?.tax_total || 0).toLocaleString()}
+                                                    Price Before Discounts: ₹{Number(incomingPrimaryTotals.priceBeforeDiscounts || 0).toLocaleString()}
+                                                </p>
+                                            )}
+                                            {incomingPrimaryTotals.discounts.coupon > 0 && (
+                                                <p className="mt-1 text-sm text-gray-700">
+                                                    Coupon Discount: - ₹{Number(incomingPrimaryTotals.discounts.coupon || 0).toLocaleString()}
+                                                </p>
+                                            )}
+                                            {incomingPrimaryTotals.discounts.member > 0 && (
+                                                <p className="mt-1 text-sm text-gray-700">
+                                                    Member Discount: - ₹{Number(incomingPrimaryTotals.discounts.member || 0).toLocaleString()}
+                                                </p>
+                                            )}
+                                            {incomingPrimaryTotals.discounts.memberShippingBenefit > 0 && (
+                                                <p className="mt-1 text-sm text-gray-700">
+                                                    Member Shipping Benefit: - ₹{Number(incomingPrimaryTotals.discounts.memberShippingBenefit || 0).toLocaleString()}
+                                                </p>
+                                            )}
+                                            {incomingPrimaryTotals.hasAnyDiscount && incomingPrimaryTotals.discounts.totalSavings > 0 && (
+                                                <p className="mt-1 text-sm text-emerald-700">
+                                                    Total Savings: ₹{Number(incomingPrimaryTotals.discounts.totalSavings || 0).toLocaleString()}
+                                                </p>
+                                            )}
+                                            {incomingPrimaryHasAppliedCoupon && (
+                                                <p className="mt-1 text-sm text-gray-700">
+                                                    Coupon Code: <span className="font-semibold">{incomingPrimaryCouponCode}</span>
+                                                </p>
+                                            )}
+                                            {incomingPrimaryTotals.hasAnyDiscount && (
+                                                <p className="mt-1 text-sm text-gray-700">
+                                                    Price After Discounts: ₹{Number(incomingPrimaryTotals.priceAfterDiscounts || 0).toLocaleString()}
+                                                </p>
+                                            )}
+                                            {incomingPrimaryTotals.gstTotal > 0 && (
+                                                <p className="mt-1 text-sm text-gray-700">
+                                                    {incomingPrimaryTotals.taxRegime === 'inclusive' ? 'GST Breakdown' : 'GST'}: ₹{Number(incomingPrimaryTotals.gstTotal || 0).toLocaleString()}
                                                     <span className="block text-[11px] text-gray-500">
-                                                        {getGstDisplayDetails({ taxAmount: Number(incomingOrders[0]?.tax_total || 0) }).splitAmountLabel}
+                                                        {getGstDisplayDetails({ taxAmount: Number(incomingPrimaryTotals.gstTotal || 0) }).splitAmountLabel}
                                                     </span>
                                                 </p>
                                             )}
+                                            {Number(incomingPrimaryTotals.roundOffAmount || 0) !== 0 && (
+                                                <p className="mt-1 text-sm text-gray-700">
+                                                    Round Off: ₹{Number(incomingPrimaryTotals.roundOffAmount || 0).toLocaleString()}
+                                                </p>
+                                            )}
                                             <p className="mt-1 text-sm text-gray-700">
-                                                Ship To: {formatAddressPreview(incomingOrders[0]?.shipping_address || incomingOrders[0]?.shippingAddress)}
+                                                Ship To: {formatAddressPreview(incomingPrimaryOrder?.shipping_address || incomingPrimaryOrder?.shippingAddress)}
                                             </p>
                                             <p className="mt-1 text-sm text-gray-700">
-                                                Payment: {String(incomingOrders[0]?.payment_status || 'pending').toUpperCase()}
+                                                Payment: {String(incomingPrimaryOrder?.payment_status || 'pending').toUpperCase()}
                                             </p>
                                         </>
                                     ) : (

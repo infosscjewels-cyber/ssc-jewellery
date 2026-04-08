@@ -10,7 +10,8 @@
     "build": "npm install --prefix client --include=dev && npm run build --prefix client",
     "start": "node server/index.js",
     "test": "NODE_ENV=test node --test server/tests/*.test.js",
-    "repair:duplicate-orders": "node server/scripts/repairDuplicateRazorpayOrders.js"
+    "repair:duplicate-orders": "node server/scripts/repairDuplicateRazorpayOrders.js",
+    "repair:duplicate-attempt-failures": "node server/scripts/healDuplicatePaymentFailures.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -1034,7 +1034,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
 
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
-                            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><Boxes size={16} />Top Products</h3>
+                            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><Boxes size={16} />Top sold products</h3>
                             <div className="mt-4 space-y-2">
                                 {(products.topSellers || []).slice(0, 6).map((item) => (
                                     <button
@@ -1062,7 +1062,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                         image={dashboardIllustration}
                                         alt="No product sales in this period"
                                         title="No product sales in this period"
-                                        description="Top products will appear here once orders are recorded in the selected range."
+                                        description="Top sold products will appear here once orders are recorded in the selected range."
                                         compact
                                     />
                                 )}

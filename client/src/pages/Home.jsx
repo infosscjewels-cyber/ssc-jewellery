@@ -18,7 +18,7 @@ import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 // import { io } from 'socket.io-client';
 // --- 1. STATIC HERO COMPONENT (Default) ---
 const StaticHero = () => (
-    <section className="relative min-h-[calc(100svh-5rem)] md:min-h-[calc(100vh-5rem)] flex items-center justify-center bg-primary overflow-hidden px-4 py-8 md:px-6 md:py-16">
+    <section className="relative min-h-[calc(100svh-74px)] md:min-h-[calc(100vh-74px)] flex items-center justify-center bg-primary overflow-hidden px-4 py-4 md:px-6 md:py-12">
         {/* Background Pattern */}
         <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-gray-100 to-transparent"></div>
         

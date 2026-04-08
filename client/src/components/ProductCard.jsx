@@ -15,6 +15,14 @@ const EXTRA_DISCOUNT_BY_TIER = {
     gold: 3,
     platinum: 5
 };
+const resolveMediaUrl = (entry) => {
+    if (!entry) return '';
+    if (typeof entry === 'string') return entry.trim();
+    if (typeof entry === 'object') {
+        return String(entry.url || entry.src || entry.image || '').trim();
+    }
+    return '';
+};
 
 export default function ProductCard({ product, displayCategory = '' }) {
     const [isHovered, setIsHovered] = useState(false);
@@ -146,12 +154,27 @@ export default function ProductCard({ product, displayCategory = '' }) {
     const wishlisted = isWishlisted(product?.id);
 
     // --- 3. Image Logic (Based on your JSON 'media' array) ---
-    const mainImage = product.media && product.media.length > 0 
-        ? product.media[0].url 
-        : placeholderImg;
+    const mediaList = useMemo(() => {
+        if (Array.isArray(product?.media)) return product.media;
+        if (typeof product?.media === 'string') {
+            try {
+                const parsed = JSON.parse(product.media);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch {
+                return [];
+            }
+        }
+        return [];
+    }, [product?.media]);
+    const mainImage = useMemo(() => {
+        const primary = resolveMediaUrl(mediaList[0]);
+        return primary || placeholderImg;
+    }, [mediaList]);
 
     useEffect(() => {
         setImageLoaded(false);
+        const safety = setTimeout(() => setImageLoaded(true), 5000);
+        return () => clearTimeout(safety);
     }, [mainImage]);
 
     const handleWishlist = async (e) => {
@@ -357,7 +380,7 @@ export default function ProductCard({ product, displayCategory = '' }) {
                 <div className="absolute inset-0 bg-slate-100" />
                 <img 
                     key={mainImage}
-                    src={mainImage} 
+                    src={mainImage || placeholderImg}
                     alt={product.title}
                     className={`absolute inset-0 block h-full w-full object-cover transition-[transform,opacity] duration-700 will-change-transform ${isHovered ? 'scale-110' : 'scale-100'} ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
                     loading="lazy"

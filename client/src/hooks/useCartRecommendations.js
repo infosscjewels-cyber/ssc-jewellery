@@ -13,7 +13,7 @@ const dedupeById = (products = []) => {
     return next;
 };
 
-export const useCartRecommendations = ({ items = [], wishlistProductIds = [], limit = 6 }) => {
+export const useCartRecommendations = ({ items = [], wishlistProductIds = [], limit = 6, enabled = true }) => {
     const [recommendations, setRecommendations] = useState([]);
     const [loading, setLoading] = useState(false);
 
@@ -50,6 +50,11 @@ export const useCartRecommendations = ({ items = [], wishlistProductIds = [], li
         let cancelled = false;
 
         const load = async () => {
+            if (!enabled) {
+                setRecommendations([]);
+                setLoading(false);
+                return;
+            }
             if (!categoryNames.length && !normalizedWishlistIds.length) {
                 setRecommendations([]);
                 return;
@@ -103,7 +108,7 @@ export const useCartRecommendations = ({ items = [], wishlistProductIds = [], li
         return () => {
             cancelled = true;
         };
-    }, [cartProductIds, categoryNames, normalizedWishlistIds, limit]);
+    }, [cartProductIds, categoryNames, normalizedWishlistIds, limit, enabled]);
 
     return { recommendations, loading };
 };

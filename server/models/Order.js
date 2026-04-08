@@ -76,6 +76,10 @@ const parseJsonSafe = (value) => {
         return null;
     }
 };
+const isDuplicateOrderPaymentError = (error) => {
+    const message = String(error?.message || '').toLowerCase();
+    return message.includes('duplicate entry') && message.includes('uniq_orders_razorpay_payment');
+};
 const normalizePaymentSnapshot = (payment = null) => {
     if (!payment || typeof payment !== 'object') return null;
     return {
@@ -1577,6 +1581,29 @@ class Order {
             };
         } catch (error) {
             await connection.rollback();
+            if (isDuplicateOrderPaymentError(error)) {
+                const resolvedPaymentId = String(razorpayPaymentId || '').trim();
+                if (resolvedPaymentId) {
+                    const existingOrder = await Order.getByRazorpayPaymentId(resolvedPaymentId);
+                    if (existingOrder?.id) {
+                        await db.execute(
+                            `UPDATE payment_attempts
+                             SET local_order_id = ?,
+                                 status = ?,
+                                 verify_started_at = NULL,
+                                 finalized_at = COALESCE(finalized_at, CURRENT_TIMESTAMP),
+                                 verified_at = COALESCE(verified_at, CURRENT_TIMESTAMP),
+                                 failure_reason = NULL,
+                                 last_gateway_error = NULL,
+                                 updated_at = CURRENT_TIMESTAMP
+                             WHERE id = ?
+                               AND local_order_id IS NULL`,
+                            [existingOrder.id, 'paid', attempt.id]
+                        );
+                        return Order.getById(existingOrder.id);
+                    }
+                }
+            }
             throw error;
         } finally {
             connection.release();
