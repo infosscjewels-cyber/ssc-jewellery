@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, ArrowLeft, ArrowRight, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus, Send, Printer, Phone, RotateCw } from 'lucide-react';
+import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, ArrowLeft, ArrowRight, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus, Send, Printer, Phone, RotateCw, Smartphone, CreditCard, Landmark, Wallet, AlertCircle } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
@@ -278,11 +278,13 @@ const getPaymentMethodInfoLabel = (order = {}, paymentMethodContext = null) => {
     const gateway = String(order?.payment_gateway || order?.paymentGateway || '').trim().toLowerCase();
     const snapshotCardType = String(order?.payment_snapshot?.card_type || '').trim().toLowerCase();
     const contextCardType = String(paymentMethodContext?.card?.type || '').trim().toLowerCase();
+    const settlementMethod = String(order?.settlement_snapshot?.method || order?.settlementSnapshot?.method || '').trim().toLowerCase();
     const methodCandidates = [
         order?.payment_snapshot?.method,
         snapshotCardType ? `${snapshotCardType}_card` : '',
         paymentMethodContext?.method,
         contextCardType ? `${contextCardType}_card` : '',
+        settlementMethod,
         order?.payment_method,
         order?.paymentMethod,
         order?.method,
@@ -296,6 +298,80 @@ const getPaymentMethodInfoLabel = (order = {}, paymentMethodContext = null) => {
     if (gateway === 'razorpay') return 'Not available (sync to fetch)';
     const fallbackByGateway = toPaymentMethodInfoLabel(gateway);
     return fallbackByGateway || '—';
+};
+const toSettlementRupees = (value, snapshot = null) => {
+    const amount = Number(value || 0);
+    if (!Number.isFinite(amount)) return 0;
+    const entity = String(snapshot?.entity || '').trim().toLowerCase();
+    if (entity === 'settlement_recon') return amount;
+    if (entity === 'settlement') return amount / 100;
+    if (String(value || '').includes('.')) return amount;
+    return amount >= 100000 ? amount / 100 : amount;
+};
+const getSettlementStatusMeta = (status = '') => {
+    const normalized = String(status || '').trim().toLowerCase();
+    if (normalized === 'settled') {
+        return {
+            label: 'Settled',
+            chip: 'bg-emerald-50 text-emerald-800 border border-emerald-200',
+            dot: 'bg-emerald-500',
+            iconTone: 'text-emerald-700',
+            timelineLine: 'border-emerald-200'
+        };
+    }
+    if (['pending', 'processing', 'queued'].includes(normalized)) {
+        return {
+            label: 'Pending',
+            chip: 'bg-amber-50 text-amber-800 border border-amber-200',
+            dot: 'bg-amber-500',
+            iconTone: 'text-amber-700',
+            timelineLine: 'border-amber-200'
+        };
+    }
+    if (normalized === 'failed') {
+        return {
+            label: 'Failed',
+            chip: 'bg-rose-50 text-rose-800 border border-rose-200',
+            dot: 'bg-rose-500',
+            iconTone: 'text-rose-700',
+            timelineLine: 'border-rose-200'
+        };
+    }
+    return {
+        label: normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : 'Unknown',
+        chip: 'bg-slate-50 text-slate-700 border border-slate-200',
+        dot: 'bg-slate-400',
+        iconTone: 'text-slate-600',
+        timelineLine: 'border-slate-200'
+    };
+};
+const getPaymentModeVisual = (paymentMode = '') => {
+    const normalized = String(paymentMode || '').trim().toLowerCase();
+    if (normalized.includes('upi')) {
+        return { Icon: Smartphone, shell: 'border-emerald-200 bg-emerald-50', tone: 'text-emerald-700', badge: 'UPI' };
+    }
+    if (normalized.includes('debit')) {
+        return { Icon: CreditCard, shell: 'border-sky-200 bg-sky-50', tone: 'text-sky-700', badge: 'DEBIT' };
+    }
+    if (normalized.includes('credit')) {
+        return { Icon: CreditCard, shell: 'border-sky-200 bg-sky-50', tone: 'text-sky-700', badge: 'CREDIT' };
+    }
+    if (normalized.includes('card')) {
+        return { Icon: CreditCard, shell: 'border-sky-200 bg-sky-50', tone: 'text-sky-700', badge: 'CARD' };
+    }
+    if (normalized.includes('net banking') || normalized.includes('netbanking')) {
+        return { Icon: Landmark, shell: 'border-violet-200 bg-violet-50', tone: 'text-violet-700', badge: 'NETBANK' };
+    }
+    if (normalized.includes('bank transfer') || normalized.includes('bank')) {
+        return { Icon: Landmark, shell: 'border-violet-200 bg-violet-50', tone: 'text-violet-700', badge: 'BANK XFER' };
+    }
+    if (normalized.includes('wallet')) {
+        return { Icon: Wallet, shell: 'border-amber-200 bg-amber-50', tone: 'text-amber-700', badge: 'WALLET' };
+    }
+    if (normalized.includes('emi')) {
+        return { Icon: Clock3, shell: 'border-fuchsia-200 bg-fuchsia-50', tone: 'text-fuchsia-700', badge: 'EMI' };
+    }
+    return { Icon: IndianRupee, shell: 'border-slate-200 bg-slate-50', tone: 'text-slate-700', badge: 'PAY' };
 };
 const needsPaymentMethodSync = (order = {}) => {
     const gateway = String(order?.payment_gateway || order?.paymentGateway || '').trim().toLowerCase();
@@ -1095,20 +1171,6 @@ export function Orders({
     }, [manualOrderItems, manualProducts]);
     const getRefundAmount = (order) => Number(order?.refund_amount ?? order?.refundAmount ?? 0);
     const getRefundReference = (order) => order?.refund_reference || order?.refundReference || '';
-    const getRefundVoucherCode = (order) => {
-        const direct = String(order?.refund_coupon_code || '').trim();
-        if (direct) return direct;
-        const notes = (order?.refund_notes && typeof order.refund_notes === 'object') ? order.refund_notes : {};
-        const fallback = String(
-            notes?.refund_coupon_code
-            || notes?.refundCouponCode
-            || notes?.voucherCode
-            || notes?.couponCode
-            || notes?.issuedCouponCode
-            || ''
-        ).trim();
-        return fallback;
-    };
     const hasRefundInitiated = (order) => Boolean(
         getRefundReference(order)
         || String(order?.refund_status || '').trim()
@@ -1119,15 +1181,19 @@ export function Orders({
         String(order?.status || '').toLowerCase() === 'cancelled'
         && hasRefundInitiated(order)
     );
-    const canCheckRefundStatus = (order) => {
-        if (!order || isAttemptEntry(order)) return false;
-        if (!hasRefundInitiated(order)) return false;
-        return Boolean(order?.razorpay_order_id || order?.razorpay_payment_id);
-    };
-    const formatSettlementAmount = (value) => `₹${(Number(value || 0) / 100).toLocaleString('en-IN', {
+    const formatSettlementAmount = (value, snapshot = null) => `₹${toSettlementRupees(value, snapshot).toLocaleString('en-IN', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
     })}`;
+    const formatSettlementDateTime = (value) => {
+        if (!value && value !== 0) return '—';
+        const raw = Number(value);
+        const parsed = Number.isFinite(raw) && raw > 0
+            ? new Date(raw < 1e12 ? raw * 1000 : raw)
+            : new Date(value);
+        if (Number.isNaN(parsed.getTime())) return '—';
+        return formatAdminDateTime(parsed.toISOString());
+    };
     const patchOrderRow = useCallback((nextOrder) => {
         if (!nextOrder?.id) return;
         setOrders((prev) => {
@@ -3667,71 +3733,111 @@ export function Orders({
                                             })()}
 
                                             <div className="mt-5 grid grid-cols-1 gap-4">
-                                                <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                                                    <p className="text-xs text-gray-400 font-semibold uppercase">Payment Details</p>
-                                                    <div className="mt-2 space-y-1 text-sm text-gray-700">
-                                                        <p><span className="text-gray-500">Method:</span> {getPaymentMethodLabel(selectedOrder)}</p>
-                                                        <p><span className="text-gray-500">Payment Method Info:</span> {getPaymentMethodInfoLabel(selectedOrder, paymentMethodContext)}</p>
-                                                        <p><span className="text-gray-500">Status:</span> {getPaymentStatusLabel(selectedOrder)}</p>
-                                                        <p><span className="text-gray-500">Reference:</span> <span className="font-mono text-xs">{getPaymentReference(selectedOrder)}</span></p>
-                                                        <p><span className="text-gray-500">Invoice No:</span> <span className="font-mono text-xs">{getInvoiceNumber(selectedOrder)}</span></p>
-                                                        {selectedOrder?.failure_reason && (
-                                                            <p><span className="text-gray-500">Failure:</span> {selectedOrder.failure_reason}</p>
-                                                        )}
-                                                        {hasRefundInitiated(selectedOrder) && (
-                                                            <>
-                                                                <p><span className="text-gray-500">Refund Amount:</span> {getRefundAmount(selectedOrder) > 0 ? `₹${getRefundAmount(selectedOrder).toLocaleString()}` : '—'}</p>
-                                                                <p><span className="text-gray-500">Refund Ref:</span> <span className="font-mono text-xs">{getRefundReference(selectedOrder) || '—'}</span></p>
-                                                                <p><span className="text-gray-500">Refund Status:</span> {String(selectedOrder?.refund_status || '').trim() || '—'}</p>
-                                                                <p><span className="text-gray-500">Refund Mode:</span> {selectedOrder?.refund_mode || '—'}</p>
-                                                                <p><span className="text-gray-500">Refund Method:</span> {selectedOrder?.refund_method || '—'}</p>
-                                                                <p><span className="text-gray-500">Manual Ref:</span> <span className="font-mono text-xs">{selectedOrder?.manual_refund_ref || '—'}</span></p>
-                                                                <p><span className="text-gray-500">Manual UTR:</span> <span className="font-mono text-xs">{selectedOrder?.manual_refund_utr || '—'}</span></p>
-                                                                <p><span className="text-gray-500">Refund Voucher:</span> <span className="font-mono text-xs">{getRefundVoucherCode(selectedOrder) || '—'}</span></p>
-                                                            </>
-                                                        )}
-                                                        {normalizeOrderStatus(selectedOrder.status) === 'pending' && (
-                                                            <p><span className="text-gray-500">Pending For:</span> {getPendingDurationLabel(selectedOrder.created_at)}</p>
-                                                        )}
-                                                        {canFetchPaymentStatus(selectedOrder) && (
-                                                            <button type="button" onClick={() => handleFetchPaymentStatus({ reason: 'payment' })} disabled={isFetchingPaymentStatus} className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100 disabled:opacity-60">
-                                                                <RefreshCw size={14} className={isFetchingPaymentStatus ? 'animate-spin' : ''} />
-                                                                {isFetchingPaymentStatus ? 'Syncing...' : 'Sync Payment Status'}
-                                                            </button>
-                                                        )}
-                                                        {canCheckRefundStatus(selectedOrder) && (
-                                                            <button type="button" onClick={() => handleFetchPaymentStatus({ reason: 'refund' })} disabled={isFetchingPaymentStatus} className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-800 text-xs font-semibold hover:bg-blue-100 disabled:opacity-60">
-                                                                <RefreshCw size={14} className={isFetchingPaymentStatus ? 'animate-spin' : ''} />
-                                                                {isFetchingPaymentStatus ? 'Checking...' : 'Check Refund Status'}
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-
                                                 {!isAttemptEntry(selectedOrder) && (
                                                     <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
                                                         <p className="text-xs text-gray-400 font-semibold uppercase">Settlement Details</p>
-                                                        {selectedOrder?.settlement_snapshot ? (
-                                                            <div className="mt-2 space-y-1 text-sm text-gray-700">
-                                                                <p><span className="text-gray-500">Settlement ID:</span> <span className="font-mono text-xs">{selectedOrder.settlement_snapshot.id || selectedOrder.settlement_id || '—'}</span></p>
-                                                                <p><span className="text-gray-500">Status:</span> {selectedOrder.settlement_snapshot.status || '—'}</p>
-                                                                <p><span className="text-gray-500">Settlement Amount:</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.amount)}</p>
-                                                                <p><span className="text-gray-500">Charges (Fees):</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.fees)}</p>
-                                                                <p><span className="text-gray-500">Tax:</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.tax)}</p>
-                                                                <p><span className="text-gray-500">Net Credited:</span> {formatSettlementAmount(selectedOrder.settlement_snapshot.net_amount ?? (Number(selectedOrder.settlement_snapshot.amount || 0) - Number(selectedOrder.settlement_snapshot.fees || 0) - Number(selectedOrder.settlement_snapshot.tax || 0)))}</p>
-                                                                <p><span className="text-gray-500">UTR:</span> <span className="font-mono text-xs">{selectedOrder.settlement_snapshot.utr || '—'}</span></p>
-                                                                <p><span className="text-gray-500">Created At:</span> {selectedOrder.settlement_snapshot.created_at ? formatAdminDateTime(new Date(Number(selectedOrder.settlement_snapshot.created_at) * 1000).toISOString()) : '—'}</p>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="mt-2 space-y-1">
-                                                                <p className="text-sm text-gray-500">Settlement info is not available yet for this payment.</p>
-                                                                {settlementContext?.isTestMode && (
-                                                                    <p className="text-xs text-amber-700">
-                                                                        Razorpay is in test mode. Settlement records are usually not generated in test mode.
-                                                                    </p>
-                                                                )}
-                                                            </div>
-                                                        )}
+                                                        {(() => {
+                                                            const settlement = selectedOrder?.settlement_snapshot || selectedOrder?.settlementSnapshot || null;
+                                                            const paymentMode = getPaymentMethodInfoLabel(selectedOrder, paymentMethodContext);
+                                                            const modeVisual = getPaymentModeVisual(paymentMode);
+                                                            const ModeIcon = modeVisual.Icon;
+                                                            const paymentGatewayLabel = getPaymentMethodLabel(selectedOrder);
+                                                            const paymentReference = getPaymentReference(selectedOrder);
+                                                            const paidAtLabel = formatSettlementDateTime(selectedOrder?.created_at || selectedOrder?.createdAt);
+                                                            const settlementStatus = String(settlement?.status || '').trim().toLowerCase();
+                                                            const isSettled = settlementStatus === 'settled';
+                                                            const isSettlementAwaited = !settlement || ['pending', 'processing', 'queued', 'failed'].includes(settlementStatus);
+                                                            const settlementStatusMeta = getSettlementStatusMeta(isSettlementAwaited ? 'pending' : settlementStatus);
+                                                            const settledAtLabel = settlement?.created_at ? formatSettlementDateTime(settlement?.created_at) : 'Awaited';
+                                                            const settlementAmount = settlement ? toSettlementRupees(settlement?.amount, settlement) : 0;
+                                                            const settlementFees = settlement ? toSettlementRupees(settlement?.fees, settlement) : 0;
+                                                            const settlementTax = settlement ? toSettlementRupees(settlement?.tax, settlement) : 0;
+                                                            const settlementNet = settlement
+                                                                ? (settlement?.net_amount != null
+                                                                    ? toSettlementRupees(settlement?.net_amount, settlement)
+                                                                    : Math.max(0, settlementAmount - settlementFees - settlementTax))
+                                                                : 0;
+                                                            return (
+                                                                <div className="mt-3 space-y-3">
+                                                                    <div className="rounded-xl border border-gray-200 bg-white p-3">
+                                                                        <div className="flex items-start justify-between gap-3">
+                                                                            <div>
+                                                                                <p className="text-[11px] uppercase tracking-widest text-gray-400 font-semibold">Payment Mode</p>
+                                                                                <p className="mt-1 text-sm font-semibold text-gray-800">{paymentMode}</p>
+                                                                            </div>
+                                                                            <div className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 ${modeVisual.shell}`}>
+                                                                                <ModeIcon size={14} className={modeVisual.tone} />
+                                                                                <span className={`text-[10px] font-semibold tracking-wide ${modeVisual.tone}`}>{modeVisual.badge}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="mt-2 text-xs text-gray-600">
+                                                                            <p><span className="text-gray-500">Gateway:</span> {paymentGatewayLabel}</p>
+                                                                            <p><span className="text-gray-500">Payment Ref:</span> <span className="font-mono">{paymentReference}</span></p>
+                                                                        </div>
+                                                                        <div className="mt-3 border-t border-gray-100 pt-3">
+                                                                            <div className="relative space-y-4">
+                                                                                <span className={`pointer-events-none absolute left-[10px] top-6 bottom-2 border-l border-dashed ${settlementStatusMeta.timelineLine}`} />
+                                                                                <div className="relative flex items-start gap-3">
+                                                                                    <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border border-emerald-200 bg-emerald-100 text-emerald-700">
+                                                                                        <CheckCircle2 size={12} />
+                                                                                    </span>
+                                                                                    <div className="pt-0.5">
+                                                                                        <p className="text-sm font-medium text-gray-800">Customer Paid</p>
+                                                                                        <p className="text-xs text-gray-500">{paidAtLabel}</p>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="relative flex items-start gap-3">
+                                                                                    <span className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border ${
+                                                                                        isSettled
+                                                                                            ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
+                                                                                            : 'border-amber-200 bg-amber-100 text-amber-700'
+                                                                                    }`}>
+                                                                                        {isSettled ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
+                                                                                    </span>
+                                                                                    <div className="pt-0.5">
+                                                                                        <p className="text-sm font-medium text-gray-800">
+                                                                                            {isSettled ? 'Money deposited in your bank' : 'Settlement awaited'}
+                                                                                        </p>
+                                                                                        <p className="text-xs text-gray-500">
+                                                                                            {isSettled ? `Settled: ${settledAtLabel}` : 'Awaiting settlement confirmation from gateway'}
+                                                                                            {settlement?.utr ? ` | UTR: ${settlement.utr}` : ''}
+                                                                                        </p>
+                                                                                        {!isSettled && settlementContext?.isTestMode && (
+                                                                                            <p className="mt-1 text-xs text-amber-700">
+                                                                                                Razorpay test mode usually does not generate real settlement records.
+                                                                                            </p>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="rounded-xl border border-gray-200 bg-white p-3">
+                                                                        <div className="flex items-center justify-between gap-3">
+                                                                            <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">Settlement Status</span>
+                                                                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${settlementStatusMeta.chip}`}>
+                                                                                {isSettlementAwaited ? 'Awaited' : settlementStatusMeta.label}
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className="mt-3 space-y-1 text-sm text-gray-700">
+                                                                            <p><span className="text-gray-500">Settlement ID:</span> <span className="font-mono text-xs">{settlement?.id || selectedOrder?.settlement_id || '—'}</span></p>
+                                                                            <p><span className="text-gray-500">Settlement Amount:</span> {settlement ? formatSettlementAmount(settlementAmount) : 'Awaited'}</p>
+                                                                            <p><span className="text-gray-500">Charges (Fees):</span> {settlement ? formatSettlementAmount(settlementFees) : 'Awaited'}</p>
+                                                                            <p><span className="text-gray-500">Tax:</span> {settlement ? formatSettlementAmount(settlementTax) : 'Awaited'}</p>
+                                                                            <p><span className="text-gray-500">Net Credited:</span> {settlement ? formatSettlementAmount(settlementNet) : 'Awaited'}</p>
+                                                                            <p><span className="text-gray-500">Settled Date:</span> {settledAtLabel}</p>
+                                                                            <p><span className="text-gray-500">UTR:</span> <span className="font-mono text-xs">{settlement?.utr || '—'}</span></p>
+                                                                            {canFetchPaymentStatus(selectedOrder) && (
+                                                                                <button type="button" onClick={() => handleFetchPaymentStatus({ reason: 'payment' })} disabled={isFetchingPaymentStatus} className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100 disabled:opacity-60">
+                                                                                    <RefreshCw size={14} className={isFetchingPaymentStatus ? 'animate-spin' : ''} />
+                                                                                    {isFetchingPaymentStatus ? 'Syncing...' : 'Sync Payment Status'}
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 )}
 
