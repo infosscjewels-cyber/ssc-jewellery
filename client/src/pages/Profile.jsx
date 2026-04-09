@@ -27,7 +27,7 @@ import { isValidStorefrontMobile, normalizeStorefrontMobileInput } from '../util
 import ordersIllustration from '../assets/orders.svg';
 import TierBadge from '../components/TierBadge';
 
-const emptyAddress = { line1: '', city: '', state: '', zip: '' };
+const emptyAddress = { line1: '', landmark: '', city: '', state: '', zip: '', additionalPhone: '' };
 const TIER_THEME = {
     regular: {
         card: 'from-slate-700 via-slate-600 to-slate-700',
@@ -194,7 +194,9 @@ export default function Profile() {
     const handleAddressChange = (section, field, value) => {
         const nextValue = field === 'zip'
             ? normalizePincodeInput(value)
-            : (field === 'state' ? resolveAllowedStateName(availableStates, value) : value);
+            : (field === 'state'
+                ? resolveAllowedStateName(availableStates, value)
+                : (field === 'additionalPhone' ? normalizeStorefrontMobileInput(value) : value));
         setForm((prev) => ({
             ...prev,
             [section]: { ...prev[section], [field]: nextValue },
@@ -274,6 +276,10 @@ export default function Profile() {
             toast.error('Enter a valid 10-digit mobile number');
             return;
         }
+        if (String(form.address.additionalPhone || '').trim() && !isValidStorefrontMobile(form.address.additionalPhone)) {
+            toast.error('Enter a valid 10-digit additional phone number');
+            return;
+        }
         if (!isValidIndianPincode(form.address.zip) || (billingAddressEnabled && !isValidIndianPincode(form.billingAddress.zip))) {
             toast.error(`Enter a valid 6-digit PIN code for ${billingAddressEnabled ? 'both addresses' : 'the shipping address'}`);
             return;
@@ -337,7 +343,7 @@ export default function Profile() {
 
     const addressSummary = useMemo(() => {
         const a = form.address;
-        return [a.line1, a.city, a.state, a.zip].filter(Boolean).join(', ') || 'No address on file';
+        return [a.line1, a.landmark, a.city, a.state, a.zip].filter(Boolean).join(', ') || 'No address on file';
     }, [form.address]);
 
     const formatDate = (value) => {
@@ -652,6 +658,22 @@ export default function Profile() {
                                             </div>
                                         </div>
                                         <div className="space-y-2">
+                                            <label className="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">Additional Phone</label>
+                                            <div className="relative">
+                                                <input
+                                                    type="tel"
+                                                    inputMode="numeric"
+                                                    maxLength={10}
+                                                    value={form.address.additionalPhone}
+                                                    onChange={(e) => handleAddressChange('address', 'additionalPhone', e.target.value)}
+                                                    disabled={!isEditing}
+                                                    placeholder="Optional"
+                                                    className="input-field pl-10 disabled:bg-gray-50"
+                                                />
+                                                <Phone size={16} className="absolute left-3 top-3.5 text-gray-400" />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
                                             <label className="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">Date of Birth</label>
                                             <div className="relative">
                                                 <input
@@ -743,6 +765,13 @@ export default function Profile() {
                                                         onChange={(e) => handleAddressChange('address', 'line1', e.target.value)}
                                                         disabled={!isEditing || (billingAddressEnabled && sameAsBilling)}
                                                         placeholder="Street Address"
+                                                        className="input-field disabled:bg-gray-50"
+                                                    />
+                                                    <input
+                                                        value={form.address.landmark}
+                                                        onChange={(e) => handleAddressChange('address', 'landmark', e.target.value)}
+                                                        disabled={!isEditing || (billingAddressEnabled && sameAsBilling)}
+                                                        placeholder="Landmark (Optional)"
                                                         className="input-field disabled:bg-gray-50"
                                                     />
                                                     <div className="grid grid-cols-2 gap-3">
