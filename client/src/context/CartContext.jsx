@@ -178,6 +178,7 @@ export const CartProvider = ({ children }) => {
         isSaving: false
     });
     const [pendingAddIntent, setPendingAddIntent] = useState(null);
+    const [pendingGuestCartMerge, setPendingGuestCartMerge] = useState(false);
     const skipNextLoginGuestMergeRef = useRef(false);
     const suppressGuestCartPersistRef = useRef(false);
     const pendingPostSwitchAddIntentRef = useRef(null);
@@ -207,8 +208,30 @@ export const CartProvider = ({ children }) => {
             const shouldMergeGuest = !skipNextLoginGuestMergeRef.current;
             skipNextLoginGuestMergeRef.current = false;
             suppressGuestCartPersistRef.current = false;
-            hydrateFromServer(shouldMergeGuest);
+            const hasMissingMobile = !String(user?.mobile || '').trim();
+            if (shouldMergeGuest && hasMissingMobile) {
+                const guestItems = loadGuestCart();
+                if (guestItems.length > 0) {
+                    setPendingGuestCartMerge(true);
+                    setPhoneCaptureState((prev) => (
+                        prev.isOpen
+                            ? prev
+                            : {
+                                ...prev,
+                                modalKey: Date.now(),
+                                isOpen: true,
+                                mobile: '',
+                                error: '',
+                                isSaving: false
+                            }
+                    ));
+                }
+                hydrateFromServer(false);
+            } else {
+                hydrateFromServer(shouldMergeGuest);
+            }
         } else {
+            setPendingGuestCartMerge(false);
             setItems(loadGuestCart());
         }
     }, [user, hydrateFromServer]);
@@ -402,16 +425,6 @@ export const CartProvider = ({ children }) => {
 
     const handlePhoneCaptureSubmit = useCallback(async (mobile) => {
         const activeIntent = pendingAddIntent;
-        if (!activeIntent) {
-            setPhoneCaptureState((prev) => ({
-                ...prev,
-                isOpen: false,
-                error: '',
-                isSaving: false
-            }));
-            return;
-        }
-
         const latestMobile = String(user?.mobile || '').trim();
         setPhoneCaptureState((prev) => ({ ...prev, error: '', isSaving: true }));
 
@@ -432,11 +445,19 @@ export const CartProvider = ({ children }) => {
                 isSaving: false
             });
             setPendingAddIntent(null);
+            const shouldMergeGuestCart = pendingGuestCartMerge;
+            setPendingGuestCartMerge(false);
 
-            try {
-                await executeAddItem(activeIntent);
-            } catch (error) {
-                toast.error(error?.message || 'Failed to add item to cart');
+            if (shouldMergeGuestCart) {
+                await hydrateFromServer(true);
+            }
+
+            if (activeIntent) {
+                try {
+                    await executeAddItem(activeIntent);
+                } catch (error) {
+                    toast.error(error?.message || 'Failed to add item to cart');
+                }
             }
         } catch (error) {
             setPhoneCaptureState((prev) => ({
@@ -445,7 +466,7 @@ export const CartProvider = ({ children }) => {
                 isSaving: false
             }));
         }
-    }, [executeAddItem, pendingAddIntent, toast, updateUser, user?.mobile]);
+    }, [executeAddItem, hydrateFromServer, pendingAddIntent, pendingGuestCartMerge, toast, updateUser, user?.mobile]);
 
     const handlePhoneCaptureSwitchAccount = useCallback(async (res, mobile) => {
         const activeIntent = pendingAddIntent;

@@ -371,7 +371,7 @@ const getItems = (order = {}) => {
             ? toNumber(item.discounted_line_total_base ?? item.discountedLineTotalBase ?? snapshot.discountedLineTotalBase ?? snapshot.taxBase, Math.max(0, discountedLineGross - taxAmount))
             : toNumber(item.discounted_line_total_base ?? item.discountedLineTotalBase ?? snapshot.discountedLineTotalBase ?? snapshot.taxBase, Math.max(0, discountedLineGross));
         const parsedWarrantyMonths = Number(snapshot.polishWarrantyMonths || 0);
-        const polishWarrantyMonths = [6, 7, 8, 9, 12].includes(parsedWarrantyMonths) ? parsedWarrantyMonths : 0;
+        const polishWarrantyMonths = [6, 8, 10, 12].includes(parsedWarrantyMonths) ? parsedWarrantyMonths : 0;
 
         return {
             name: String(item.title || snapshot.title || 'Item'),

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Mail, Phone, MapPin, MessageCircle, Instagram, Send } from 'lucide-react';
+import { Mail, Phone, MapPin, Instagram, Send } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { useToast } from '../context/ToastContext';
 import fallbackContactImage from '../assets/contact.jpg';
 import { buildContactSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
+import WhatsAppIcon from '../components/WhatsAppIcon';
 
 const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 const DEFAULT_JUMBOTRON = fallbackContactImage;
@@ -158,7 +159,7 @@ export default function Contact() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 mb-10">
                     <InfoCard title="Email" value={company.supportEmail} href={company.supportEmail ? `mailto:${company.supportEmail}` : ''} icon={Mail} />
-                    <InfoCard title="WhatsApp" value={company.whatsappNumber} href={whatsappHref} icon={MessageCircle} iconTint="text-green-600" />
+                    <InfoCard title="WhatsApp" value={company.whatsappNumber} href={whatsappHref} icon={WhatsAppIcon} iconTint="text-green-600" />
                     <InfoCard title="Instagram" value={company.instagramUrl ? '@Visit Profile' : ''} href={company.instagramUrl} icon={Instagram} iconTint="text-pink-600" />
                     <InfoCard title="Call" value={company.contactNumber} href={company.contactNumber ? `tel:${company.contactNumber}` : ''} icon={Phone} iconTint="text-blue-600" />
                 </div>

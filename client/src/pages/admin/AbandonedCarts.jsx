@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUpDown, CalendarDays, Download, Filter, Mail, MessageCircle, Phone, RefreshCw, Search, Send, Settings2, ShoppingCart, X } from 'lucide-react';
+import { ArrowUpDown, CalendarDays, Download, Filter, Mail, Phone, RefreshCw, Search, Send, Settings2, ShoppingCart, X } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { formatAdminDateTime } from '../../utils/dateFormat';
@@ -8,6 +8,7 @@ import { useAdminKPI } from '../../context/AdminKPIContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import cartIllustration from '../../assets/cart.svg';
 import EmptyState from '../../components/EmptyState';
+import WhatsAppIcon from '../../components/WhatsAppIcon';
 
 const journeyStatusOptions = [
     { value: 'all', label: 'All' },
@@ -24,6 +25,7 @@ const mobileJourneyStatusOptions = [
     { value: 'expired', label: 'Expired' },
     { value: 'all', label: 'All' }
 ];
+const MOBILE_JOURNEY_COUNT_STATUSES = ['all', 'pending', 'active', 'recovered', 'expired', 'cancelled'];
 
 const sortOptions = [
     { value: 'newest', label: 'Newest First' },
@@ -419,6 +421,13 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     const [insights, setInsights] = useState(null);
     const [journeys, setJourneys] = useState([]);
     const [journeyTotal, setJourneyTotal] = useState(0);
+    const [mobileJourneyStatusCounts, setMobileJourneyStatusCounts] = useState({
+        new: 0,
+        attempted: 0,
+        completed: 0,
+        expired: 0,
+        all: 0
+    });
     const [status, setStatus] = useState('all');
     const [mobileStatusFilter, setMobileStatusFilter] = useState('new');
     const [sortBy, setSortBy] = useState('newest');
@@ -446,6 +455,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     const [attemptDelaysInput, setAttemptDelaysInput] = useState('');
     const [discountLadderInput, setDiscountLadderInput] = useState('');
     const realtimeRefreshTimerRef = useRef(null);
+    const abandonedFailureToastCooldownRef = useRef(0);
     const insightsKey = toAbandonedInsightsKey(rangeDays);
     const sharedInsights = abandonedInsightsByKey[insightsKey]?.insights || null;
     const isLatestJourneyWindow = journeyWindow === 'last_10';
@@ -481,17 +491,55 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
         setJourneys(data.journeys || []);
         setJourneyTotal(isLatestJourneyWindow ? Number((data.journeys || []).length || 0) : Number(data.total || 0));
     }, [isLatestJourneyWindow, journeyPageSize, journeyRangeDays, page, search, sortBy, status]);
+    const loadMobileJourneyStatusCounts = useCallback(async () => {
+        const results = await Promise.all(
+            MOBILE_JOURNEY_COUNT_STATUSES.map(async (entryStatus) => {
+                const data = await adminService.getAbandonedCartJourneys({
+                    status: entryStatus,
+                    search,
+                    sortBy,
+                    rangeDays: journeyRangeDays,
+                    limit: 1,
+                    offset: 0
+                });
+                return [entryStatus, Number(data?.total || 0)];
+            })
+        );
+        const totals = Object.fromEntries(results);
+        const newCount = Number(totals.pending || 0);
+        const activeCount = Number(totals.active || 0);
+        setMobileJourneyStatusCounts({
+            new: newCount,
+            attempted: Math.max(0, activeCount - newCount),
+            completed: Number(totals.recovered || 0),
+            expired: Number(totals.expired || 0) + Number(totals.cancelled || 0),
+            all: Number(totals.all || 0)
+        });
+    }, [journeyRangeDays, search, sortBy]);
+
+    const notifyAbandonedFetchError = useCallback((error, fallbackMessage) => {
+        const cooldownUntil = Number(error?.cooldownUntil || 0);
+        if (error?.code === 'FETCH_RETRY_COOLDOWN') {
+            if (cooldownUntil > Number(abandonedFailureToastCooldownRef.current || 0)) {
+                abandonedFailureToastCooldownRef.current = cooldownUntil;
+                toast.error(error.message || 'Server unavailable. Retry paused briefly.');
+            }
+            return;
+        }
+        abandonedFailureToastCooldownRef.current = cooldownUntil;
+        toast.error(error?.message || fallbackMessage);
+    }, [toast]);
 
     const loadAll = useCallback(async () => {
         setIsLoading(true);
         try {
-            await Promise.all([loadCampaign(), loadInsights(), loadJourneys()]);
+            await Promise.all([loadCampaign(), loadInsights(), loadJourneys(), loadMobileJourneyStatusCounts()]);
         } catch (error) {
-            toast.error(error.message || 'Failed to load abandoned cart data');
+            notifyAbandonedFetchError(error, 'Failed to load abandoned cart data');
         } finally {
             setIsLoading(false);
         }
-    }, [loadCampaign, loadInsights, loadJourneys, toast]);
+    }, [loadCampaign, loadInsights, loadJourneys, loadMobileJourneyStatusCounts, notifyAbandonedFetchError]);
 
     useEffect(() => {
         loadAll();
@@ -506,6 +554,11 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
         if (isLoading) return;
         loadJourneys().catch(() => {});
     }, [status, sortBy, search, page, isLoading, loadJourneys]);
+
+    useEffect(() => {
+        if (isLoading) return;
+        loadMobileJourneyStatusCounts().catch(() => {});
+    }, [isLoading, loadMobileJourneyStatusCounts]);
 
     useEffect(() => {
         if (isLoading) return;
@@ -538,6 +591,23 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
         if (mobileStatusFilter === 'all') return journeys;
         return journeys.filter((journey) => getMobileJourneyLifecycleStatus(journey) === mobileStatusFilter);
     }, [journeys, mobileStatusFilter]);
+    const fallbackMobileJourneyStatusCounts = useMemo(() => {
+        const rows = Array.isArray(journeys) ? journeys : [];
+        const counts = {
+            new: 0,
+            attempted: 0,
+            completed: 0,
+            expired: 0,
+            all: rows.length
+        };
+        rows.forEach((journey) => {
+            const key = getMobileJourneyLifecycleStatus(journey);
+            if (Object.prototype.hasOwnProperty.call(counts, key)) {
+                counts[key] += 1;
+            }
+        });
+        return counts;
+    }, [journeys]);
 
     const totalPages = useMemo(
         () => isLatestJourneyWindow ? 1 : Math.max(1, Math.ceil(Number(journeyTotal || 0) / JOURNEY_PAGE_SIZE)),
@@ -652,7 +722,6 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                 recoveryWindowHours: parsed.recoveryWindowHours,
                 sendEmail: Boolean(campaignDraft.sendEmail),
                 sendWhatsapp: Boolean(campaignDraft.sendWhatsapp),
-                sendPaymentLink: Boolean(campaignDraft.sendPaymentLink),
                 reminderEnable: Boolean(campaignDraft.reminderEnable)
             };
             const data = await adminService.updateAbandonedCartCampaign(payload);
@@ -711,11 +780,11 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
             const data = await adminService.getAbandonedCartJourneyTimeline(journeyId);
             setSelectedTimeline(data || null);
         } catch (error) {
-            toast.error(error.message || 'Failed to load timeline');
+            notifyAbandonedFetchError(error, 'Failed to load timeline');
         } finally {
             setIsTimelineLoading(false);
         }
-    }, [toast]);
+    }, [notifyAbandonedFetchError]);
 
     const closeTimeline = () => setSelectedTimeline(null);
 
@@ -731,12 +800,12 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
             const data = await adminService.getUserCart(journey.user_id);
             setCartItems(Array.isArray(data?.items) ? data.items : []);
         } catch (error) {
-            toast.error(error?.message || 'Failed to load cart');
+            notifyAbandonedFetchError(error, 'Failed to load cart');
             setCartItems([]);
         } finally {
             setIsCartLoading(false);
         }
-    }, [toast]);
+    }, [notifyAbandonedFetchError, toast]);
 
     const openMessagePreview = useCallback(async (journey, channel) => {
         const label = channel === 'whatsapp' ? 'WhatsApp' : 'Email';
@@ -904,11 +973,12 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
             markAbandonedInsightsDirty(rangeDays);
             fetchAbandonedInsights(rangeDays, { force: true }).catch(() => {});
             loadJourneys().catch(() => {});
+            loadMobileJourneyStatusCounts().catch(() => {});
             if (selectedTimeline?.journey?.id) {
                 openTimeline(selectedTimeline.journey.id);
             }
         }, 120);
-    }, [fetchAbandonedInsights, loadJourneys, markAbandonedInsightsDirty, openTimeline, rangeDays, selectedTimeline?.journey?.id]);
+    }, [fetchAbandonedInsights, loadJourneys, loadMobileJourneyStatusCounts, markAbandonedInsightsDirty, openTimeline, rangeDays, selectedTimeline?.journey?.id]);
 
     const handleAbandonedUpdate = useCallback((payload = {}) => {
         if (payload?.journey?.id) {
@@ -971,6 +1041,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
             markAbandonedInsightsDirty(rangeDays);
             fetchAbandonedInsights(rangeDays, { force: true }).catch(() => {});
             loadJourneys().catch(() => {});
+            loadMobileJourneyStatusCounts().catch(() => {});
             if (selectedTimeline?.journey?.id) {
                 openTimeline(selectedTimeline.journey.id);
             }
@@ -979,6 +1050,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     }, [
         fetchAbandonedInsights,
         loadJourneys,
+        loadMobileJourneyStatusCounts,
         markAbandonedInsightsDirty,
         openTimeline,
         rangeDays,
@@ -1028,7 +1100,6 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                 <label className="inline-flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={Boolean(campaignDraft.enabled)} onChange={(e) => handleCampaignField('enabled', e.target.checked)} /> Enabled</label>
                 <label className="inline-flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={Boolean(campaignDraft.sendEmail)} onChange={(e) => handleCampaignField('sendEmail', e.target.checked)} /> Email</label>
                 <label className="inline-flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={Boolean(campaignDraft.sendWhatsapp)} onChange={(e) => handleCampaignField('sendWhatsapp', e.target.checked)} /> WhatsApp</label>
-                <label className="inline-flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={Boolean(campaignDraft.sendPaymentLink)} onChange={(e) => handleCampaignField('sendPaymentLink', e.target.checked)} /> Payment Link</label>
                 <label className="inline-flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={Boolean(campaignDraft.reminderEnable)} onChange={(e) => handleCampaignField('reminderEnable', e.target.checked)} /> Razorpay Reminders</label>
             </div>
         )
@@ -1188,9 +1259,9 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                         key={option.value}
                                         type="button"
                                         onClick={() => setMobileStatusFilter(option.value)}
-                                        className={`min-w-0 rounded-full border px-1.5 py-2 text-[10px] font-semibold leading-none tracking-tight transition ${getMobileJourneyFilterBadgeClass(option.value, active)}`}
+                                        className={`min-w-0 rounded-full border px-1 py-2 text-[9px] font-semibold leading-none tracking-normal whitespace-nowrap transition ${getMobileJourneyFilterBadgeClass(option.value, active)}`}
                                     >
-                                        {option.label}
+                                        {option.label} ({mobileJourneyStatusCounts[option.value] || fallbackMobileJourneyStatusCounts[option.value] || 0})
                                     </button>
                                 );
                             })}
@@ -1256,7 +1327,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                                 )}
                                                 {!!getWhatsappHref(journey.customer_mobile) && (
                                                     <a href={getWhatsappHref(journey.customer_mobile)} target="_blank" rel="noreferrer" className="p-1.5 rounded-md border border-green-200 bg-green-50 text-green-700 shadow-sm transition-colors hover:bg-green-100" title="Contact customer on WhatsApp">
-                                                        <MessageCircle size={14} />
+                                                        <WhatsAppIcon size={14} />
                                                     </a>
                                                 )}
                                                 {journey.user_id && (
@@ -1333,7 +1404,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                             )}
                                             {!!getWhatsappHref(journey.customer_mobile) && (
                                                 <a href={getWhatsappHref(journey.customer_mobile)} target="_blank" rel="noreferrer" className="p-1.5 rounded-md border border-green-200 bg-green-50 text-green-700 shadow-sm transition-colors hover:bg-green-100" title="Contact customer on WhatsApp">
-                                                    <MessageCircle size={14} />
+                                                    <WhatsAppIcon size={14} />
                                                 </a>
                                             )}
                                             {journey.user_id && (

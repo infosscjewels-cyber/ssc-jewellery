@@ -754,7 +754,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                         onChange={handleChange}
                                         className="w-full p-3 rounded-xl border border-gray-200 focus:border-accent outline-none bg-white"
                                     >
-                                        {[6, 7, 8, 9, 12].map((months) => (
+                                        {[6, 8, 10, 12].map((months) => (
                                             <option key={months} value={String(months)}>
                                                 {months} months
                                             </option>

@@ -9,7 +9,6 @@ import {
     Instagram,
     Key,
     Mail,
-    MessageCircle,
     Printer,
     Plus,
     Save,
@@ -26,6 +25,7 @@ import { useCustomers } from '../../context/CustomerContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { usePublicCompanyInfo } from '../../hooks/usePublicSiteShell';
 import { getGstRateSplit } from '../../utils/gst';
+import WhatsAppIcon from '../../components/WhatsAppIcon';
 import {
     clearStoredPrinterPreference,
     configurePreferredPrinter,
@@ -756,7 +756,7 @@ export default function CompanyInfo() {
             </div>
 
             <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden mb-6">
-                <MessageCircle size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
+                <WhatsAppIcon size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
                 <div className="relative z-10">
                     <h3 className="text-sm font-semibold text-gray-800">Communication Channels</h3>
                     <p className="text-xs text-gray-500 mt-1">Global channel controls for customer communications.</p>
@@ -775,7 +775,7 @@ export default function CompanyInfo() {
                         </div>
                     </label>
                     <label className="rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-start gap-3">
-                        <MessageCircle size={18} className="mt-0.5 text-green-600" />
+                        <WhatsAppIcon size={18} className="mt-0.5 text-green-600" />
                         <div className="flex-1">
                             <div className="flex items-center justify-between gap-3">
                                 <div>
@@ -857,7 +857,7 @@ export default function CompanyInfo() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             {WHATSAPP_MODULES.map((module) => (
                                 <label key={module.key} className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${form.whatsappChannelEnabled ? 'border-gray-200 bg-white' : 'border-gray-100 bg-gray-50 opacity-70'}`}>
-                                    <MessageCircle size={16} className="mt-0.5 text-green-600" />
+                                    <WhatsAppIcon size={16} className="mt-0.5 text-green-600" />
                                     <div className="flex-1">
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
@@ -1534,7 +1534,7 @@ export default function CompanyInfo() {
 
                 {isDevMode && (
                 <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
-                    <MessageCircle size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
+                    <WhatsAppIcon size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
                     <div className="relative z-10 flex items-start justify-between gap-3">
                         <div>
                             <h3 className="text-sm font-semibold text-gray-800">Communication Retry Log</h3>
@@ -1592,7 +1592,7 @@ export default function CompanyInfo() {
 
                 {isDevMode && (
                     <div className="emboss-card relative bg-white rounded-2xl border border-gray-200 shadow-sm p-5 space-y-4 overflow-hidden">
-                        <MessageCircle size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
+                        <WhatsAppIcon size={72} className="bg-emboss-icon absolute right-3 bottom-2 text-gray-100" />
                         <div className="relative z-10">
                             <h3 className="text-sm font-semibold text-gray-800">WhatsApp Test</h3>
                             <p className="text-xs text-gray-500 mt-1">Send a test template and inspect provider response.</p>
@@ -1638,7 +1638,7 @@ export default function CompanyInfo() {
                                 disabled={isWhatsappTestSending}
                                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm font-semibold hover:bg-emerald-100 disabled:opacity-60"
                             >
-                                <MessageCircle size={14} />
+                                <WhatsAppIcon size={14} />
                                 {isWhatsappTestSending ? 'Sending...' : 'Send Test WhatsApp'}
                             </button>
                         </div>

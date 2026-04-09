@@ -310,17 +310,21 @@ const buildMaskedAddressFields = (value = null) => {
     if (!address || typeof address !== 'object') {
         return {
             line1: '',
+            landmark: '',
             city: '',
             state: '',
-            zip: ''
+            zip: '',
+            additionalPhone: ''
         };
     }
     const zip = String(address?.zip || '').replace(/\D/g, '').trim();
     return {
         line1: maskAddressLine(address?.line1 || ''),
+        landmark: maskAddressLine(address?.landmark || ''),
         city: maskAddressWord(address?.city || ''),
         state: maskAddressWord(address?.state || ''),
-        zip: zip ? maskMiddle(zip, { start: Math.min(3, Math.max(1, zip.length - 2)), end: zip.length > 4 ? 1 : 0 }) : ''
+        zip: zip ? maskMiddle(zip, { start: Math.min(3, Math.max(1, zip.length - 2)), end: zip.length > 4 ? 1 : 0 }) : '',
+        additionalPhone: maskCheckoutMobile(address?.additionalPhone || '')
     };
 };
 
@@ -346,6 +350,7 @@ const buildMaskedCheckoutProfile = (user = null) => {
         name: maskName(user?.name || ''),
         email: maskCheckoutEmail(user?.email || ''),
         mobile: maskCheckoutMobile(user?.mobile || user?.whatsapp || ''),
+        additionalPhone: maskCheckoutMobile(shippingAddress?.additionalPhone || ''),
         shippingAddressFields: buildMaskedAddressFields(shippingAddress),
         billingAddressFields: buildMaskedAddressFields(billingAddress),
         shippingAddress: maskAddressSummary(shippingAddress),
@@ -538,6 +543,14 @@ const mapRazorpayPaymentStatusToLocalPayment = (status) => {
 };
 
 const normalizePaymentStatus = (status) => String(status || '').trim().toLowerCase();
+const isDuplicatePaymentClaimError = (error) => {
+    const message = String(error?.message || '').toLowerCase();
+    return (
+        message.includes('uniq_payment_attempt_payment_id')
+        || (message.includes('duplicate entry') && message.includes('payment_attempt'))
+        || message.includes('payment already linked to an existing checkout')
+    );
+};
 const isValidEmailAddress = (value = '') => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
 const isValidPhoneNumber = (value = '') => /^\d{10,14}$/.test(String(value || '').replace(/\D/g, ''));
 const generateCheckoutToken = (user) => jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
@@ -1353,23 +1366,24 @@ const verifyRazorpayPayment = async (req, res) => {
         }
         if (!reusedExistingOrder) {
             notifyAdminsOfNewOrder(finalOrder, { source: 'checkout' });
-
-            void triggerOrderLifecycleEmail({
-                order,
-                stage: 'confirmed',
-                includeInvoice: true
-            });
-            void triggerPaymentLifecycleCommunication({
-                order,
-                stage: PAYMENT_STATUS.PAID,
-                payment: {
-                    paymentStatus: PAYMENT_STATUS.PAID,
-                    paymentMethod: 'razorpay',
-                    paymentReference: razorpayPaymentId,
-                    razorpayOrderId: reconciledAttempt.razorpay_order_id
-                }
-            });
         }
+        // Always attempt customer lifecycle communications; per-order dedupe keys
+        // prevent duplicate sends across concurrent webhook/verify/poll paths.
+        void triggerOrderLifecycleEmail({
+            order: finalOrder,
+            stage: 'confirmed',
+            includeInvoice: true
+        });
+        void triggerPaymentLifecycleCommunication({
+            order: finalOrder,
+            stage: PAYMENT_STATUS.PAID,
+            payment: {
+                paymentStatus: PAYMENT_STATUS.PAID,
+                paymentMethod: 'razorpay',
+                paymentReference: razorpayPaymentId,
+                razorpayOrderId: reconciledAttempt.razorpay_order_id
+            }
+        });
 
         return res.json({ order, verified: true });
     } catch (error) {
@@ -1396,12 +1410,22 @@ const verifyRazorpayPayment = async (req, res) => {
         }
         if (lockedAttemptId) {
             try {
-                await PaymentAttempt.markFailed({
-                    id: lockedAttemptId,
-                    paymentId: lockedPaymentId,
-                    signature: lockedSignature,
-                    errorMessage: error?.message || 'Verification failed'
-                });
+                if (isDuplicatePaymentClaimError(error)) {
+                    await PaymentAttempt.markReconciliationPending({
+                        id: lockedAttemptId,
+                        paymentId: lockedPaymentId,
+                        signature: lockedSignature,
+                        errorMessage: 'Payment already linked to an existing checkout. Please retry with a new payment session.',
+                        delayMinutes: 2
+                    });
+                } else {
+                    await PaymentAttempt.markFailed({
+                        id: lockedAttemptId,
+                        paymentId: lockedPaymentId,
+                        signature: lockedSignature,
+                        errorMessage: error?.message || 'Verification failed'
+                    });
+                }
             } catch {}
         }
         const statusCode = Number(error?.statusCode || 0) || 400;
@@ -1574,22 +1598,24 @@ const verifyPublicRazorpayPayment = async (req, res) => {
         }
         if (!reusedExistingOrder) {
             notifyAdminsOfNewOrder(finalOrder, { source: 'checkout_public' });
-            void triggerOrderLifecycleEmail({
-                order,
-                stage: 'confirmed',
-                includeInvoice: true
-            });
-            void triggerPaymentLifecycleCommunication({
-                order,
-                stage: PAYMENT_STATUS.PAID,
-                payment: {
-                    paymentStatus: PAYMENT_STATUS.PAID,
-                    paymentMethod: 'razorpay',
-                    paymentReference: razorpayPaymentId,
-                    razorpayOrderId: reconciledAttempt.razorpay_order_id
-                }
-            });
         }
+        // Always attempt customer lifecycle communications; per-order dedupe keys
+        // prevent duplicate sends across concurrent webhook/verify/poll paths.
+        void triggerOrderLifecycleEmail({
+            order: finalOrder,
+            stage: 'confirmed',
+            includeInvoice: true
+        });
+        void triggerPaymentLifecycleCommunication({
+            order: finalOrder,
+            stage: PAYMENT_STATUS.PAID,
+            payment: {
+                paymentStatus: PAYMENT_STATUS.PAID,
+                paymentMethod: 'razorpay',
+                paymentReference: razorpayPaymentId,
+                razorpayOrderId: reconciledAttempt.razorpay_order_id
+            }
+        });
 
         return res.json({ order, verified: true });
     } catch (error) {
@@ -1616,12 +1642,22 @@ const verifyPublicRazorpayPayment = async (req, res) => {
         }
         if (lockedAttemptId) {
             try {
-                await PaymentAttempt.markFailed({
-                    id: lockedAttemptId,
-                    paymentId: lockedPaymentId,
-                    signature: lockedSignature,
-                    errorMessage: error?.message || 'Verification failed'
-                });
+                if (isDuplicatePaymentClaimError(error)) {
+                    await PaymentAttempt.markReconciliationPending({
+                        id: lockedAttemptId,
+                        paymentId: lockedPaymentId,
+                        signature: lockedSignature,
+                        errorMessage: 'Payment already linked to an existing checkout. Please retry with a new payment session.',
+                        delayMinutes: 2
+                    });
+                } else {
+                    await PaymentAttempt.markFailed({
+                        id: lockedAttemptId,
+                        paymentId: lockedPaymentId,
+                        signature: lockedSignature,
+                        errorMessage: error?.message || 'Verification failed'
+                    });
+                }
             } catch {}
         }
         return res.status(Number(error?.statusCode || 400) || 400).json({ message: error?.message || 'Failed to verify payment' });
@@ -1706,22 +1742,22 @@ const getPublicPaymentAttemptStatus = async (req, res) => {
                 });
                 if (!reconciled?.reusedExistingOrder) {
                     notifyAdminsOfNewOrder(finalOrder, { source: 'checkout_status_poll_public' });
-                    void triggerOrderLifecycleEmail({
-                        order: finalOrder,
-                        stage: 'confirmed',
-                        includeInvoice: true
-                    });
-                    void triggerPaymentLifecycleCommunication({
-                        order: finalOrder,
-                        stage: PAYMENT_STATUS.PAID,
-                        payment: {
-                            paymentStatus: PAYMENT_STATUS.PAID,
-                            paymentMethod: 'razorpay',
-                            paymentReference: reconciled.paymentId,
-                            razorpayOrderId: reconciled.attempt.razorpay_order_id
-                        }
-                    });
                 }
+                void triggerOrderLifecycleEmail({
+                    order: finalOrder,
+                    stage: 'confirmed',
+                    includeInvoice: true
+                });
+                void triggerPaymentLifecycleCommunication({
+                    order: finalOrder,
+                    stage: PAYMENT_STATUS.PAID,
+                    payment: {
+                        paymentStatus: PAYMENT_STATUS.PAID,
+                        paymentMethod: 'razorpay',
+                        paymentReference: reconciled.paymentId,
+                        razorpayOrderId: reconciled.attempt.razorpay_order_id
+                    }
+                });
             }
 
             return res.json(serializePaymentAttemptStatus({
@@ -2812,22 +2848,22 @@ const getMyPaymentAttemptStatus = async (req, res) => {
                 });
                 if (!reconciled?.reusedExistingOrder) {
                     notifyAdminsOfNewOrder(finalOrder, { source: 'checkout_status_poll' });
-                    void triggerOrderLifecycleEmail({
-                        order: finalOrder,
-                        stage: 'confirmed',
-                        includeInvoice: true
-                    });
-                    void triggerPaymentLifecycleCommunication({
-                        order: finalOrder,
-                        stage: PAYMENT_STATUS.PAID,
-                        payment: {
-                            paymentStatus: PAYMENT_STATUS.PAID,
-                            paymentMethod: 'razorpay',
-                            paymentReference: reconciled.paymentId,
-                            razorpayOrderId: reconciled.attempt.razorpay_order_id
-                        }
-                    });
                 }
+                void triggerOrderLifecycleEmail({
+                    order: finalOrder,
+                    stage: 'confirmed',
+                    includeInvoice: true
+                });
+                void triggerPaymentLifecycleCommunication({
+                    order: finalOrder,
+                    stage: PAYMENT_STATUS.PAID,
+                    payment: {
+                        paymentStatus: PAYMENT_STATUS.PAID,
+                        paymentMethod: 'razorpay',
+                        paymentReference: reconciled.paymentId,
+                        razorpayOrderId: reconciled.attempt.razorpay_order_id
+                    }
+                });
             }
 
             return res.json(serializePaymentAttemptStatus({

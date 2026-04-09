@@ -338,21 +338,7 @@ const scheduleMidnightJob = () => {
             const result = await Order.markStaleAsPending();
             const ids = Array.isArray(result?.ids) ? result.ids : [];
             if (ids.length > 0) {
-                for (const orderId of ids) {
-                    try {
-                        const order = await Order.getById(orderId);
-                        if (!order?.user_id) continue;
-                        const customer = await User.findById(order.user_id);
-                        if (!customer?.email) continue;
-                        await sendOrderLifecycleCommunication({
-                            stage: 'pending_delay',
-                            customer,
-                            order
-                        });
-                    } catch (error) {
-                        console.error(`Pending-delay email failed for order ${orderId}:`, error?.message || error);
-                    }
-                }
+                console.info(`Pending-delay lifecycle update applied to ${ids.length} stale order(s); customer notification suppressed for internal-only status.`);
             }
             const reminderCandidates = await Order.getShippedOrdersForCustomerConfirmation({ afterDays: 7, limit: 300 });
             for (const order of reminderCandidates) {

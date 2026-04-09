@@ -15,6 +15,10 @@ const normalizePincodeInput = (value = '') => String(value || '')
     .replace(/\D/g, '')
     .slice(0, 6);
 
+const normalizePhoneInput = (value = '') => String(value || '')
+    .replace(/\D/g, '')
+    .slice(0, 10);
+
 const isValidIndianPincode = (value = '') => /^\d{6}$/.test(normalizePincodeInput(value));
 
 const getAllowedShippingStates = async () => {
@@ -42,14 +46,19 @@ const normalizeAndValidateAddress = async (value = null, { fieldLabel = 'Address
         throw buildValidationError(`${fieldLabel} must be an object`);
     }
     const line1 = String(value.line1 || '').trim();
+    const landmark = String(value.landmark || '').trim();
     const city = String(value.city || '').trim();
     const zip = normalizePincodeInput(value.zip || '');
     const rawState = String(value.state || '').trim();
+    const additionalPhone = normalizePhoneInput(value.additionalPhone || '');
     if (!line1 || !city || !rawState || !zip) {
         throw buildValidationError(`${fieldLabel} fields are required`);
     }
     if (!isValidIndianPincode(zip)) {
         throw buildValidationError(`${fieldLabel} PIN code is invalid`);
+    }
+    if (additionalPhone && !/^\d{10}$/.test(additionalPhone)) {
+        throw buildValidationError(`${fieldLabel} additional phone number is invalid`);
     }
 
     const allowedStates = await getAllowedShippingStates();
@@ -60,7 +69,14 @@ const normalizeAndValidateAddress = async (value = null, { fieldLabel = 'Address
         throw buildValidationError(`${fieldLabel} state is invalid`);
     }
 
-    return { line1, city, state, zip };
+    return {
+        line1,
+        ...(landmark ? { landmark } : {}),
+        city,
+        state,
+        zip,
+        ...(additionalPhone ? { additionalPhone } : {})
+    };
 };
 
 module.exports = {

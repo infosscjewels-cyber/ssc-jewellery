@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, ChevronRight, Heart, Search, Medal, Crown, Gem, Home, Info, Phone, Store, Package } from 'lucide-react';
+import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, ChevronRight, Heart, Search, Home, Info, Phone, Store, Package } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { productService } from '../services/productService';
@@ -12,46 +12,34 @@ import { BUILD_VERSION } from '../generated/buildInfo.js';
 import { formatTierLabel } from '../utils/tierFormat';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import EmptyState from './EmptyState';
+import TierBadge from './TierBadge';
 
 const TIER_STYLES = {
     regular: {
-        badge: 'bg-slate-100 text-slate-700 border-slate-200',
         userBtn: 'text-slate-700 bg-slate-100 hover:bg-slate-200',
         userBtnActive: 'text-white bg-slate-700',
         profileRing: 'border-slate-300'
     },
     bronze: {
-        badge: 'bg-amber-100 text-amber-800 border-amber-200',
         userBtn: 'text-amber-900 bg-amber-100 hover:bg-amber-200',
         userBtnActive: 'text-white bg-amber-800',
         profileRing: 'border-amber-400'
     },
     silver: {
-        badge: 'bg-zinc-100 text-zinc-700 border-zinc-200',
         userBtn: 'text-zinc-700 bg-zinc-100 hover:bg-zinc-200',
         userBtnActive: 'text-white bg-zinc-700',
         profileRing: 'border-zinc-400'
     },
     gold: {
-        badge: 'bg-yellow-100 text-yellow-800 border-yellow-200',
         userBtn: 'text-yellow-900 bg-yellow-100 hover:bg-yellow-200',
         userBtnActive: 'text-white bg-yellow-700',
         profileRing: 'border-yellow-400'
     },
     platinum: {
-        badge: 'bg-sky-100 text-sky-800 border-sky-200',
         userBtn: 'text-sky-900 bg-sky-100 hover:bg-sky-200',
         userBtnActive: 'text-white bg-sky-700',
         profileRing: 'border-sky-400'
     }
-};
-
-const TIER_ICON_CONFIG = {
-    regular: { Icon: User, className: 'text-slate-600' },
-    bronze: { Icon: Medal, className: 'text-amber-700' },
-    silver: { Icon: Medal, className: 'text-zinc-600' },
-    gold: { Icon: Crown, className: 'text-yellow-700' },
-    platinum: { Icon: Gem, className: 'text-sky-700' }
 };
 
 const NAV_SEARCH_SEED_KEY = 'nav_search_seed_v1';
@@ -416,8 +404,6 @@ export default function Navbar() {
     })();
     const tier = String(user?.loyaltyTier || cachedUser?.loyaltyTier || 'regular').toLowerCase();
     const tierStyle = TIER_STYLES[tier] || TIER_STYLES.regular;
-    const tierIconConfig = TIER_ICON_CONFIG[tier] || TIER_ICON_CONFIG.regular;
-    const TierIcon = tierIconConfig.Icon;
     const tierLabel = formatTierLabel(user?.loyaltyProfile?.label || cachedUser?.loyaltyProfile?.label || tier);
     const showTierBadge = (user || cachedUser) && tier !== 'regular';
     const effectiveUser = user || cachedUser;
@@ -786,9 +772,7 @@ export default function Navbar() {
                     {/* Actions */}
                     <div className="hidden md:flex items-center gap-4 relative" ref={userMenuRef}>
                         {showTierBadge && (
-                            <span className={`px-2.5 py-1 rounded-full border text-[10px] tracking-widest font-bold ${tierStyle.badge}`}>
-                                {tierLabel}
-                            </span>
+                            <TierBadge tier={tier} label={tierLabel} className="px-2.5 py-1 text-[10px] font-bold tracking-widest" iconSize={11} />
                         )}
                         <button 
                             type="button"
@@ -819,10 +803,7 @@ export default function Navbar() {
                                     <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 animate-in fade-in slide-in-from-top-2 overflow-hidden">
                                         <div className="px-4 py-2 border-b border-gray-50">
                                             <p className="text-xs text-gray-500 font-bold uppercase">Hi, {effectiveUser.name}</p>
-                                            <div className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5">
-                                                <TierIcon size={12} className={tierIconConfig.className} />
-                                                <span className="text-[10px] font-bold uppercase tracking-wide text-gray-600">{tierLabel}</span>
-                                            </div>
+                                            <TierBadge tier={tier} label={tierLabel} className="mt-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" iconSize={12} />
                                         </div>
                                         <Link to="/profile" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Profile</Link>
                                         <Link to="/wishlist" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Wishlist</Link>
@@ -844,9 +825,7 @@ export default function Navbar() {
                     {/* Mobile Actions */}
                     <div className="md:hidden flex items-center gap-2">
                         {showTierBadge && (
-                            <span className={`px-2 py-0.5 rounded-full border text-[10px] tracking-widest font-bold ${tierStyle.badge}`}>
-                                {tierLabel}
-                            </span>
+                            <TierBadge tier={tier} label={tierLabel} className="px-2 py-0.5 text-[10px] font-bold tracking-widest" iconSize={11} />
                         )}
                         <button
                             type="button"
@@ -1194,9 +1173,7 @@ export default function Navbar() {
                         <div className="border-b border-gray-100 py-3 text-left text-sm text-gray-500">
                             Tier:
                             {' '}
-                            <span className={`inline-flex px-2 py-0.5 rounded-full border font-bold tracking-wider ${tierStyle.badge}`}>
-                                {tierLabel}
-                            </span>
+                            <TierBadge tier={tier} label={tierLabel} className="px-2 py-0.5 text-[10px] font-bold tracking-wider" iconSize={11} />
                         </div>
                     )}
                     <div className="pt-3 text-center text-[10px] tracking-wide text-gray-300">

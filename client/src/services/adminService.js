@@ -10,7 +10,11 @@ const UPLOAD_API_URL = import.meta.env.PROD
 
 // 1. Get Token Securely
 const getAuthHeader = () => getAuthHeaders({ includeJsonContentType: true });
-const getWithRetry = (url, options = {}) => fetchWithRetry(url, options);
+const getWithRetry = (url, options = {}, retryOptions = {}) => fetchWithRetry(url, options, retryOptions);
+const ABANDONED_FETCH_RETRY_OPTIONS = {
+    attempts: 3,
+    cooldownMs: 60 * 1000
+};
 
 // --- SIMPLE IN-MEMORY CACHE ---
 let userCache = {};
@@ -189,7 +193,11 @@ export const adminService = {
         if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
             return cached.data;
         }
-        const res = await getWithRetry(`${API_URL}/communications/abandoned-carts/campaign`, { headers: getAuthHeader() });
+        const res = await getWithRetry(
+            `${API_URL}/communications/abandoned-carts/campaign`,
+            { headers: getAuthHeader() },
+            ABANDONED_FETCH_RETRY_OPTIONS
+        );
         const data = await handleResponse(res);
         abandonedCache.campaign = { ts: Date.now(), data };
         return data;
@@ -228,7 +236,11 @@ export const adminService = {
         if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
             return cached.data;
         }
-        const res = await getWithRetry(`${API_URL}/communications/abandoned-carts/insights?rangeDays=${encodeURIComponent(safeRangeDays)}`, { headers: getAuthHeader() });
+        const res = await getWithRetry(
+            `${API_URL}/communications/abandoned-carts/insights?rangeDays=${encodeURIComponent(safeRangeDays)}`,
+            { headers: getAuthHeader() },
+            ABANDONED_FETCH_RETRY_OPTIONS
+        );
         const data = await handleResponse(res);
         abandonedCache.insights[cacheKey] = { ts: Date.now(), data };
         return data;
@@ -242,7 +254,11 @@ export const adminService = {
             return cached.data;
         }
         const query = `?status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&sortBy=${encodeURIComponent(sortBy)}&rangeDays=${encodeURIComponent(safeRangeDays)}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`;
-        const res = await getWithRetry(`${API_URL}/communications/abandoned-carts/journeys${query}`, { headers: getAuthHeader() });
+        const res = await getWithRetry(
+            `${API_URL}/communications/abandoned-carts/journeys${query}`,
+            { headers: getAuthHeader() },
+            ABANDONED_FETCH_RETRY_OPTIONS
+        );
         const data = await handleResponse(res);
         abandonedCache.journeys[cacheKey] = { ts: Date.now(), data };
         return data;
@@ -254,7 +270,11 @@ export const adminService = {
         if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
             return cached.data;
         }
-        const res = await getWithRetry(`${API_URL}/communications/abandoned-carts/journeys/${journeyId}/timeline`, { headers: getAuthHeader() });
+        const res = await getWithRetry(
+            `${API_URL}/communications/abandoned-carts/journeys/${journeyId}/timeline`,
+            { headers: getAuthHeader() },
+            ABANDONED_FETCH_RETRY_OPTIONS
+        );
         const data = await handleResponse(res);
         abandonedCache.timelines[cacheKey] = { ts: Date.now(), data };
         return data;

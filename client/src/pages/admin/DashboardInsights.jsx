@@ -9,6 +9,7 @@ import successDingAudio from '../../assets/success_ding.mp3';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { burstConfetti } from '../../utils/celebration';
 import EmptyState from '../../components/EmptyState';
+import TierBadge from '../../components/TierBadge';
 
 const QUICK_RANGES = [
     { value: 'latest_10', label: 'Latest Orders (10)' },
@@ -106,6 +107,64 @@ const formatPrettyDate = (value) => {
     const month = date.toLocaleString('en-IN', { month: 'short' });
     const year = date.getFullYear();
     return `${day} ${month} ${year}`;
+};
+const toLocalIsoDate = (value) => {
+    if (!value) return '';
+    const date = value instanceof Date ? value : new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+const addDaysToIsoDate = (value, days) => {
+    if (!value) return '';
+    const date = value instanceof Date ? new Date(value) : new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return '';
+    date.setDate(date.getDate() + Number(days || 0));
+    return toLocalIsoDate(date);
+};
+const formatCompactPrettyDate = (value) => {
+    if (!value) return '';
+    const date = value instanceof Date ? value : new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+};
+const formatTrendRowLabel = (entry, granularity) => {
+    if (!entry?.date) return '';
+    if (granularity === 'weekly') {
+        const start = String(entry.date);
+        const end = addDaysToIsoDate(start, 6);
+        return `${formatCompactPrettyDate(start)} - ${formatCompactPrettyDate(end)}`;
+    }
+    if (granularity === 'monthly') {
+        const date = new Date(`${String(entry.date)}T00:00:00`);
+        if (Number.isNaN(date.getTime())) return '';
+        return date.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+    }
+    return formatPrettyDate(String(entry.date));
+};
+const fillMissingDailyTrendRows = (rows = []) => {
+    const normalized = [...rows]
+        .map((entry) => ({
+            ...entry,
+            date: String(entry?.date || ''),
+            orders: Number(entry?.orders || 0),
+            revenue: Number(entry?.revenue || 0)
+        }))
+        .filter((entry) => /^\d{4}-\d{2}-\d{2}$/.test(entry.date))
+        .sort((a, b) => a.date.localeCompare(b.date));
+    if (!normalized.length) return [];
+    const byDate = new Map(normalized.map((entry) => [entry.date, entry]));
+    const result = [];
+    const cursor = new Date(`${normalized[0].date}T00:00:00`);
+    const last = new Date(`${normalized[normalized.length - 1].date}T00:00:00`);
+    while (!Number.isNaN(cursor.getTime()) && cursor <= last) {
+        const key = toLocalIsoDate(cursor);
+        result.push(byDate.get(key) || { date: key, orders: 0, revenue: 0 });
+        cursor.setDate(cursor.getDate() + 1);
+    }
+    return result;
 };
 const formatShortRangeHint = (value) => {
     if (!value) return '';
@@ -375,7 +434,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const trendSeries = useMemo(() => {
         const base = [...trends];
         if (trendGranularity === 'daily') {
-            return base;
+            return fillMissingDailyTrendRows(base);
         }
         if (trendGranularity === 'weekly') {
             const grouped = new Map();
@@ -448,6 +507,11 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         ? (trendDailyPages[trendPageIndex]?.rows || [])
         : trendSeries;
     const maxTrendRevenue = Math.max(1, ...trendVisibleSeries.map((entry) => Number(entry?.revenue || 0)));
+    const trendSalesTitle = trendGranularity === 'weekly'
+        ? 'Weekly Sales'
+        : trendGranularity === 'monthly'
+            ? 'Monthly Sales'
+            : 'Daily Sales';
     const trackerGoals = useMemo(
         () => (goals || []).filter((goal) => Number(goal?.progressPct || 0) < 100),
         [goals]
@@ -457,14 +521,6 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         if (value >= 80) return 'bg-emerald-500';
         if (value >= 45) return 'bg-amber-500';
         return 'bg-rose-500';
-    };
-    const getTierBadgeClasses = (tier = 'regular') => {
-        const value = String(tier || 'regular').toLowerCase();
-        if (value === 'platinum') return 'bg-sky-200 text-sky-950 border border-sky-300';
-        if (value === 'gold') return 'bg-lime-200 text-emerald-950 border border-lime-300';
-        if (value === 'silver') return 'bg-fuchsia-200 text-rose-950 border border-fuchsia-300';
-        if (value === 'bronze') return 'bg-amber-200 text-amber-950 border border-amber-300';
-        return 'bg-rose-200 text-rose-950 border border-rose-300';
     };
     const tierLabel = (tier = 'regular') => {
         const value = String(tier || 'regular').toLowerCase();
@@ -807,20 +863,17 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     key={card.label}
                                     type="button"
                                     onClick={() => handleOpenCard(card)}
-                                    className={`group relative overflow-hidden rounded-2xl border p-3 shadow-sm flex h-full min-h-0 items-start justify-between text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
+                                    className={`group relative overflow-hidden rounded-2xl border px-3 pb-2.5 pt-3 shadow-sm flex h-full min-h-0 items-start justify-between text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
                                 >
-                                    <div>
+                                    <div className="min-w-0 pr-2">
                                         <p className={`text-[10px] uppercase tracking-[0.16em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
                                             {card.label === 'New Orders' ? 'New Orders' : 'Pending Orders'}
                                         </p>
-                                        <p className={`mt-2 text-3xl font-semibold ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
-                                        <p className={`mt-2 pr-1 text-[10px] leading-4 ${KPI_CARD_THEMES[card.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext}`}>
-                                            {card.helper || 'Tap to inspect detailed records'}
-                                        </p>
+                                        <p className={`mt-1.5 text-[42px] leading-none font-semibold ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
                                     </div>
                                     <div className="flex h-full flex-col items-end justify-between">
                                         <ArrowRight size={18} className={KPI_CARD_THEMES[card.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
-                                        <card.icon size={30} className={`mt-6 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
+                                        <card.icon size={28} className={`mt-5 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
                                     </div>
                                 </button>
                             ))}
@@ -937,7 +990,10 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                     <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
                         <div className="xl:col-span-3 bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
                             <div className="flex items-center justify-between gap-2">
-                                <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><BarChart3 size={16} />{trendGranularity.charAt(0).toUpperCase() + trendGranularity.slice(1, trendGranularity[length-1])} Sales</h3>
+                                <h3 className="min-w-0 whitespace-nowrap text-base font-semibold leading-none text-gray-900 flex items-center gap-2">
+                                    <BarChart3 size={16} className="shrink-0" />
+                                    <span>{trendSalesTitle}</span>
+                                </h3>
                                 <select value={trendGranularity} onChange={(e) => setTrendGranularity(e.target.value)} className="px-2 py-1 rounded-md border border-gray-200 text-xs bg-white">
                                     <option value="daily">Daily</option>
                                     <option value="weekly">Weekly</option>
@@ -951,8 +1007,8 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     const level = revenue / maxTrendRevenue;
                                     const barColor = level >= 0.67 ? 'bg-emerald-500' : (level >= 0.34 ? 'bg-orange-500' : 'bg-red-500');
                                     return (
-                                        <div key={entry.date} className="grid grid-cols-[90px_1fr_100px] items-center gap-3">
-                                            <span className="text-xs text-gray-500">{formatPrettyDate(entry.date)}</span>
+                                        <div key={entry.date} className="grid grid-cols-[120px_1fr_100px] items-center gap-3 sm:grid-cols-[140px_1fr_100px]">
+                                            <span className="text-[11px] leading-4 text-gray-500">{formatTrendRowLabel(entry, trendGranularity)}</span>
                                             <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                                                 <div className={`h-full rounded-full ${barColor}`} style={{ width: `${width}%` }} />
                                             </div>
@@ -1083,9 +1139,12 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                         <div>
                                             <div className="flex items-center gap-2">
                                                 <p className="text-sm font-medium text-gray-800">{item.name}</p>
-                                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${getTierBadgeClasses(item.loyaltyTier)}`}>
-                                                    {tierLabel(item.loyaltyTier)}
-                                                </span>
+                                                <TierBadge
+                                                    tier={item.loyaltyTier || 'regular'}
+                                                    label={tierLabel(item.loyaltyTier)}
+                                                    className="px-2 py-0.5 text-[10px]"
+                                                    iconSize={11}
+                                                />
                                             </div>
                                             <p className="text-xs text-gray-500">{Number(item.orders || 0)} orders</p>
                                         </div>

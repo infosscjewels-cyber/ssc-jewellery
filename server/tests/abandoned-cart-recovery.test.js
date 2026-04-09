@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+process.env.NODE_ENV = 'test';
+process.env.SKIP_DB_INIT = 'true';
+
 const db = require('../config/db');
 const AbandonedCart = require('../models/AbandonedCart');
 const Cart = require('../models/Cart');

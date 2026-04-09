@@ -86,52 +86,20 @@ const listAbandonedCartJourneys = async (req, res) => {
         const limit = Number(req.query.limit || 50);
         const offset = Number(req.query.offset || 0);
         const rangeDays = Number(req.query.rangeDays || 90);
-        const includePending = status === 'all' || status === 'pending';
-
-        if (!includePending) {
+        if (status !== 'pending') {
             const result = await AbandonedCart.listJourneysAdvanced({ status, search, sortBy, limit, offset, rangeDays });
             return res.json({ journeys: result.journeys, total: result.total });
         }
 
-        const [journeyResult, candidateResult] = await Promise.all([
-            AbandonedCart.listJourneysAdvanced({ status: 'all', search, sortBy, limit: 500, offset: 0, rangeDays }),
-            AbandonedCart.listPendingCandidatesAdvanced({ search, sortBy, limit: 500, offset: 0, rangeDays })
-        ]);
-
-        let merged = [
-            ...(Array.isArray(journeyResult?.journeys) ? journeyResult.journeys : []),
-            ...(Array.isArray(candidateResult?.candidates) ? candidateResult.candidates : [])
-        ];
-
-        if (status === 'pending') {
-            merged = merged.filter((entry) => String(entry.status || '').toLowerCase() === 'pending');
-        }
-
-        const sortTime = (value) => {
-            const ts = new Date(value || 0).getTime();
-            return Number.isFinite(ts) ? ts : 0;
-        };
-
-        merged.sort((a, b) => {
-            if (sortBy === 'oldest') {
-                return sortTime(a.computed_last_activity_at || a.updated_at || a.created_at)
-                    - sortTime(b.computed_last_activity_at || b.updated_at || b.created_at);
-            }
-            if (sortBy === 'highest_value') {
-                return Number(b.cart_total_subunits || 0) - Number(a.cart_total_subunits || 0);
-            }
-            if (sortBy === 'lowest_value') {
-                return Number(a.cart_total_subunits || 0) - Number(b.cart_total_subunits || 0);
-            }
-            if (sortBy === 'next_due') {
-                return sortTime(a.next_attempt_at) - sortTime(b.next_attempt_at);
-            }
-            return sortTime(b.computed_last_activity_at || b.updated_at || b.created_at)
-                - sortTime(a.computed_last_activity_at || a.updated_at || a.created_at);
+        const result = await AbandonedCart.listJourneysAdvanced({ status: 'all', search, sortBy, limit: 500, offset: 0, rangeDays });
+        const sourceRows = Array.isArray(result?.journeys) ? result.journeys : [];
+        const pendingJourneys = sourceRows.filter((entry) => {
+            const journeyStatus = String(entry?.status || '').toLowerCase();
+            return journeyStatus === 'active' && Number(entry?.last_attempt_no || 0) === 0;
         });
 
-        const total = merged.length;
-        const journeys = merged.slice(offset, offset + limit);
+        const total = pendingJourneys.length;
+        const journeys = pendingJourneys.slice(offset, offset + limit);
         return res.json({ journeys, total });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to load journeys' });

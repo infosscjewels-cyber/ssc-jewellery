@@ -30,7 +30,7 @@ const asObject = (value) => {
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
 };
 const asString = (value = '') => String(value || '').trim();
-const ALLOWED_POLISH_WARRANTY_MONTHS = [6, 7, 8, 9, 12];
+const ALLOWED_POLISH_WARRANTY_MONTHS = [6, 8, 10, 12];
 const normalizePolishWarrantyMonths = (value) => {
     const parsed = Number(value);
     const rounded = Number.isFinite(parsed) ? Math.round(parsed) : 6;

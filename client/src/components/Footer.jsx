@@ -1,12 +1,13 @@
 import { useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { Instagram, Youtube, Facebook, Mail, MapPin, MessageCircle, Home, Store, Info, PhoneCall, HelpCircle, User, Package, LogIn, FileText, ShieldCheck, Truck, RefreshCw, Copyright, Search as SearchIcon, BadgeCheck, Lock, Server, PackageCheck } from 'lucide-react';
+import { Instagram, Youtube, Facebook, Mail, MapPin, Home, Store, Info, PhoneCall, HelpCircle, User, Package, LogIn, FileText, ShieldCheck, Truck, RefreshCw, Copyright, Search as SearchIcon, BadgeCheck, Lock, Server, PackageCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { BUILD_VERSION } from '../generated/buildInfo.js';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
+import WhatsAppIcon from './WhatsAppIcon';
 
 const CUSTOM_ORDER_URL = String(import.meta.env.VITE_CUSTOM_ORDER_URL || 'https://rzp.io/rzp/sscjewels').trim();
 
@@ -128,7 +129,7 @@ export default function Footer() {
                                 )}
                             </div>
                             <div className="flex items-start gap-2">
-                                <MessageCircle size={16} className="text-[#25D366] mt-0.5 shrink-0" />
+                                <WhatsAppIcon size={16} className="text-[#25D366] mt-0.5 shrink-0" />
                                 {footerWhatsappNumbers.length ? (
                                     <div className="flex flex-col">
                                         {footerWhatsappNumbers.map((number) => (
@@ -176,7 +177,7 @@ export default function Footer() {
                                 )}
                                 {whatsappLink && (
                                     <a href={whatsappLink} target="_blank" rel="noreferrer" className="p-2 rounded-full bg-white/10 text-white/60 hover:text-[#25D366] hover:bg-white/20 transition-colors">
-                                        <MessageCircle size={18} />
+                                        <WhatsAppIcon size={18} />
                                     </a>
                                 )}
                             </div>

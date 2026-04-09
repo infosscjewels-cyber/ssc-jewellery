@@ -25,6 +25,7 @@ import { getAllowedShippingStates, isAllowedShippingState, isValidIndianPincode,
 import { billingAddressEnabled } from '../utils/billingAddressConfig';
 import { isValidStorefrontMobile, normalizeStorefrontMobileInput } from '../utils/mobileValidation';
 import ordersIllustration from '../assets/orders.svg';
+import TierBadge from '../components/TierBadge';
 
 const emptyAddress = { line1: '', city: '', state: '', zip: '' };
 const TIER_THEME = {
@@ -407,9 +408,12 @@ export default function Profile() {
                     <div className="lg:w-1/3 space-y-6">
                         <div className={`relative bg-white rounded-2xl shadow-xl border-2 ${tierTheme.profileBorder} p-6 overflow-hidden`}>
                             {tier !== 'regular' && (
-                                <span className={`absolute top-0 right-0 px-3 py-1 text-[10px] md:text-xs font-bold tracking-[0.12em] rounded-bl-xl ${tierTheme.profileRibbon}`}>
-                                    {tierLabel}
-                                </span>
+                                <TierBadge
+                                    tier={tier}
+                                    label={tierLabel}
+                                    className="absolute top-3 right-3 px-3 py-1 text-[10px] md:text-xs font-bold tracking-[0.12em] shadow-sm"
+                                    iconSize={12}
+                                />
                             )}
                             <div className="flex items-start gap-4">
                                 <div className="relative">
@@ -560,9 +564,7 @@ export default function Profile() {
                                             <div className="flex items-center justify-between gap-3">
                                                 <p className="text-sm font-semibold text-gray-800">Current Benefits</p>
                                                 {tier !== 'regular' && (
-                                                    <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.chip}`}>
-                                                        {tierLabel}
-                                                    </span>
+                                                    <TierBadge tier={tier} label={tierLabel} className="px-3 py-1 text-xs" iconSize={12} />
                                                 )}
                                             </div>
                                             <div className="mt-3 space-y-2">

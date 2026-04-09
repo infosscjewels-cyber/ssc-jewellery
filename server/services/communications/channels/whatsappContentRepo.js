@@ -1,5 +1,16 @@
 const toText = (value = '') => String(value == null ? '' : value).trim();
 const normalize = (value = '') => toText(value).replace(/[\r\n\t]/g, ' ').replace(/\s+/g, ' ').trim();
+const decodeUrlLikeText = (value = '') => {
+    const raw = String(value == null ? '' : value).trim();
+    if (!raw) return '';
+    const plusAsSpace = raw.replace(/\+/g, ' ');
+    try {
+        return decodeURIComponent(plusAsSpace);
+    } catch {
+        return plusAsSpace;
+    }
+};
+const normalizePersonName = (value = '') => normalize(decodeUrlLikeText(value));
 const WORKFLOW_TEMPLATE_NAMES = {
     generic: normalize(process.env.WHATSAPP_TEMPLATE_GENERIC || '') || 'generic',
     default: normalize(process.env.WHATSAPP_TEMPLATE_DEFAULT || '') || 'generic',
@@ -18,7 +29,7 @@ const WORKFLOW_TEMPLATE_NAMES = {
 };
 
 const fallbackName = (payload = {}) => (
-    normalize(
+    normalizePersonName(
         payload?.name
         || payload?.customer?.name
         || 'Customer'
@@ -86,7 +97,7 @@ const buildWelcomeContent = (payload = {}) => {
 const buildLoyaltyUpgradeContent = (payload = {}) => {
     const user = payload?.user || payload?.customer || {};
     const data = payload?.data && typeof payload.data === 'object' ? payload.data : {};
-    const name = normalize(user?.name || payload?.name || data?.name || 'Customer') || 'Customer';
+    const name = normalizePersonName(user?.name || payload?.name || data?.name || 'Customer') || 'Customer';
     const previousTier = normalize(data?.previousTier || payload?.previousTier || 'Basic') || 'Basic';
     const newTier = normalize(data?.newTier || payload?.newTier || 'Gold') || 'Gold';
     const benefit = normalize(data?.benefit || payload?.benefit || 'Exclusive member benefits') || 'Exclusive member benefits';
@@ -100,7 +111,7 @@ const buildLoyaltyUpgradeContent = (payload = {}) => {
 const buildLoyaltyProgressContent = (payload = {}) => {
     const user = payload?.user || payload?.customer || {};
     const data = payload?.data && typeof payload.data === 'object' ? payload.data : {};
-    const name = normalize(user?.name || payload?.name || data?.name || 'Customer') || 'Customer';
+    const name = normalizePersonName(user?.name || payload?.name || data?.name || 'Customer') || 'Customer';
     const currentTier = normalize(data?.currentTier || payload?.currentTier || 'Basic') || 'Basic';
     const progressPct = Math.max(0, Math.min(100, Number(data?.progressPct ?? payload?.progressPct ?? 0)));
     const nextTier = normalize(data?.nextTier || payload?.nextTier || 'Next') || 'Next';
@@ -113,7 +124,7 @@ const buildLoyaltyProgressContent = (payload = {}) => {
 const buildBirthdayContent = (payload = {}) => {
     const user = payload?.user || payload?.customer || {};
     const data = payload?.data && typeof payload.data === 'object' ? payload.data : {};
-    const name = normalize(user?.name || payload?.name || 'Customer') || 'Customer';
+    const name = normalizePersonName(user?.name || payload?.name || 'Customer') || 'Customer';
     const couponCode = normalize(data?.couponCode || payload?.couponCode || '');
     const offer = normalize(data?.offer || payload?.offer || 'Special birthday offer');
     const validUntil = normalize(data?.validUntil || payload?.validUntil || '');
@@ -127,13 +138,13 @@ const buildBirthdayContent = (payload = {}) => {
 const buildOrderContent = (payload = {}) => {
     const order = payload?.order || {};
     const customer = payload?.customer || {};
-    const name = normalize(customer?.name || payload?.name || 'Customer') || 'Customer';
+    const name = normalizePersonName(customer?.name || payload?.name || 'Customer') || 'Customer';
     const orderRef = normalize(order?.order_ref || order?.orderRef || order?.id || 'N/A');
     const stage = normalize(payload?.stage || 'updated');
     const total = toAmountLabel(order?.total || 0);
     return {
         params: [name, orderRef, stage, total],
-        message: normalize(payload?.message || '') || `Order ${orderRef} is ${stage}. Total ${total}.`,
+        message: normalize(payload?.message || '') || `Order ID ${orderRef} is ${stage}. Total ${total}.`,
         name
     };
 };
@@ -142,12 +153,12 @@ const buildPaymentContent = (payload = {}) => {
     const customer = payload?.customer || {};
     const order = payload?.order || {};
     const payment = payload?.payment || {};
-    const name = normalize(customer?.name || payload?.name || 'Customer') || 'Customer';
+    const name = normalizePersonName(customer?.name || payload?.name || 'Customer') || 'Customer';
     const orderRef = normalize(order?.order_ref || order?.orderRef || payment?.razorpayOrderId || order?.id || 'N/A');
     const stage = normalize(payload?.stage || payment?.paymentStatus || 'updated');
     return {
         params: [name, orderRef, stage],
-        message: normalize(payload?.message || '') || `Payment update for order ${orderRef}: ${stage}.`,
+        message: normalize(payload?.message || '') || `Payment update for Order ID ${orderRef}: ${stage}.`,
         name
     };
 };
@@ -155,7 +166,7 @@ const buildPaymentContent = (payload = {}) => {
 const buildAbandonedCartContent = (payload = {}) => {
     const customer = payload?.customer || {};
     const cart = payload?.cart || {};
-    const name = normalize(customer?.name || payload?.name || 'Customer') || 'Customer';
+    const name = normalizePersonName(customer?.name || payload?.name || 'Customer') || 'Customer';
     const cartRef = normalize(cart?.journeyId || cart?.id || payload?.journeyId || 'N/A');
     const itemCount = Math.max(0, Number(cart?.itemCount ?? payload?.itemCount ?? 0));
     const discountCode = normalize(payload?.discountCode || cart?.discountCode || '');
@@ -201,7 +212,7 @@ const buildCouponIssueContent = (payload = {}) => {
     const user = payload?.user || {};
     const coupon = payload?.coupon || {};
     const data = payload?.data && typeof payload.data === 'object' ? payload.data : {};
-    const name = normalize(user?.name || payload?.name || 'Customer') || 'Customer';
+    const name = normalizePersonName(user?.name || payload?.name || 'Customer') || 'Customer';
     const storeName = normalize(data.storeName || payload?.storeName || payload?.brandName || 'SSC Jewellery') || 'SSC Jewellery';
     const code = normalize(coupon?.code || data.couponCode || payload?.couponCode || '');
     const offer = normalize(data.discount || payload?.offerText || '');

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, ArrowLeft, ArrowRight, ArrowUpDown, Download, RefreshCw, Trash2, MessageCircle, Plus, Send, Printer, Phone, RotateCw, Smartphone, CreditCard, Landmark, Wallet, AlertCircle } from 'lucide-react';
+import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, ArrowLeft, ArrowRight, ArrowUpDown, Download, RefreshCw, Trash2, Plus, Send, Printer, Phone, RotateCw, Smartphone, CreditCard, Landmark, Wallet, AlertCircle, X } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
@@ -12,8 +12,10 @@ import { getGstDisplayDetails } from '../../utils/gst';
 import { billingAddressEnabled } from '../../utils/billingAddressConfig';
 import { computeOrderTotalsDisplay } from '../../utils/orderTotalsComputation';
 import Modal from '../../components/Modal';
+import TierBadge from '../../components/TierBadge';
 import { useAdminKPI } from '../../context/AdminKPIContext';
 import { useAuth } from '../../context/AuthContext';
+import WhatsAppIcon from '../../components/WhatsAppIcon';
 import {
     configurePreferredPrinter,
     getPreferredPrinterTransport,
@@ -35,6 +37,7 @@ const QUICK_RANGES = [
 
 const MAX_RANGE_DAYS = 90;
 const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
+const MOBILE_STATUS_FILTER_VALUES = ['confirmed', 'pending', 'completed', 'cancelled', 'all'];
 const KPI_CARD_THEMES = {
     sky: {
         shell: 'bg-gradient-to-br from-sky-200 via-sky-300 to-cyan-500 border-sky-700/80',
@@ -461,6 +464,64 @@ const buildVisiblePages = (currentPage, totalPages, windowSize = 4) => {
     if (end - start + 1 < windowSize) start = Math.max(1, end - windowSize + 1);
     return Array.from({ length: end - start + 1 }, (_, idx) => start + idx);
 };
+const buildOrderTimelineEntries = (order = {}, { isAttempt = false } = {}) => {
+    const explicitEvents = Array.isArray(order?.events) ? order.events : [];
+    if (explicitEvents.length > 0) return explicitEvents;
+
+    const entries = [];
+    const createdAt = order?.created_at || order?.createdAt || '';
+    const updatedAt = order?.updated_at || order?.updatedAt || createdAt || '';
+    const failureReason = String(order?.failure_reason || order?.failureReason || '').trim();
+    const paymentStatus = String(order?.payment_status || order?.paymentStatus || '').trim().toLowerCase();
+    const orderStatus = String(order?.status || '').trim().toLowerCase();
+
+    if (createdAt) {
+        entries.push({
+            id: `fallback-created-${order?.id || order?.order_id || order?.attempt_id || 'row'}`,
+            status: isAttempt ? 'Attempt created' : 'Order created',
+            created_at: createdAt,
+            detail: ''
+        });
+    }
+
+    if (paymentStatus) {
+        entries.push({
+            id: `fallback-payment-${order?.id || order?.order_id || order?.attempt_id || 'row'}`,
+            status: `Payment ${paymentStatus}`,
+            created_at: updatedAt || createdAt,
+            detail: failureReason
+        });
+    }
+
+    if (orderStatus && !isAttempt && orderStatus !== paymentStatus) {
+        entries.push({
+            id: `fallback-order-${order?.id || order?.order_id || 'row'}`,
+            status: formatStatusLabel(orderStatus),
+            created_at: updatedAt || createdAt,
+            detail: failureReason
+        });
+    }
+
+    if (!entries.length && updatedAt) {
+        entries.push({
+            id: `fallback-updated-${order?.id || order?.order_id || order?.attempt_id || 'row'}`,
+            status: 'Updated',
+            created_at: updatedAt,
+            detail: failureReason
+        });
+    }
+
+    if (failureReason && !entries.some((entry) => String(entry.detail || '').trim() === failureReason)) {
+        entries.push({
+            id: `fallback-failure-${order?.id || order?.order_id || order?.attempt_id || 'row'}`,
+            status: 'Failure noted',
+            created_at: updatedAt || createdAt,
+            detail: failureReason
+        });
+    }
+
+    return entries;
+};
 const MOBILE_ORDER_CARD_THEMES = {
     confirmed: {
         shell: 'border-sky-200 bg-white/95 shadow-sky-100/50',
@@ -719,7 +780,6 @@ export function Orders({
     const [sortBy, setSortBy] = useState('newest');
     const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
     const [isMobileSortOpen, setIsMobileSortOpen] = useState(false);
-    const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
     const [isMobileViewport, setIsMobileViewport] = useState(() => {
         if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
         return window.matchMedia(MOBILE_ORDERS_MEDIA_QUERY).matches;
@@ -751,6 +811,7 @@ export function Orders({
     const [sendingInvoiceId, setSendingInvoiceId] = useState(null);
     const [printingLabelId, setPrintingLabelId] = useState(null);
     const [printingLabelType, setPrintingLabelType] = useState('');
+    const [quickCompletingOrderId, setQuickCompletingOrderId] = useState(null);
     const [companyProfile, setCompanyProfile] = useState(null);
     const printerSupport = useMemo(() => getPrinterSupportState(), []);
     const preferredPrinterTransport = useMemo(() => getPreferredPrinterTransport(), []);
@@ -758,6 +819,7 @@ export function Orders({
     const [labelPrintModalOrder, setLabelPrintModalOrder] = useState(null);
     const [isPrinterConnecting, setIsPrinterConnecting] = useState(false);
     const [selectedStatusCount, setSelectedStatusCount] = useState(0);
+    const [zoomedItemPreview, setZoomedItemPreview] = useState(null);
     const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 4), [page, totalPages]);
     const [confirmModal, setConfirmModal] = useState({
         isOpen: false,
@@ -823,6 +885,16 @@ export function Orders({
         sourceChannel,
         status: statusFilter
     }), [endDate, quickRange, search, sourceChannel, startDate, statusFilter]);
+    const mobileStatusMetricQueries = useMemo(() => (
+        MOBILE_STATUS_FILTER_VALUES.map((value) => ({
+            search,
+            startDate,
+            endDate,
+            quickRange,
+            sourceChannel,
+            status: value
+        }))
+    ), [endDate, quickRange, search, sourceChannel, startDate]);
 
     useEffect(() => {
         if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
@@ -871,14 +943,6 @@ export function Orders({
         const tier = String(order?.loyalty_tier || order?.loyaltyTier || 'regular').toLowerCase();
         if (tier === 'regular') return 'Basic';
         return `${tier.charAt(0).toUpperCase()}${tier.slice(1)}`;
-    };
-    const getTierBadgeClasses = (order) => {
-        const tier = String(order?.loyalty_tier || order?.loyaltyTier || 'regular').toLowerCase();
-        if (tier === 'platinum') return 'bg-sky-200 text-sky-950 border border-sky-300';
-        if (tier === 'gold') return 'bg-amber-200 text-amber-950 border border-amber-300';
-        if (tier === 'silver') return 'bg-slate-200 text-slate-800 border border-slate-300';
-        if (tier === 'bronze') return 'bg-amber-200 text-amber-950 border border-amber-300';
-        return 'bg-slate-100 text-slate-700 border border-slate-200';
     };
     const isAttemptEntry = (order) => String(order?.entity_type || '').toLowerCase() === 'attempt';
     const isAbandonedRecoveryOrder = (order) => Boolean(order?.is_abandoned_recovery || order?.source_channel === 'abandoned_recovery');
@@ -1287,6 +1351,13 @@ export function Orders({
         registerOrderMetricsQuery(metricsQuery);
         fetchOrderMetrics(metricsQuery).catch(() => {});
     }, [fetchOrderMetrics, metricsQuery, registerOrderMetricsQuery]);
+
+    useEffect(() => {
+        mobileStatusMetricQueries.forEach((query) => {
+            registerOrderMetricsQuery(query);
+            fetchOrderMetrics(query).catch(() => {});
+        });
+    }, [fetchOrderMetrics, mobileStatusMetricQueries, registerOrderMetricsQuery]);
 
     useEffect(() => {
         fetchOrders();
@@ -2229,8 +2300,10 @@ export function Orders({
         if (!order || isAttemptEntry(order)) return;
         const current = normalizeOrderStatus(order.status);
         if (current === 'completed' || current === 'cancelled') return;
+        const targetId = order.order_id || order.id;
+        setQuickCompletingOrderId(targetId);
         try {
-            const data = await orderService.updateAdminOrderStatus(order.order_id || order.id, 'completed');
+            const data = await orderService.updateAdminOrderStatus(targetId, 'completed');
             if (data?.order) {
                 patchOrderRow(data.order);
                 if (selectedOrder && String(selectedOrder.id || selectedOrder.order_id) === String(data.order.id || data.order.order_id)) {
@@ -2242,6 +2315,8 @@ export function Orders({
             }
         } catch (error) {
             toast.error(error.message || 'Failed to complete order');
+        } finally {
+            setQuickCompletingOrderId(null);
         }
     }, [fetchOrderMetrics, markOrderMetricsDirty, metricsQuery, patchOrderRow, selectedOrder, toast]);
 
@@ -2514,6 +2589,36 @@ export function Orders({
         { value: 'cancelled', label: 'Cancelled' },
         { value: 'all', label: 'All' }
     ];
+    const mobileStatusMetricCounts = useMemo(() => (
+        mobileStatusMetricQueries.reduce((acc, query) => {
+            const key = toOrderMetricsKey(query);
+            acc[query.status] = Number(orderMetricsByKey[key]?.metrics?.totalOrders || 0);
+            return acc;
+        }, {})
+    ), [mobileStatusMetricQueries, orderMetricsByKey, toOrderMetricsKey]);
+    const mobileStatusChipCounts = useMemo(() => {
+        const rows = Array.isArray(orders) ? orders : [];
+        const counts = {
+            confirmed: Number(mobileStatusMetricCounts.confirmed || 0),
+            pending: Number(mobileStatusMetricCounts.pending || 0),
+            completed: Number(mobileStatusMetricCounts.completed || 0),
+            cancelled: Number(mobileStatusMetricCounts.cancelled || 0),
+            all: Number(mobileStatusMetricCounts.all || rows.length)
+        };
+
+        if (!counts.confirmed && !counts.pending && !counts.completed && !counts.cancelled && !counts.all) {
+            rows.forEach((order) => {
+                if (orderMatchesStatusFilter(order, 'confirmed')) counts.confirmed += 1;
+                if (orderMatchesStatusFilter(order, 'pending')) counts.pending += 1;
+                if (orderMatchesStatusFilter(order, 'completed')) counts.completed += 1;
+                if (orderMatchesStatusFilter(order, 'cancelled')) counts.cancelled += 1;
+            });
+            counts.all = rows.length;
+        }
+
+        counts[statusFilter] = selectedStatusCount;
+        return counts;
+    }, [mobileStatusMetricCounts, orders, selectedStatusCount, statusFilter]);
     const selectedPeriodText = useMemo(() => {
         if (quickRange === 'custom' && startDate && endDate) {
             return `${formatRangeDate(startDate)} - ${formatRangeDate(endDate)}`;
@@ -2542,6 +2647,15 @@ export function Orders({
         });
         return list;
     }, [orders]);
+    const selectedOrderTimelineEntries = useMemo(
+        () => buildOrderTimelineEntries(selectedOrder, { isAttempt: isAttemptEntry(selectedOrder) }),
+        [selectedOrder]
+    );
+    useEffect(() => {
+        if (!isDetailsOpen) {
+            setZoomedItemPreview(null);
+        }
+    }, [isDetailsOpen]);
     const sortOptions = [
         { value: 'newest', label: 'Newest First' },
         { value: 'oldest', label: 'Oldest First' },
@@ -2813,28 +2927,21 @@ export function Orders({
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-x-hidden overflow-y-visible">
                 <div className="md:hidden px-4 pt-4 pb-3 border-b border-gray-100 space-y-3">
                     <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
                             <button
                                 type="button"
-                                onClick={() => {
-                                    setIsMobileSortOpen(true);
-                                    setIsMobileSearchOpen(false);
-                                }}
+                                onClick={() => setIsMobileSortOpen(true)}
                                 className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-amber-100 bg-gradient-to-br from-white to-amber-50/80 text-amber-700 shadow-sm shadow-amber-100/50"
                                 aria-label="Sort orders"
                             >
                                 <ArrowUpDown size={17} />
                             </button>
-                            <button
-                                type="button"
-                                onClick={() => setIsMobileSearchOpen((prev) => !prev)}
-                                className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border shadow-sm ${
-                                    isMobileSearchOpen ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 shadow-fuchsia-100/70' : 'border-fuchsia-100 bg-gradient-to-br from-white to-fuchsia-50/80 text-fuchsia-700 shadow-fuchsia-100/50'
-                                }`}
-                                aria-label="Search orders"
-                            >
-                                <Search size={17} />
-                            </button>
+                            <input
+                                placeholder="Search order / customer"
+                                className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm focus:border-accent outline-none"
+                                value={searchInput}
+                                onChange={(e) => setSearchInput(e.target.value)}
+                            />
                         </div>
                         <button
                             type="button"
@@ -2845,17 +2952,6 @@ export function Orders({
                             <Filter size={17} />
                         </button>
                     </div>
-                    {isMobileSearchOpen && (
-                        <div className="relative">
-                            <Search className="absolute left-3 top-3 text-gray-400 w-4 h-4" />
-                            <input
-                                placeholder="Search order / customer"
-                                className="w-full pl-9 pr-3 py-2.5 bg-white rounded-xl border border-gray-200 text-sm focus:border-accent outline-none"
-                                value={searchInput}
-                                onChange={(e) => setSearchInput(e.target.value)}
-                            />
-                        </div>
-                    )}
                     <div className="grid grid-cols-5 gap-1.5">
                         {mobileStatusChips.map((chip) => {
                             const active = statusFilter === chip.value;
@@ -2864,11 +2960,11 @@ export function Orders({
                                     key={chip.value}
                                     type="button"
                                     onClick={() => handleStatusFilterChange(chip.value)}
-                                    className={`min-w-0 rounded-full border px-1.5 py-2 text-[10px] font-semibold leading-none tracking-tight transition ${
+                                    className={`min-w-0 rounded-full border px-1 py-2 text-[9px] font-semibold leading-none tracking-normal whitespace-nowrap transition ${
                                         active ? getOrderStatusBadgeClasses(chip.value) : 'border-gray-200 bg-white text-gray-600'
                                     }`}
                                 >
-                                    {chip.label}
+                                    {chip.label} ({mobileStatusChipCounts[chip.value] || 0})
                                 </button>
                             );
                         })}
@@ -2967,9 +3063,12 @@ export function Orders({
                                                 <div className="font-medium">{order.customer_name || 'Guest'}</div>
                                                 <div className="flex items-center gap-2 mt-0.5">
                                                     <span className="text-xs text-gray-400">{order.customer_mobile || '—'}</span>
-                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${getTierBadgeClasses(order)}`}>
-                                                        {getTierLabel(order)}
-                                                    </span>
+                                                    <TierBadge
+                                                        tier={order?.loyalty_tier || order?.loyaltyTier || 'regular'}
+                                                        label={getTierLabel(order)}
+                                                        className="px-2 py-0.5 text-[10px]"
+                                                        iconSize={11}
+                                                    />
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-sm text-gray-600">{formatAdminDate(order.created_at)}</td>
@@ -3017,7 +3116,7 @@ export function Orders({
                                                             className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                                                             title="Contact customer on WhatsApp"
                                                         >
-                                                            <MessageCircle size={14} />
+                                                            <WhatsAppIcon size={14} />
                                                         </a>
                                                     )}
                                                     <button
@@ -3099,6 +3198,7 @@ export function Orders({
                                     ? getPendingDurationLabel(order.created_at)
                                     : '';
                                 const theme = getMobileOrderCardTheme(order.status);
+                                const isQuickCompleting = quickCompletingOrderId === (order.order_id || order.id);
                                 return (
                                 <div
                                     key={entry.key}
@@ -3116,19 +3216,23 @@ export function Orders({
                                                 )}
                                             </div>
                                             <div className="flex shrink-0 flex-col items-end gap-2">
-                                                <span className={`inline-flex min-w-[88px] items-center justify-center px-2.5 py-1 rounded-full text-xs font-semibold ${getOrderStatusBadgeClasses(order.status)}`}>
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <span className={`inline-flex min-w-[88px] items-center justify-center px-2.5 py-1 rounded-full text-xs font-semibold ${getOrderStatusBadgeClasses(order.status)}`}>
                                                     {formatStatusLabel(order.status || 'pending')}
-                                                </span>
-                                                {!isAttemptEntry(order) && !['completed', 'cancelled'].includes(normalizeOrderStatus(order.status)) && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => handleQuickComplete(order, e)}
-                                                        className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm ${theme.actionSuccess}`}
-                                                        title="Mark order as completed"
-                                                    >
-                                                        <CheckCircle2 size={14} />
-                                                    </button>
-                                                )}
+                                                    </span>
+                                                    {!isAttemptEntry(order) && !['completed', 'cancelled'].includes(normalizeOrderStatus(order.status)) && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => handleQuickComplete(order, e)}
+                                                            disabled={isQuickCompleting}
+                                                            className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-gradient-to-r from-emerald-50 via-lime-50 to-emerald-100 px-3 py-1.5 text-[11px] font-semibold text-emerald-800 shadow-sm shadow-emerald-100/70 transition-all hover:from-emerald-100 hover:via-lime-100 hover:to-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                                            title="Mark order as completed"
+                                                        >
+                                                            <CheckCircle2 size={13} className={isQuickCompleting ? 'animate-pulse' : ''} />
+                                                            {isQuickCompleting ? 'Completing...' : 'Complete'}
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
 
@@ -3147,9 +3251,12 @@ export function Orders({
                                             <span className={`inline-flex min-w-[88px] items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getPaymentStatusBadgeClasses(order.payment_status)}`}>
                                                 {getPaymentStatusLabel(order)}
                                             </span>
-                                            <span className={`inline-flex min-w-[88px] items-center justify-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${getTierBadgeClasses(order)}`}>
-                                                {getTierLabel(order)}
-                                            </span>
+                                            <TierBadge
+                                                tier={order?.loyalty_tier || order?.loyaltyTier || 'regular'}
+                                                label={getTierLabel(order)}
+                                                className="min-w-[88px] justify-center px-2 py-0.5 text-[10px]"
+                                                iconSize={11}
+                                            />
                                             {!!pendingDurationLabel && (
                                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-widest text-amber-100 bg-amber-950 border border-amber-700">
                                                     {pendingDurationLabel}
@@ -3180,7 +3287,7 @@ export function Orders({
                                                 className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm ${theme.actionSuccess}`}
                                                 title="Contact customer on WhatsApp"
                                             >
-                                                <MessageCircle size={14} />
+                                                <WhatsAppIcon size={14} />
                                             </a>
                                         )}
                                             <button
@@ -3305,28 +3412,37 @@ export function Orders({
                                 )}
                                 {(() => {
                                     const headerTheme = getOrderHeaderTheme(selectedOrder.status);
+                                    const drawerTheme = getOrderDrawerSectionTheme(selectedOrder.status);
+                                    const shippingAddress = typeof selectedOrder.shipping_address === 'string'
+                                        ? JSON.parse(selectedOrder.shipping_address || '{}')
+                                        : (selectedOrder.shipping_address || {});
+                                    const combinedCustomerPhone = [selectedOrder.customer_mobile, shippingAddress.additionalPhone]
+                                        .map((value) => String(value || '').trim())
+                                        .filter(Boolean)
+                                        .filter((value, index, list) => list.indexOf(value) === index)
+                                        .join(', ') || '—';
                                     const customerDetailsRows = [
                                         { label: 'Name', value: selectedOrder.customer_name || 'Guest' },
-                                        { label: 'Customer Phone', value: selectedOrder.customer_mobile || '—' },
                                         { label: 'Shipping Address', value: formatAddress(selectedOrder.shipping_address) },
+                                        { label: 'Landmark', value: shippingAddress.landmark || '—' },
+                                        { label: 'Customer Phone', value: combinedCustomerPhone },
                                         ...(billingAddressEnabled ? [{ label: 'Billing Address', value: formatAddress(selectedOrder.billing_address) }] : []),
                                         { label: 'City & State', value: (() => {
-                                            const shippingAddress = typeof selectedOrder.shipping_address === 'string'
-                                                ? JSON.parse(selectedOrder.shipping_address || '{}')
-                                                : (selectedOrder.shipping_address || {});
-                                            return [shippingAddress.city, shippingAddress.state, shippingAddress.zip].filter(Boolean).join(', ') || '—';
+                                            return [shippingAddress.city, shippingAddress.state].filter(Boolean).join(', ') || '—';
+                                        })() },
+                                        { label: 'Pin Code', value: (() => {
+                                            return shippingAddress.zip || '—';
                                         })() }
                                     ];
                                     return (
                                         <>
                                             {(() => {
-                                                const drawerTheme = getOrderDrawerSectionTheme(selectedOrder.status);
                                                 return (
                                                     <>
                                             <div className={`rounded-3xl p-5 shadow-lg ${headerTheme.shell}`}>
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div>
-                                                        <p className={`text-[11px] uppercase tracking-[0.24em] font-semibold ${headerTheme.rowLabel}`}>Order</p>
+                                                        <p className={`text-[11px] uppercase tracking-[0.24em] font-semibold ${headerTheme.rowLabel}`}>Order ID</p>
                                                         <h3 className="mt-2 font-sans text-2xl font-black tracking-tight text-white">#{selectedOrder.order_ref}</h3>
                                                         <p className={`mt-1 text-sm font-semibold ${headerTheme.subtle}`}>
                                                             Order Value: ₹{Number(selectedOrderTotals.grandTotal || selectedOrder.total || 0).toLocaleString('en-IN')}
@@ -3346,11 +3462,14 @@ export function Orders({
                                                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getPaymentHeaderBadgeClasses(selectedOrder.payment_status)}`}>
                                                         {getPaymentStatusLabel(selectedOrder)}
                                                     </span>
-                                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${headerTheme.accent}`}>
-                                                        {getTierLabel(selectedOrder)}
-                                                    </span>
+                                                    <TierBadge
+                                                        tier={selectedOrder?.loyalty_tier || selectedOrder?.loyaltyTier || 'regular'}
+                                                        label={getTierLabel(selectedOrder)}
+                                                        className="px-3 py-1 text-xs"
+                                                        iconSize={12}
+                                                    />
                                                     {normalizeOrderStatus(selectedOrder.status) === 'pending' && (
-                                                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${headerTheme.accent}`}>
+                                                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getOrderHeaderBadgeClasses(selectedOrder.status)}`}>
                                                             {getPendingDurationLabel(selectedOrder.created_at)}
                                                         </span>
                                                     )}
@@ -3382,7 +3501,7 @@ export function Orders({
                                                                     className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                                                                     title="Contact customer on WhatsApp"
                                                                 >
-                                                                    <MessageCircle size={16} />
+                                                                    <WhatsAppIcon size={16} />
                                                                 </a>
                                                             )}
                                                             {canDownloadInvoice(selectedOrder) && (
@@ -3597,9 +3716,22 @@ export function Orders({
                                                         const itemImageUrl = getOrderItemImageUrl(item);
                                                         return (
                                                             <div key={item.id} className="flex items-center gap-4 p-4">
-                                                                <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden border border-gray-200">
-                                                                    {itemImageUrl && <img src={itemImageUrl} alt={itemTitle} className="w-full h-full object-cover" />}
-                                                                </div>
+                                                                {itemImageUrl ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setZoomedItemPreview({ src: itemImageUrl, title: itemTitle })}
+                                                                        className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                                                                        aria-label={`Zoom image for ${itemTitle}`}
+                                                                        title="Tap to zoom image"
+                                                                    >
+                                                                        <img src={itemImageUrl} alt={itemTitle} className="h-full w-full object-cover transition-transform duration-200 group-active:scale-95" />
+                                                                        <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/45 px-1 py-0.5 text-center text-[9px] font-semibold uppercase tracking-wide text-white">
+                                                                            Zoom
+                                                                        </span>
+                                                                    </button>
+                                                                ) : (
+                                                                    <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden border border-gray-200" />
+                                                                )}
                                                                 <div className="flex-1 min-w-0">
                                                                     <p className="text-sm font-semibold text-gray-800 break-words whitespace-normal">{itemTitle}</p>
                                                                     {itemVariantTitle && <p className="text-xs text-gray-500 line-clamp-1">{itemVariantTitle}</p>}
@@ -3714,16 +3846,23 @@ export function Orders({
                                             <div className={`mt-5 rounded-2xl border p-4 ${drawerTheme.shell}`}>
                                                 <p className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}>Status Timeline</p>
                                                 <div className="mt-3 space-y-3">
-                                                    {(selectedOrder.events || []).map((evt) => (
-                                                        <div key={evt.id} className="flex items-center justify-between text-sm">
-                                                            <span className="flex items-center gap-2 font-semibold text-gray-700 capitalize">
+                                                    {selectedOrderTimelineEntries.map((evt) => (
+                                                        <div key={evt.id} className="flex items-start justify-between gap-3 text-sm">
+                                                            <span className="min-w-0 flex items-start gap-2 font-semibold text-gray-700 capitalize">
                                                                 <span className={`h-2.5 w-2.5 rounded-full ${drawerTheme.timelineDot}`} />
-                                                                {evt.status}
+                                                                <span className="min-w-0">
+                                                                    <span className="block break-words">{evt.status}</span>
+                                                                    {evt.detail && (
+                                                                        <span className="mt-1 block text-[11px] font-medium normal-case text-gray-500 break-words">
+                                                                            {evt.detail}
+                                                                        </span>
+                                                                    )}
+                                                                </span>
                                                             </span>
-                                                            <span className="text-xs text-gray-400">{formatAdminDateTime(evt.created_at)}</span>
+                                                            <span className="shrink-0 text-xs text-gray-400">{formatAdminDateTime(evt.created_at)}</span>
                                                         </div>
                                                     ))}
-                                                    {(!selectedOrder.events || selectedOrder.events.length === 0) && (
+                                                    {selectedOrderTimelineEntries.length === 0 && (
                                                         <p className="text-sm text-gray-400">No timeline data yet.</p>
                                                     )}
                                                 </div>
@@ -3734,8 +3873,8 @@ export function Orders({
 
                                             <div className="mt-5 grid grid-cols-1 gap-4">
                                                 {!isAttemptEntry(selectedOrder) && (
-                                                    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                                                        <p className="text-xs text-gray-400 font-semibold uppercase">Settlement Details</p>
+                                                    <div className={`rounded-2xl border p-4 ${drawerTheme.shell}`}>
+                                                        <p className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}>Settlement Details</p>
                                                         {(() => {
                                                             const settlement = selectedOrder?.settlement_snapshot || selectedOrder?.settlementSnapshot || null;
                                                             const paymentMode = getPaymentMethodInfoLabel(selectedOrder, paymentMethodContext);
@@ -3759,10 +3898,10 @@ export function Orders({
                                                                 : 0;
                                                             return (
                                                                 <div className="mt-3 space-y-3">
-                                                                    <div className="rounded-xl border border-gray-200 bg-white p-3">
+                                                                    <div className="rounded-xl border border-white/70 bg-white/70 p-3 backdrop-blur-[1px]">
                                                                         <div className="flex items-start justify-between gap-3">
                                                                             <div>
-                                                                                <p className="text-[11px] uppercase tracking-widest text-gray-400 font-semibold">Payment Mode</p>
+                                                                                <p className={`text-[11px] uppercase tracking-widest font-semibold ${drawerTheme.title}`}>Payment Mode</p>
                                                                                 <p className="mt-1 text-sm font-semibold text-gray-800">{paymentMode}</p>
                                                                             </div>
                                                                             <div className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 ${modeVisual.shell}`}>
@@ -3774,7 +3913,7 @@ export function Orders({
                                                                             <p><span className="text-gray-500">Gateway:</span> {paymentGatewayLabel}</p>
                                                                             <p><span className="text-gray-500">Payment Ref:</span> <span className="font-mono">{paymentReference}</span></p>
                                                                         </div>
-                                                                        <div className="mt-3 border-t border-gray-100 pt-3">
+                                                                        <div className="mt-3 border-t border-white/70 pt-3">
                                                                             <div className="relative space-y-4">
                                                                                 <span className={`pointer-events-none absolute left-[10px] top-6 bottom-2 border-l border-dashed ${settlementStatusMeta.timelineLine}`} />
                                                                                 <div className="relative flex items-start gap-3">
@@ -3812,23 +3951,32 @@ export function Orders({
                                                                             </div>
                                                                         </div>
                                                                     </div>
-                                                                    <div className="rounded-xl border border-gray-200 bg-white p-3">
+                                                                    <div className="rounded-xl border border-white/70 bg-white/70 p-3 backdrop-blur-[1px]">
                                                                         <div className="flex items-center justify-between gap-3">
-                                                                            <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">Settlement Status</span>
+                                                                            <span className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}>Settlement Status</span>
                                                                             <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${settlementStatusMeta.chip}`}>
                                                                                 {isSettlementAwaited ? 'Awaited' : settlementStatusMeta.label}
                                                                             </span>
                                                                         </div>
-                                                                        <div className="mt-3 space-y-1 text-sm text-gray-700">
-                                                                            <p><span className="text-gray-500">Settlement ID:</span> <span className="font-mono text-xs">{settlement?.id || selectedOrder?.settlement_id || '—'}</span></p>
-                                                                            <p><span className="text-gray-500">Settlement Amount:</span> {settlement ? formatSettlementAmount(settlementAmount) : 'Awaited'}</p>
-                                                                            <p><span className="text-gray-500">Charges (Fees):</span> {settlement ? formatSettlementAmount(settlementFees) : 'Awaited'}</p>
-                                                                            <p><span className="text-gray-500">Tax:</span> {settlement ? formatSettlementAmount(settlementTax) : 'Awaited'}</p>
-                                                                            <p><span className="text-gray-500">Net Credited:</span> {settlement ? formatSettlementAmount(settlementNet) : 'Awaited'}</p>
-                                                                            <p><span className="text-gray-500">Settled Date:</span> {settledAtLabel}</p>
-                                                                            <p><span className="text-gray-500">UTR:</span> <span className="font-mono text-xs">{settlement?.utr || '—'}</span></p>
+                                                                        <div className="mt-3 overflow-hidden rounded-xl border border-white/70">
+                                                                            {[
+                                                                                { label: 'Settlement ID', value: <span className="font-mono text-xs">{settlement?.id || selectedOrder?.settlement_id || '—'}</span> },
+                                                                                { label: 'Settlement Amount', value: settlement ? formatSettlementAmount(settlementAmount) : 'Awaited' },
+                                                                                { label: 'Charges (Fees)', value: settlement ? formatSettlementAmount(settlementFees) : 'Awaited' },
+                                                                                { label: 'Tax', value: settlement ? formatSettlementAmount(settlementTax) : 'Awaited' },
+                                                                                { label: 'Net Credited', value: settlement ? formatSettlementAmount(settlementNet) : 'Awaited' },
+                                                                                { label: 'Settled Date', value: settledAtLabel },
+                                                                                { label: 'UTR', value: <span className="font-mono text-xs">{settlement?.utr || '—'}</span> }
+                                                                            ].map((row) => (
+                                                                                <div key={row.label} className="grid grid-cols-[132px_minmax(0,1fr)] gap-4 border-t border-white/60 px-3 py-2 text-sm first:border-t-0">
+                                                                                    <div className="text-gray-500">{row.label}</div>
+                                                                                    <div className="min-w-0 break-words text-gray-800">{row.value}</div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                        <div className="mt-3">
                                                                             {canFetchPaymentStatus(selectedOrder) && (
-                                                                                <button type="button" onClick={() => handleFetchPaymentStatus({ reason: 'payment' })} disabled={isFetchingPaymentStatus} className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100 disabled:opacity-60">
+                                                                                <button type="button" onClick={() => handleFetchPaymentStatus({ reason: 'payment' })} disabled={isFetchingPaymentStatus} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100 disabled:opacity-60">
                                                                                     <RefreshCw size={14} className={isFetchingPaymentStatus ? 'animate-spin' : ''} />
                                                                                     {isFetchingPaymentStatus ? 'Syncing...' : 'Sync Payment Status'}
                                                                                 </button>
@@ -3841,33 +3989,41 @@ export function Orders({
                                                     </div>
                                                 )}
 
-                                                <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                                                    <p className="text-xs text-gray-400 font-semibold uppercase">Promotion</p>
-                                                    <div className="mt-2 space-y-1 text-sm text-gray-700">
+                                                <div className={`rounded-2xl border p-4 ${drawerTheme.shell}`}>
+                                                    <p className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}>Promotion</p>
+                                                    <div className="mt-3">
                                                         {(() => {
                                                             const couponSplit = getCouponDiscountSplit(selectedOrder);
                                                             const memberProductDiscount = Number(selectedOrder.loyalty_discount_total || 0);
                                                             const memberShippingDiscount = Number(selectedOrder.loyalty_shipping_discount_total || 0);
                                                             const hasMemberBenefit = memberProductDiscount > 0 || memberShippingDiscount > 0;
+                                                            const promotionRows = [
+                                                                { label: 'Membership Tier', value: getTierLabel(selectedOrder) },
+                                                                ...(selectedOrderHasAppliedCoupon ? [{ label: 'Coupon', value: selectedOrderCouponCode }] : []),
+                                                                ...(selectedOrderHasAppliedCoupon && selectedOrder.coupon_type ? [{ label: 'Type', value: selectedOrder.coupon_type }] : []),
+                                                                ...(Number(selectedOrder.coupon_discount_value || 0) > 0 ? [{ label: 'Coupon Discount', value: `₹${Number(selectedOrder.coupon_discount_value || 0).toLocaleString()}` }] : []),
+                                                                ...(couponSplit.productDiscount > 0 ? [{ label: 'Coupon Product Discount', value: `₹${couponSplit.productDiscount.toLocaleString()}` }] : []),
+                                                                ...(couponSplit.shippingDiscount > 0 ? [{ label: 'Coupon Shipping Discount', value: `₹${couponSplit.shippingDiscount.toLocaleString()}` }] : []),
+                                                                ...(memberProductDiscount > 0 ? [{ label: 'Member Product Discount', value: `₹${memberProductDiscount.toLocaleString()}` }] : []),
+                                                                ...(memberShippingDiscount > 0 ? [{ label: 'Member Shipping Discount', value: `₹${memberShippingDiscount.toLocaleString()}` }] : []),
+                                                                ...(Number(selectedOrder.discount_total || 0) > 0 ? [{ label: 'Total Discount', value: `₹${Number(selectedOrder.discount_total || 0).toLocaleString()}` }] : []),
+                                                                { label: 'Source', value: isAbandonedRecoveryOrder(selectedOrder) ? 'Abandoned cart recovery' : (selectedOrder.source_channel || 'checkout') }
+                                                            ];
                                                             return (
                                                                 <>
-                                                                    <p><span className="text-gray-500">Membership Tier:</span> {getTierLabel(selectedOrder)}</p>
-                                                                    {selectedOrderHasAppliedCoupon && (
-                                                                        <p><span className="text-gray-500">Coupon:</span> {selectedOrderCouponCode}</p>
-                                                                    )}
-                                                                    <p><span className="text-gray-500">Type:</span> {selectedOrder.coupon_type || '—'}</p>
-                                                                    <p><span className="text-gray-500">Coupon Discount:</span> ₹{Number(selectedOrder.coupon_discount_value || 0).toLocaleString()}</p>
-                                                                    <p><span className="text-gray-500">Coupon Product Discount:</span> ₹{couponSplit.productDiscount.toLocaleString()}</p>
-                                                                    <p><span className="text-gray-500">Coupon Shipping Discount:</span> ₹{couponSplit.shippingDiscount.toLocaleString()}</p>
-                                                                    <p><span className="text-gray-500">Member Product Discount:</span> ₹{memberProductDiscount.toLocaleString()}</p>
-                                                                    <p><span className="text-gray-500">Member Shipping Discount:</span> ₹{memberShippingDiscount.toLocaleString()}</p>
+                                                                    <div className="overflow-hidden rounded-xl border border-white/70 bg-white/60">
+                                                                        {promotionRows.map((row) => (
+                                                                            <div key={row.label} className="grid grid-cols-[160px_minmax(0,1fr)] gap-4 border-t border-white/60 px-3 py-2 text-sm first:border-t-0">
+                                                                                <div className="text-gray-500">{row.label}</div>
+                                                                                <div className="min-w-0 break-words text-gray-800">{row.value}</div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
                                                                     {!hasMemberBenefit && Number(selectedOrder.coupon_discount_value || 0) > 0 && (
-                                                                        <p className="text-xs text-emerald-700">
+                                                                        <p className="mt-3 text-xs text-emerald-700">
                                                                             Discount is fully from coupon benefits. No membership perk applied.
                                                                         </p>
                                                                     )}
-                                                                    <p><span className="text-gray-500">Total Discount:</span> ₹{Number(selectedOrder.discount_total || 0).toLocaleString()}</p>
-                                                                    <p><span className="text-gray-500">Source:</span> {isAbandonedRecoveryOrder(selectedOrder) ? 'Abandoned cart recovery' : (selectedOrder.source_channel || 'checkout')}</p>
                                                                 </>
                                                             );
                                                         })()}
@@ -3879,6 +4035,40 @@ export function Orders({
                                 })()}
                             </>
                         )}
+                    </div>
+                </div>,
+                document.body
+            )}
+            {zoomedItemPreview && createPortal(
+                <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+                    <button
+                        type="button"
+                        className="absolute inset-0"
+                        onClick={() => setZoomedItemPreview(null)}
+                        aria-label="Close zoomed item image"
+                    />
+                    <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-3xl border border-white/15 bg-slate-950 shadow-2xl">
+                        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 text-white">
+                            <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold">{zoomedItemPreview.title || 'Item Image'}</p>
+                                <p className="text-[11px] text-white/65">Tap outside to close</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setZoomedItemPreview(null)}
+                                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white hover:bg-white/15"
+                                aria-label="Close image preview"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="flex items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.12),_transparent_55%)] p-4 sm:p-5">
+                            <img
+                                src={zoomedItemPreview.src}
+                                alt={zoomedItemPreview.title || 'Order item'}
+                                className="max-h-[72vh] w-auto max-w-full rounded-2xl object-contain"
+                            />
+                        </div>
                     </div>
                 </div>,
                 document.body
@@ -3904,9 +4094,12 @@ export function Orders({
                                     <div className="flex items-center gap-2 mt-1">
                                         <h3 className="text-lg font-semibold text-gray-900">Create Order</h3>
                                         {selectedManualCustomer && (
-                                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${getTierBadgeClasses(selectedManualCustomer)}`}>
-                                                {getTierLabel(selectedManualCustomer)}
-                                            </span>
+                                            <TierBadge
+                                                tier={selectedManualCustomer?.loyalty_tier || selectedManualCustomer?.loyaltyTier || 'regular'}
+                                                label={getTierLabel(selectedManualCustomer)}
+                                                className="px-2.5 py-1 text-xs"
+                                                iconSize={12}
+                                            />
                                         )}
                                     </div>
                                 </div>

@@ -7,7 +7,6 @@ const {
     deliverWorkflowEmailWithPolicy,
     sendWhatsapp
 } = require('./communications/communicationService');
-const { createStandardPaymentLink } = require('./razorpayPaymentLinkService');
 const { getUserLoyaltyStatus, getLoyaltyProfileByTier } = require('./loyaltyService');
 
 const RECOVERY_JOB_INTERVAL_MS = Math.max(
@@ -264,12 +263,11 @@ const buildRecoveryEmail = ({
         ? `Use code <strong>${discountCode}</strong> for <strong>${discountPercent}% OFF</strong>.`
         : 'Complete your purchase before items go out of stock.';
     const { clientBase } = resolveAutoPublicOrigins();
+    const fallbackCheckoutUrl = `${clientBase || ''}/checkout`;
     const fallbackRestoreUrl = `${clientBase || ''}/cart`;
-    const ctaUrl = paymentLinkUrl || checkoutUrl || fallbackRestoreUrl;
+    const ctaUrl = checkoutUrl || fallbackCheckoutUrl || fallbackRestoreUrl;
     const exploreUrl = `${clientBase || ''}/shop`;
-    const ctaLabel = paymentLinkUrl
-        ? 'Pay Now'
-        : (discountCode && discountPercent > 0 ? 'Apply Coupon & Checkout' : 'Restore Cart');
+    const ctaLabel = discountCode && discountPercent > 0 ? 'Apply Coupon & Checkout' : 'Checkout Now';
     const introVariants = [
         `Hi ${user?.name || 'there'}, we saved your cart so you can continue in seconds.`,
         `Hi ${user?.name || 'there'}, your shortlisted picks are still reserved in your cart.`,
@@ -733,57 +731,15 @@ const processDueAbandonedCartRecoveries = async ({ limit = 25, onJourneyUpdate =
                 }
 
                 const hasDiscountCoupon = Boolean(discountCode && discount.percent > 0);
-                const hasAddressOnProfile = Boolean(
-                    shippingAddress
-                    && String(shippingAddress?.line1 || '').trim()
-                    && String(shippingAddress?.city || '').trim()
-                    && String(shippingAddress?.state || '').trim()
-                    && String(shippingAddress?.zip || '').trim()
-                );
-                const hasMobileOnProfile = Boolean(String(user?.mobile || '').trim());
                 const { clientBase } = resolveAutoPublicOrigins();
                 const callbackBase = String(clientBase || '').replace(/\/+$/, '');
-                const shouldRouteToCheckout = Boolean(hasDiscountCoupon || !hasAddressOnProfile || !hasMobileOnProfile);
-                const checkoutUrl = callbackBase && shouldRouteToCheckout
+                const checkoutUrl = callbackBase
                     ? `${callbackBase}/checkout${hasDiscountCoupon ? `?coupon=${encodeURIComponent(discountCode)}` : ''}`
                     : null;
 
-                const shouldUsePaymentLink = Boolean(campaign.sendPaymentLink && !shouldRouteToCheckout);
                 let paymentLink = null;
-                if (shouldUsePaymentLink) {
-                    try {
-                        const reference = `ACR_${workingJourney.id}_${attemptNo}_${Date.now().toString(36)}`.slice(0, 40);
-                        const recoveryOrderRef = `SSC-REC-${workingJourney.id}-${attemptNo}-${Date.now().toString(36)}`
-                            .replace(/[^a-zA-Z0-9-]/g, '')
-                            .slice(0, 32)
-                            .toUpperCase();
-                        const callbackUrl = callbackBase ? `${callbackBase}/payment/success` : null;
-                        paymentLink = await createStandardPaymentLink({
-                            amountSubunits: Number(latestSummary.totalSubunits || 0) + Number(shippingFeeSubunits || 0),
-                            currency: workingJourney.currency || 'INR',
-                            description: `Order ${recoveryOrderRef}`,
-                            referenceId: reference,
-                            customer: {
-                                name: user?.name || undefined,
-                                email: user?.email || undefined,
-                                contact: user?.mobile || undefined
-                            },
-                            expireBy: paymentExpiry,
-                            callbackUrl: callbackUrl || null,
-                            reminderEnable: campaign.reminderEnable,
-                            notes: {
-                                journeyId: String(workingJourney.id),
-                                attemptNo: String(attemptNo),
-                                userId: String(workingJourney.user_id).slice(0, 50),
-                                orderRef: recoveryOrderRef,
-                                shippingFeeSubunits: String(shippingFeeSubunits || 0)
-                            }
-                        });
-                        if (paymentLink) {
-                            paymentLink.recoveryOrderRef = recoveryOrderRef;
-                        }
-                    } catch {}
-                }
+                // Payment-link creation is intentionally disabled for abandoned-cart recovery.
+                // Recovery CTAs now route only through checkout/cart URLs.
 
                 const channels = [];
                 const payload = {
@@ -813,7 +769,8 @@ const processDueAbandonedCartRecoveries = async ({ limit = 25, onJourneyUpdate =
                             cartValueSubunits: latestSummary.totalSubunits,
                             currency: workingJourney.currency || 'INR',
                             paymentLink: paymentLink?.shortUrl || null,
-                            checkoutLink: checkoutUrl
+                            checkoutLink: checkoutUrl,
+                            urlParam: checkoutUrl || null
                         });
                         channels.push('whatsapp');
                     } catch (whatsappError) {
@@ -826,7 +783,8 @@ const processDueAbandonedCartRecoveries = async ({ limit = 25, onJourneyUpdate =
                         };
                     }
                 } else {
-                    responses.whatsapp = { ok: false, skipped: true, reason: 'whatsapp_disabled' };
+                    // Campaign-level switch, distinct from global/admin channel switch.
+                    responses.whatsapp = { ok: false, skipped: true, reason: 'campaign_whatsapp_disabled' };
                 }
 
                 if (campaign.sendEmail && user?.email) {

@@ -3,7 +3,7 @@ import { useParams, Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
     Heart, ShoppingCart, Share2, ChevronDown, ChevronUp, Minus, Plus,
     AlertTriangle, Check, ArrowRight, Home, ShieldCheck, Truck,
-    MessageCircle, Facebook, Twitter, Send, Copy, PlayCircle, Instagram, Youtube, X
+    Facebook, Twitter, Send, Copy, PlayCircle, Instagram, Youtube, X
 } from 'lucide-react';
 import { productService } from '../services/productService';
 import { useSocket } from '../context/SocketContext';
@@ -17,6 +17,7 @@ import { vibrateTap } from '../utils/haptics';
 import { buildProductSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
 import { buildWhatsAppShareLink } from '../utils/publicContact';
+import WhatsAppIcon from '../components/WhatsAppIcon';
 
 const toBool = (value) => value === 1 || value === true || value === '1' || value === 'true';
 const toNumber = (value, fallback = 0) => {
@@ -1013,7 +1014,7 @@ export default function ProductPage() {
                                         <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Share</p>
                                         <div className="grid grid-cols-2 gap-2">
                                             <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.whatsapp} target="_blank" rel="noreferrer">
-                                                <MessageCircle size={14} className="text-green-500" /> WhatsApp
+                                                <WhatsAppIcon size={14} className="text-green-500" /> WhatsApp
                                             </a>
                                             <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.facebook} target="_blank" rel="noreferrer">
                                                 <Facebook size={14} className="text-blue-600" /> Facebook

@@ -33,7 +33,7 @@ import { billingAddressEnabled } from '../utils/billingAddressConfig';
 import { getStorefrontMobileValidationMessage, isValidStorefrontMobile, normalizeStorefrontMobileInput } from '../utils/mobileValidation';
 import StorefrontClosed from './StorefrontClosed';
 
-const emptyAddress = { line1: '', city: '', state: '', zip: '' };
+const emptyAddress = { line1: '', landmark: '', city: '', state: '', zip: '', additionalPhone: '' };
 const RAZORPAY_SCRIPT_ID = 'razorpay-checkout-js';
 const RAZORPAY_SCRIPT_SRC = 'https://checkout.razorpay.com/v1/checkout.js';
 const buildCheckoutCartKey = (productId = '', variantId = '') => `${String(productId || '').trim()}::${String(variantId || '').trim()}`;
@@ -76,9 +76,11 @@ const hasAddressFields = (address = null) => {
     const value = address || {};
     return Boolean(
         String(value?.line1 || '').trim()
+        || String(value?.landmark || '').trim()
         || String(value?.city || '').trim()
         || String(value?.state || '').trim()
         || String(value?.zip || '').trim()
+        || String(value?.additionalPhone || '').trim()
     );
 };
 
@@ -763,6 +765,9 @@ export default function Checkout() {
         if (field === 'zip') {
             nextValue = normalizePincodeInput(value);
         }
+        if (field === 'additionalPhone') {
+            nextValue = normalizeStorefrontMobileInput(value);
+        }
         if (field === 'state') {
             nextValue = resolveAllowedStateName(availableStates, value);
         }
@@ -1112,12 +1117,18 @@ export default function Checkout() {
         () => getStorefrontMobileValidationMessage(form.mobile),
         [form.mobile]
     );
+    const additionalPhoneValidationMessage = useMemo(() => {
+        const value = String(form.address?.additionalPhone || '').trim();
+        if (!value) return '';
+        return getStorefrontMobileValidationMessage(value);
+    }, [form.address?.additionalPhone]);
     const fieldErrors = useMemo(() => {
         const errors = {};
         const requiresGuestName = !user && !guestLockedAccount;
         if ((user || requiresGuestName) && !String(form.name || '').trim()) errors.name = 'Name is required';
         if (String(form.email || '').trim() && !isValidEmailInput(form.email)) errors.email = 'Enter a valid email';
         if (mobileValidationMessage) errors.mobile = mobileValidationMessage;
+        if (additionalPhoneValidationMessage) errors.shippingAdditionalPhone = additionalPhoneValidationMessage;
         if (profileFieldErrors.email) errors.email = profileFieldErrors.email;
         if (profileFieldErrors.mobile) errors.mobile = profileFieldErrors.mobile;
 
@@ -1140,9 +1151,9 @@ export default function Checkout() {
             if (!isValidZipInput(source.zip)) errors[`${prefix}Zip`] = 'Enter a valid 6-digit PIN code';
         });
         return errors;
-    }, [availableStates, billingAddressEnabled, form, guestLockedAccount, mobileValidationMessage, profileFieldErrors, user]);
+    }, [additionalPhoneValidationMessage, availableStates, billingAddressEnabled, form, guestLockedAccount, mobileValidationMessage, profileFieldErrors, user]);
     const hasFormValidationErrors = Object.keys(fieldErrors).length > 0;
-    const hasShippingFieldErrors = Boolean(fieldErrors.shippingLine1 || fieldErrors.shippingCity || fieldErrors.shippingState || fieldErrors.shippingZip);
+    const hasShippingFieldErrors = Boolean(fieldErrors.shippingLine1 || fieldErrors.shippingCity || fieldErrors.shippingState || fieldErrors.shippingZip || fieldErrors.shippingAdditionalPhone);
     const hasBillingFieldErrors = Boolean(fieldErrors.billingLine1 || fieldErrors.billingCity || fieldErrors.billingState || fieldErrors.billingZip);
     const hasLoggedInRequiredDetailsMissing = Boolean(
         user && (
@@ -1782,6 +1793,27 @@ export default function Checkout() {
                                         )}
                                     </div>
                                     <div className="space-y-2">
+                                        <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Additional Phone</label>
+                                        <div className="relative">
+                                            <input
+                                                type="tel"
+                                                inputMode="numeric"
+                                                autoComplete="tel-national"
+                                                maxLength={10}
+                                                value={showGuestLockedPrefill ? (guestLookup?.maskedProfile?.additionalPhone || 'Not saved') : form.address.additionalPhone}
+                                                onChange={(e) => handleAddressChange('address', 'additionalPhone', e.target.value)}
+                                                readOnly={showGuestLockedPrefill}
+                                                disabled={formInputsDisabled}
+                                                placeholder={showGuestLockedPrefill ? '' : 'Optional'}
+                                                className={`input-field pl-10 disabled:bg-gray-50 ${showGuestLockedPrefill ? 'bg-gray-50 text-gray-700' : ''} ${shouldShowValidationHints && fieldErrors.shippingAdditionalPhone ? 'border-red-400 bg-red-50/30' : ''}`}
+                                            />
+                                            <Phone size={16} className="absolute left-3 top-3.5 text-gray-400" />
+                                        </div>
+                                        {!showGuestLockedPrefill && shouldShowValidationHints && fieldErrors.shippingAdditionalPhone && (
+                                            <p className="text-[11px] text-red-600">{fieldErrors.shippingAdditionalPhone}</p>
+                                        )}
+                                    </div>
+                                    <div className="space-y-2">
                                         <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Name</label>
                                         <div className="relative">
                                             <input
@@ -1796,7 +1828,7 @@ export default function Checkout() {
                                         </div>
                                         {!showGuestLockedPrefill && shouldShowValidationHints && fieldErrors.name && <p className="text-[11px] text-red-600">{fieldErrors.name}</p>}
                                     </div>
-                                    <div className="space-y-2">
+                                    <div className="space-y-2 md:col-span-2">
                                         <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Email</label>
                                         <div className="relative">
                                             <input
@@ -1898,6 +1930,14 @@ export default function Checkout() {
                                                     disabled={formInputsDisabled}
                                                     placeholder="Street Address"
                                                     className={`input-field disabled:bg-gray-50 ${showGuestLockedPrefill ? 'bg-gray-50 text-gray-700' : ''} ${shouldShowValidationHints && fieldErrors.shippingLine1 ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                />
+                                                <input
+                                                    value={showGuestLockedPrefill ? (maskedShippingAddressFields.landmark || 'Not saved') : form.address.landmark}
+                                                    onChange={(e) => handleAddressChange('address', 'landmark', e.target.value)}
+                                                    readOnly={showGuestLockedPrefill}
+                                                    disabled={formInputsDisabled}
+                                                    placeholder="Landmark (Optional)"
+                                                    className={`input-field disabled:bg-gray-50 ${showGuestLockedPrefill ? 'bg-gray-50 text-gray-700' : ''}`}
                                                 />
                                                 <div className="grid grid-cols-2 gap-3">
                                                     <input

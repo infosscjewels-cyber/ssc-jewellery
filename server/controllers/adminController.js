@@ -2022,6 +2022,7 @@ const isValidUrl = (value = '') => {
 const updateCompanyInfo = async (req, res) => {
     try {
         const payload = req.body || {};
+        const hasWhatsappModuleSettingsPatch = Object.prototype.hasOwnProperty.call(payload, 'whatsappModuleSettings');
         const existingCompany = await CompanyProfile.get();
         const mergedPayload = {
             ...existingCompany,
@@ -2139,6 +2140,12 @@ const updateCompanyInfo = async (req, res) => {
         mergedPayload.whatsappChannelEnabled = mergedPayload.whatsappChannelEnabled !== false;
         mergedPayload.taxPriceMode = taxPriceMode;
         const company = await CompanyProfile.update(mergedPayload);
+        if (hasWhatsappModuleSettingsPatch) {
+            const nextAbandonedCartWhatsapp = Boolean(company?.whatsappModuleSettings?.abandonedCartRecovery);
+            await AbandonedCart.upsertCampaign({
+                sendWhatsapp: nextAbandonedCartWhatsapp
+            });
+        }
         if (
             existingCompany?.logoUrl
             && existingCompany.logoUrl !== company?.logoUrl

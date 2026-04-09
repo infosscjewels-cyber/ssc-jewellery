@@ -5,6 +5,7 @@ const {
 } = require('./channels/whatsappChannel');
 const { buildInvoiceShareUrl } = require('../invoiceShareService');
 const { queueCommunicationFailure } = require('./communicationRetryService');
+const { computeInvoiceComputation } = require('../../domain/computation/orderComputation');
 
 const normalizeCustomer = (customer = {}) => ({
     name: String(customer?.name || 'Customer').trim(),
@@ -582,13 +583,8 @@ const buildOrderSnapshotLine = (order = {}) => {
     const couponDiscount = Number(order?.coupon_discount_value || 0);
     const loyaltyDiscount = Number(order?.loyalty_discount_total || 0);
     const loyaltyShippingDiscount = Number(order?.loyalty_shipping_discount_total || 0);
-    const totalDiscount = Number(order?.discount_total || (couponDiscount + loyaltyDiscount + loyaltyShippingDiscount));
-    const subtotal = Number((displayPricing?.displaySubtotalBase ?? order?.subtotal ?? 0));
     const shippingFee = Number((displayPricing?.displayShippingBase ?? order?.shipping_fee ?? 0));
     const taxTotal = Number(order?.tax_total || 0);
-    const roundOffAmount = Number(order?.round_off_amount ?? order?.roundOffAmount ?? displayPricing?.roundOffAmount ?? 0);
-    const basePriceBeforeDiscounts = Number(displayPricing?.displayBaseBeforeDiscounts ?? Math.max(0, subtotal + shippingFee));
-    const taxableValueAfterDiscounts = Number(displayPricing?.displayValueAfterDiscountsBase ?? Math.max(0, basePriceBeforeDiscounts - couponDiscount - loyaltyDiscount - loyaltyShippingDiscount));
     const couponCode = String(order?.coupon_code || '').trim().toUpperCase();
     const lineDenominator = Math.max(1, resolvedItems.reduce((sum, item) => sum + Math.max(0, Number(item.lineTotalGross || item.lineTotal || 0)), 0));
     let couponAllocated = 0;
@@ -615,6 +611,7 @@ const buildOrderSnapshotLine = (order = {}) => {
     const shippingTaxAmount = Math.max(0, roundCurrency(taxTotal - allocatedItems.reduce((sum, item) => sum + Math.max(0, Number(item.taxAmount || 0)), 0)));
     const shippingRow = (shippingFee > 0 || loyaltyShippingDiscount > 0 || shippingTaxAmount > 0)
         ? {
+            isShippingRow: true,
             quantity: 1,
             title: 'Shipping',
             variantTitle: 'Delivery charge',
@@ -632,6 +629,27 @@ const buildOrderSnapshotLine = (order = {}) => {
         }
         : null;
     const tableItems = shippingRow ? [...allocatedItems, shippingRow] : allocatedItems;
+    const computationTableItems = tableItems.map((item) => ({
+        isShippingRow: Boolean(item?.isShippingRow),
+        qty: Number(item.quantity || 0),
+        displayRate: Number(item.mrpUnit || 0),
+        displayAmount: Number(item.mrpUnit || 0) * Number(item.quantity || 0),
+        displayProductDiscount: Number(item.productDiscount || 0),
+        displayCouponDiscount: Number(item.couponShare || 0),
+        displayMemberDiscount: Number(item.memberShare || 0),
+        displayShippingBenefitShare: Number(item.shippingBenefitShare || 0),
+        taxAmount: Number(item.taxAmount || 0)
+    }));
+    const computation = computeInvoiceComputation({
+        order,
+        tableItems: computationTableItems,
+        taxRegime: taxPriceMode
+    });
+    const basePriceBeforeDiscounts = Number(computation?.priceBeforeDiscounts || 0);
+    const taxableValueAfterDiscounts = Number(computation?.priceAfterDiscounts || 0);
+    const computedTaxTotal = Number(computation?.tableGstTotal || taxTotal);
+    const roundOffAmount = Number(computation?.roundOffAmount ?? order?.round_off_amount ?? order?.roundOffAmount ?? displayPricing?.roundOffAmount ?? 0);
+    const totalDiscount = Number(computation?.discounts?.totalSavings || 0);
     const summaryParts = [
         `Tier: <strong>${formatTier(order?.loyalty_tier || order?.loyaltyTier)}</strong>`,
         `Base Price (Before Discounts): <strong>${formatCurrency(basePriceBeforeDiscounts)}</strong>`,
@@ -641,7 +659,7 @@ const buildOrderSnapshotLine = (order = {}) => {
         loyaltyShippingDiscount > 0 ? `Member shipping discount: <strong>${formatCurrency(loyaltyShippingDiscount)}</strong>` : null,
         totalDiscount > 0 ? `Total savings: <strong>${formatCurrency(totalDiscount)}</strong>` : null,
         `${taxPriceMode === 'inclusive' ? 'Value After Discounts' : 'Taxable Value After Discounts'}: <strong>${formatCurrency(taxableValueAfterDiscounts)}</strong>`,
-        taxTotal > 0 ? `${taxPriceMode === 'inclusive' ? 'GST Breakdown' : 'GST'}: <strong>${formatCurrency(taxTotal)}</strong> (${formatSplitTaxLabel(taxTotal)})` : null,
+        computedTaxTotal > 0 ? `${taxPriceMode === 'inclusive' ? 'GST Breakdown' : 'GST'}: <strong>${formatCurrency(computedTaxTotal)}</strong> (${formatSplitTaxLabel(computedTaxTotal)})` : null,
         roundOffAmount !== 0 ? `Round Off: <strong>${formatCurrency(roundOffAmount)}</strong>` : null
     ].filter(Boolean);
     const visibleItems = tableItems.slice(0, 8);
@@ -661,13 +679,13 @@ const buildOrderSnapshotLine = (order = {}) => {
     `).join('');
     const tableTotals = {
         qty: tableItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
-        unitPriceMrp: tableItems.reduce((sum, item) => sum + (Number(item.mrpUnit || 0) * Number(item.quantity || 0)), 0),
-        productDiscount: tableItems.reduce((sum, item) => sum + Number(item.productDiscount || 0), 0),
-        couponShare: tableItems.reduce((sum, item) => sum + Number(item.couponShare || 0), 0),
-        memberShare: tableItems.reduce((sum, item) => sum + Number(item.memberShare || 0), 0),
-        shippingBenefitShare: tableItems.reduce((sum, item) => sum + Number(item.shippingBenefitShare || 0), 0),
-        taxAmount: tableItems.reduce((sum, item) => sum + Number(item.taxAmount || 0), 0),
-        lineTotalInclTax: tableItems.reduce((sum, item) => sum + Number(item.lineTotalInclTax || 0), 0)
+        unitPriceMrp: Number(computation?.tableAmountTotal || 0),
+        productDiscount: Number(computation?.discounts?.product || 0),
+        couponShare: Number(computation?.discounts?.coupon || 0),
+        memberShare: Number(computation?.discounts?.member || 0),
+        shippingBenefitShare: Number(computation?.discounts?.memberShippingBenefit || 0),
+        taxAmount: Number(computation?.tableGstTotal || 0),
+        lineTotalInclTax: roundCurrency((Array.isArray(computation?.lines) ? computation.lines : []).reduce((sum, line) => sum + Number(line?.lineTotal || 0), 0))
     };
     const tableHtml = `
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;border-collapse:separate;border-spacing:0;">
@@ -794,12 +812,12 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
     const seed = `${stageKey}|${orderRef}|${recipient.email || recipient.mobile || recipient.name}`;
 
     const subjects = {
-        confirmation_discount: Array.from({ length: 10 }, (_, i) => `Order Confirmed: ${orderRef} | Savings Applied (${i + 1}/10)`),
-        confirmation_no_discount: Array.from({ length: 10 }, (_, i) => `Order Confirmed: ${orderRef} (${i + 1}/10)`),
-        completed: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} is complete (${i + 1}/10)`),
-        invoice: Array.from({ length: 10 }, (_, i) => `Invoice for order ${orderRef} (${i + 1}/10)`),
-        cancelled: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} cancelled (${i + 1}/10)`),
-        failed: Array.from({ length: 10 }, (_, i) => `Order ${orderRef} needs attention (${i + 1}/10)`)
+        confirmation_discount: Array.from({ length: 10 }, (_, i) => `Order ID ${orderRef} Confirmed | Savings Applied (${i + 1}/10)`),
+        confirmation_no_discount: Array.from({ length: 10 }, (_, i) => `Order ID ${orderRef} Confirmed (${i + 1}/10)`),
+        completed: Array.from({ length: 10 }, (_, i) => `Order ID ${orderRef} is complete (${i + 1}/10)`),
+        invoice: Array.from({ length: 10 }, (_, i) => `Invoice for Order ID ${orderRef} (${i + 1}/10)`),
+        cancelled: Array.from({ length: 10 }, (_, i) => `Order ID ${orderRef} cancelled (${i + 1}/10)`),
+        failed: Array.from({ length: 10 }, (_, i) => `Order ID ${orderRef} needs attention (${i + 1}/10)`)
     };
 
     const total = formatCurrency(order?.total || 0);
@@ -808,12 +826,12 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
     const invoiceLine = includeInvoice ? 'Your invoice is attached with this communication for your records.' : '';
 
     const stageSummary = {
-        confirmation_discount: `Your order <strong>${orderRef}</strong> has been confirmed${createdDate ? ` on <strong>${createdDate}</strong>` : ''}. You saved <strong>${formatCurrency(discount)}</strong>.`,
-        confirmation_no_discount: `Your order <strong>${orderRef}</strong> has been confirmed${createdDate ? ` on <strong>${createdDate}</strong>` : ''}.`,
-        completed: `Your order <strong>${orderRef}</strong> has been fulfilled successfully and is now marked complete. Thank you for shopping with SSC Jewellery.`,
-        invoice: `Please find the invoice for your order <strong>${orderRef}</strong>${createdDate ? ` placed on <strong>${createdDate}</strong>` : ''}.`,
-        cancelled: `Your order <strong>${orderRef}</strong> has been cancelled in our system.`,
-        failed: `Your order <strong>${orderRef}</strong> requires your attention before we can proceed.`
+        confirmation_discount: `Your Order ID <strong>${orderRef}</strong> has been confirmed${createdDate ? ` on <strong>${createdDate}</strong>` : ''}. You saved <strong>${formatCurrency(discount)}</strong>.`,
+        confirmation_no_discount: `Your Order ID <strong>${orderRef}</strong> has been confirmed${createdDate ? ` on <strong>${createdDate}</strong>` : ''}.`,
+        completed: `Your Order ID <strong>${orderRef}</strong> has been fulfilled successfully and is now marked complete. Thank you for shopping with SSC Jewellery.`,
+        invoice: `Please find the invoice for your Order ID <strong>${orderRef}</strong>${createdDate ? ` placed on <strong>${createdDate}</strong>` : ''}.`,
+        cancelled: `Your Order ID <strong>${orderRef}</strong> has been cancelled in our system.`,
+        failed: `Your Order ID <strong>${orderRef}</strong> requires your attention before we can proceed.`
     };
 
     const actionItemsByStage = {
@@ -828,22 +846,22 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
     const assuranceByStage = [
         'Need help? Reply to this email and our support team will assist you.',
         'Our administration team is monitoring this order and will keep you updated.',
-        'If anything looks incorrect, respond to this email with your order reference.',
+        'If anything looks incorrect, respond to this email with your Order ID.',
         'Your satisfaction is our priority, and support is available whenever you need it.',
         'We are committed to transparent, proactive communication for your order.',
         'Thank you for your patience and trust in SSC Jewellery.',
-        'For urgent concerns, mention your order reference in your reply.',
+        'For urgent concerns, mention your Order ID in your reply.',
         'Our team is available to support product, payment, and delivery questions.',
         'You can count on us for timely and clear status updates.',
         'We appreciate your business and remain available for assistance.'
     ];
 
-    const subject = pickVariant(subjects[stageKey] || [`Order ${orderRef}: ${stageKey}`], `${seed}|subject`);
+    const subject = pickVariant(subjects[stageKey] || [`Order ID ${orderRef}: ${stageKey}`], `${seed}|subject`);
     const greeting = pickVariant(COMMON_GREETINGS, `${seed}|greeting`).replaceAll('{name}', recipient.name);
     const closing = pickVariant(COMMON_CLOSINGS, `${seed}|closing`);
     const assurance = pickVariant(assuranceByStage, `${seed}|assurance`);
 
-    const orderRefLine = `Order reference: <strong>${orderRef}</strong>${createdDate && stageKey !== 'completed' ? ` | Date: <strong>${createdDate}</strong>` : ''}`;
+    const orderRefLine = `Order ID: <strong>${orderRef}</strong>${createdDate && stageKey !== 'completed' ? ` | Date: <strong>${createdDate}</strong>` : ''}`;
     const refundMode = String(order?.refund_mode || '').trim().toLowerCase();
     const refundMethod = String(order?.refund_method || '').trim();
     const refundAmount = Number(order?.refund_amount || 0);
@@ -875,9 +893,9 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
     const snapshotLine = buildOrderSnapshotLine(order);
 
     const bodyBlocks = [
-        stageSummary[stageKey] || `Your order <strong>${orderRef}</strong> status is <strong>${stageKey}</strong>.`,
+        stageSummary[stageKey] || `Your Order ID <strong>${orderRef}</strong> status is <strong>${stageKey}</strong>.`,
         orderRefLine,
-        `Order value: <strong>${total}</strong>`,
+        `Order Value: <strong>${total}</strong>`,
         snapshotLine || null,
         refundDetailLine || null,
         emiCancellationWarning || null,
@@ -907,6 +925,12 @@ const sendOrderLifecycleCommunication = async ({
 }) => {
     const recipient = normalizeCustomer(customer);
     const safeStage = String(stage || 'updated').trim().toLowerCase();
+    if (safeStage === 'pending_delay') {
+        return {
+            email: buildSkippedEmailResult('internal_stage_not_customer_visible', { stage: safeStage }),
+            whatsapp: { ok: false, skipped: true, reason: 'internal_stage_not_customer_visible', stage: safeStage }
+        };
+    }
     const template = buildOrderLifecycleTemplate({ stage: safeStage, customer: recipient, order, includeInvoice });
     const invoiceRef = String(order?.order_ref || order?.orderRef || order?.id || Date.now()).replace(/[^a-zA-Z0-9-_]/g, '');
     const invoiceFileName = `invoice-${invoiceRef}.pdf`;
@@ -981,7 +1005,7 @@ const sendPaymentLifecycleCommunication = async ({ stage, customer = {}, order =
         'Please keep this email for your payment records.',
         'If this status appears incorrect, reply and we will verify promptly.',
         'Our administration team will continue monitoring reconciliation.',
-        'For urgent billing support, reply to this email with your order reference.',
+        'For urgent billing support, reply to this email with your Order ID.',
         'We are committed to accurate and timely payment updates.',
         'Your transaction security remains our priority.',
         'You can contact us anytime for payment support.',
@@ -993,7 +1017,7 @@ const sendPaymentLifecycleCommunication = async ({ stage, customer = {}, order =
         greeting,
         subject,
         bodyBlocks: [
-            `Payment status for order <strong>${orderRef}</strong> is currently <strong>${safeStage}</strong>.`,
+            `Payment status for Order ID <strong>${orderRef}</strong> is currently <strong>${safeStage}</strong>.`,
             'Please review this update and retain it for your records.',
             'If this does not match your expected payment state, let us know immediately.'
         ],

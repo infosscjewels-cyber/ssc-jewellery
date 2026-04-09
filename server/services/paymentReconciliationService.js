@@ -135,6 +135,7 @@ const isDuplicatePaymentClaimError = (error) => {
     const message = String(error?.message || '').toLowerCase();
     return message.includes('duplicate entry') && message.includes('uniq_payment_attempt_payment_id');
 };
+const DUPLICATE_PAYMENT_CLAIM_MESSAGE = 'Payment already linked to an existing checkout. Please retry with a new payment session.';
 
 const attachAttemptToExistingPaidOrder = async ({ attempt = null, paymentId = '' } = {}) => {
     const resolvedPaymentId = String(paymentId || '').trim();
@@ -280,7 +281,18 @@ const ensureCapturedPaymentMatchesAttempt = async ({
                 reusedExistingOrder: true
             };
         }
-        throw error;
+        await PaymentAttempt.markReconciliationPending({
+            id: attempt.id,
+            paymentId: resolvedPaymentId,
+            signature: razorpaySignature,
+            errorMessage: DUPLICATE_PAYMENT_CLAIM_MESSAGE,
+            delayMinutes: 2
+        });
+        throw buildError(
+            DUPLICATE_PAYMENT_CLAIM_MESSAGE,
+            409,
+            { reconciliationPending: true, duplicatePaymentClaim: true }
+        );
     }
 
     const refreshedAttempt = await PaymentAttempt.getById(attempt.id);

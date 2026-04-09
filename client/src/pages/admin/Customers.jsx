@@ -6,7 +6,6 @@ import {
     Calendar,
     Loader2,
     Mail,
-    MessageCircle,
     Phone,
     Plus,
     Search,
@@ -28,6 +27,8 @@ import { formatTierLabel } from '../../utils/tierFormat';
 import { billingAddressEnabled } from '../../utils/billingAddressConfig';
 import customerIllustration from '../../assets/customer.svg';
 import EmptyState from '../../components/EmptyState';
+import TierBadge from '../../components/TierBadge';
+import WhatsAppIcon from '../../components/WhatsAppIcon';
 
 const CUSTOMER_PAGE_SIZE = 20;
 const MAX_COUPON_RANGE_DAYS = 90;
@@ -577,6 +578,18 @@ export default function Customers({
         }
         return [address.line1, address.city, address.state, address.zip].filter(Boolean).join(', ') || '—';
     };
+    const parseAddress = (address) => {
+        if (!address) return null;
+        if (typeof address === 'string') {
+            try {
+                const parsed = JSON.parse(address);
+                return parsed && typeof parsed === 'object' ? parsed : null;
+            } catch {
+                return null;
+            }
+        }
+        return typeof address === 'object' ? address : null;
+    };
 
     return (
         <div className="animate-fade-in">
@@ -935,6 +948,7 @@ export default function Customers({
                             const callLink = getCallLink(selectedUser.mobile);
                             const waLink = getWhatsappLink(selectedUser.mobile);
                             const isBasicTier = String(selectedUser.loyaltyTier || 'regular').toLowerCase() === 'regular';
+                            const shippingAddress = parseAddress(selectedUser.address) || {};
                             return (
                                 <>
                         <div className="flex items-center justify-between mb-6">
@@ -979,14 +993,14 @@ export default function Customers({
                                     <p className={`min-w-0 text-left justify-self-start break-all text-sm ${selectedUser.email ? 'text-gray-700' : 'text-gray-400'}`}>{selectedUser.email || '—'}</p>
                                 </div>
                             </div>
-                            <div className={`mt-4 flex items-center gap-2 overflow-x-auto border-t pt-4 ${drawerTheme.divider}`}>
+                            <div className={`mt-4 flex flex-wrap items-center gap-2 overflow-x-auto md:overflow-visible border-t pt-4 ${drawerTheme.divider}`}>
                                 {callLink && (
                                     <a
                                         href={callLink}
-                                        className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 to-cyan-50 px-3 py-2 text-sm font-semibold text-sky-700 shadow-sm shadow-sky-100/60 hover:from-sky-100 hover:to-cyan-100"
+                                        className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-sky-200 bg-gradient-to-br from-sky-50 to-cyan-50 px-2.5 py-2 text-xs sm:text-sm font-semibold text-sky-700 shadow-sm shadow-sky-100/60 hover:from-sky-100 hover:to-cyan-100"
                                     >
-                                        <Phone size={14} />
-                                        <span className="hidden sm:inline">Call</span>
+                                        <Phone size={13} className="sm:h-[14px] sm:w-[14px]" />
+                                        <span className="hidden md:inline">Call</span>
                                     </a>
                                 )}
                                 {waLink && (
@@ -994,19 +1008,19 @@ export default function Customers({
                                         href={waLink}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-lime-50 px-3 py-2 text-sm font-semibold text-emerald-700 shadow-sm shadow-emerald-100/60 hover:from-emerald-100 hover:to-lime-100"
+                                        className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-lime-50 px-2.5 py-2 text-xs sm:text-sm font-semibold text-emerald-700 shadow-sm shadow-emerald-100/60 hover:from-emerald-100 hover:to-lime-100"
                                     >
-                                        <MessageCircle size={14} />
-                                        <span className="hidden sm:inline">WhatsApp</span>
+                                        <WhatsAppIcon size={13} />
+                                        <span className="hidden md:inline">WhatsApp</span>
                                     </a>
                                 )}
                                 <button
                                     type="button"
                                     onClick={() => openCart(selectedUser)}
-                                    className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 px-3 py-2 text-sm font-semibold text-amber-700 shadow-sm shadow-amber-100/60 hover:from-amber-100 hover:to-orange-100"
+                                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 px-2.5 py-2 text-xs sm:text-sm font-semibold text-amber-700 shadow-sm shadow-amber-100/60 hover:from-amber-100 hover:to-orange-100"
                                 >
-                                    <ShoppingCart size={14} />
-                                    <span className="hidden sm:inline">View Cart</span>
+                                    <ShoppingCart size={13} className="sm:h-[14px] sm:w-[14px]" />
+                                    <span className="hidden md:inline">View Cart</span>
                                 </button>
                                 <button
                                     type="button"
@@ -1014,19 +1028,19 @@ export default function Customers({
                                         setIsProfileOpen(false);
                                         onCreateOrderForCustomer?.(selectedUser.id);
                                     }}
-                                    className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 px-3 py-2 text-sm font-semibold text-violet-700 shadow-sm shadow-violet-100/60 hover:from-violet-100 hover:to-fuchsia-100"
+                                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 px-2.5 py-2 text-xs sm:text-sm font-semibold text-violet-700 shadow-sm shadow-violet-100/60 hover:from-violet-100 hover:to-fuchsia-100"
                                 >
-                                    <Plus size={14} />
-                                    <span className="hidden sm:inline">Create Order</span>
+                                    <Plus size={13} className="sm:h-[14px] sm:w-[14px]" />
+                                    <span className="hidden md:inline">Create Order</span>
                                 </button>
                                 {canDeleteUser(selectedUser) && (
                                     <button
                                         type="button"
                                         onClick={() => openDeleteModal(selectedUser)}
-                                        className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-rose-200 bg-gradient-to-br from-rose-50 to-red-50 px-3 py-2 text-sm font-semibold text-rose-700 shadow-sm shadow-rose-100/60 hover:from-rose-100 hover:to-red-100"
+                                        className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-rose-200 bg-gradient-to-br from-rose-50 to-red-50 px-2.5 py-2 text-xs sm:text-sm font-semibold text-rose-700 shadow-sm shadow-rose-100/60 hover:from-rose-100 hover:to-red-100"
                                     >
-                                        <Trash2 size={14} />
-                                        <span className="hidden sm:inline">Customer Actions</span>
+                                        <Trash2 size={13} className="sm:h-[14px] sm:w-[14px]" />
+                                        <span className="hidden lg:inline">Customer Actions</span>
                                     </button>
                                 )}
                             </div>
@@ -1052,6 +1066,18 @@ export default function Customers({
                                 <p className="text-xs text-gray-400 font-bold uppercase">Shipping Address</p>
                                 <p className="text-sm text-gray-700 mt-2">{formatAddress(selectedUser.address)}</p>
                             </div>
+                            {shippingAddress.landmark && (
+                                <div className="p-4 rounded-xl border border-gray-200 bg-white">
+                                    <p className="text-xs text-gray-400 font-bold uppercase">Landmark</p>
+                                    <p className="text-sm text-gray-700 mt-2">{shippingAddress.landmark}</p>
+                                </div>
+                            )}
+                            {shippingAddress.additionalPhone && (
+                                <div className="p-4 rounded-xl border border-gray-200 bg-white">
+                                    <p className="text-xs text-gray-400 font-bold uppercase">Additional Phone</p>
+                                    <p className="text-sm text-gray-700 mt-2">{shippingAddress.additionalPhone}</p>
+                                </div>
+                            )}
                             <div className="p-4 rounded-xl border border-gray-200 bg-white">
                                 <div className="flex items-center justify-between">
                                     <p className="text-xs text-gray-400 font-bold uppercase">Active Coupons</p>
@@ -1210,7 +1236,6 @@ export default function Customers({
                                     const callLink = getCallLink(user.mobile);
                                     const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
                                     const cartLastActivity = getCartLastActivityLabel(user);
-                                    const isBasicTier = String(user.loyaltyTier || 'regular').toLowerCase() === 'regular';
                                     const profileImage = getCustomerProfileImage(user);
                                     return (
                                         <tr key={user.id} onClick={() => openProfile(user)} className={`hover:bg-gray-50/50 transition-colors cursor-pointer ${isBirthdayToday(user.dob) ? 'bg-amber-50/60' : ''}`}>
@@ -1230,9 +1255,12 @@ export default function Customers({
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4">
-                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${isBasicTier ? 'border border-slate-200 bg-slate-50 text-slate-600' : 'bg-slate-100 text-slate-700'}`}>
-                                                    {tierLabel(user.loyaltyTier || 'regular')}
-                                                </span>
+                                                <TierBadge
+                                                    tier={user.loyaltyTier || 'regular'}
+                                                    label={tierLabel(user.loyaltyTier || 'regular')}
+                                                    className="px-2.5 py-0.5 text-xs font-medium"
+                                                    iconSize={12}
+                                                />
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-2 text-sm text-gray-900">
@@ -1255,7 +1283,7 @@ export default function Customers({
                                                 </button>
                                                 {waLink && (
                                                     <a href={waLink} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-gray-400 hover:text-green-700 hover:bg-green-50 p-2 rounded-lg transition-all" title="Open WhatsApp">
-                                                        <MessageCircle size={18} />
+                                                        <WhatsAppIcon size={18} />
                                                     </a>
                                                 )}
                                                 <button onClick={(e) => { e.stopPropagation(); openCart(user); }} className={`relative p-2 rounded-lg border transition-colors ${cartCount > 0 ? 'text-green-700 bg-green-50 border-green-200 hover:bg-green-100' : 'text-gray-500 bg-gray-50 border-gray-200 hover:text-primary'}`} title="View Cart">
@@ -1303,7 +1331,6 @@ export default function Customers({
                                         const callLink = getCallLink(user.mobile);
                                         const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
                                         const cartLastActivity = getCartLastActivityLabel(user);
-                                        const isBasicTier = String(user.loyaltyTier || 'regular').toLowerCase() === 'regular';
                                         const profileImage = getCustomerProfileImage(user);
                                         const theme = getMobileCustomerCardTheme({
                                             ...user,
@@ -1331,11 +1358,12 @@ export default function Customers({
                                                                 <p className="mt-0.5 text-[10px] text-gray-500">Customer profile</p>
                                                             </div>
                                                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                                                                {isBasicTier ? (
-                                                                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-medium text-slate-600">Basic</span>
-                                                                ) : (
-                                                                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-medium text-slate-700">{tierLabel(user.loyaltyTier || '')}</span>
-                                                                )}
+                                                                <TierBadge
+                                                                    tier={user.loyaltyTier || 'regular'}
+                                                                    label={tierLabel(user.loyaltyTier || 'regular')}
+                                                                    className="px-2.5 py-1 text-[10px] font-medium"
+                                                                    iconSize={11}
+                                                                />
                                                                 {user.isActive === false && <span className="inline-flex items-center whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-800 border border-red-200">Inactive</span>}
                                                             </div>
                                                         </div>
@@ -1371,7 +1399,7 @@ export default function Customers({
                                                         )}
                                                         {waLink && (
                                                             <a href={waLink} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center justify-center rounded-lg border border-emerald-200 bg-gradient-to-br from-emerald-50 to-lime-50 p-2 text-emerald-700 shadow-sm shadow-emerald-100/60 transition-all hover:from-emerald-100 hover:to-lime-100" title="Open WhatsApp">
-                                                                <MessageCircle size={16} />
+                                                                <WhatsAppIcon size={16} />
                                                             </a>
                                                         )}
                                                         <button onClick={(e) => { e.stopPropagation(); openIssueCouponModal(user); }} className="inline-flex items-center justify-center rounded-lg border border-violet-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 p-2 text-violet-700 shadow-sm shadow-violet-100/60 transition-all hover:from-violet-100 hover:to-fuchsia-100" title="Issue Coupon">

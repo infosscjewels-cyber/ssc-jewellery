@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Package, ChevronRight, MessageCircle, Download, RefreshCw } from 'lucide-react';
+import { Package, ChevronRight, Download, RefreshCw } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useMyOrders } from '../context/OrderContext';
 import { useToast } from '../context/ToastContext';
@@ -9,6 +9,7 @@ import { orderService } from '../services/orderService';
 import ordersIllustration from '../assets/orders.svg';
 import { getGstDisplayDetails } from '../utils/gst';
 import { buildWhatsAppChatLink } from '../utils/publicContact';
+import WhatsAppIcon from '../components/WhatsAppIcon';
 import { computeOrderTotalsDisplay } from '../utils/orderTotalsComputation';
 
 const formatDate = (value) => {
@@ -238,7 +239,7 @@ const canCheckRefundStatus = (order) => hasRefundInitiated(order)
 const isCancelledWithoutRefund = (order) => String(order?.status || '').toLowerCase() === 'cancelled' && !hasRefundInitiated(order);
 const getOrderSupportLink = (order) => {
     const orderRef = order?.order_ref || order?.orderRef || order?.id || 'N/A';
-    const text = `Hi, I need support for my order ${orderRef}. I have a query regarding this order.`;
+    const text = `Hi, I need support for my Order ID ${orderRef}. I have a query regarding this order.`;
     return buildWhatsAppChatLink({ text });
 };
 
@@ -693,7 +694,7 @@ export default function Orders() {
                                         rel="noreferrer"
                                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 text-green-700 text-xs font-semibold hover:bg-green-100"
                                     >
-                                        <MessageCircle size={14} />
+                                        <WhatsAppIcon size={14} />
                                         Need Support
                                     </a>
                                 </div>

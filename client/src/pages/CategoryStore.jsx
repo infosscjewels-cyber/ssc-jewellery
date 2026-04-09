@@ -3,7 +3,7 @@ import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { productService } from '../services/productService';
 import ProductCard from '../components/ProductCard';
 import EmptyState from '../components/EmptyState';
-import { Filter, SlidersHorizontal, Loader2, ChevronDown, Folder, ArrowRight, ChevronLeft, ChevronRight, ArrowUp, Share2, MessageCircle, Facebook, Twitter, Send, Copy, Home, LayoutGrid } from 'lucide-react';
+import { Filter, SlidersHorizontal, Loader2, ChevronDown, Folder, ArrowRight, ChevronLeft, ChevronRight, ArrowUp, Share2, Facebook, Twitter, Send, Copy, Home, LayoutGrid } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { isDiscoveryItemInStock, shouldRunDiscoverySearch } from '../utils/shopDiscovery';
@@ -12,6 +12,7 @@ import { useSeo } from '../seo/useSeo';
 import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
 import { buildWhatsAppShareLink } from '../utils/publicContact';
 import emptyIllustration from '../assets/closed.svg';
+import WhatsAppIcon from '../components/WhatsAppIcon';
 // import { io } from 'socket.io-client';
 
 const PAGE_LIMIT = 20;
@@ -707,7 +708,7 @@ export default function CategoryStore() {
                                     <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Share</p>
                                     <div className="grid grid-cols-2 gap-2">
                                         <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.whatsapp} target="_blank" rel="noreferrer">
-                                            <MessageCircle size={14} className="text-green-500" /> WhatsApp
+                                            <WhatsAppIcon size={14} className="text-green-500" /> WhatsApp
                                         </a>
                                         <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.facebook} target="_blank" rel="noreferrer">
                                             <Facebook size={14} className="text-blue-600" /> Facebook
