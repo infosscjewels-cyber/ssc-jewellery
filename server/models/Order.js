@@ -80,6 +80,7 @@ const isDuplicateOrderPaymentError = (error) => {
     const message = String(error?.message || '').toLowerCase();
     return message.includes('duplicate entry') && message.includes('uniq_orders_razorpay_payment');
 };
+const DUPLICATE_PAYMENT_SESSION_MESSAGE = 'payment already linked to an existing checkout. please retry with a new payment session.';
 const normalizePaymentSnapshot = (payment = null) => {
     if (!payment || typeof payment !== 'object') return null;
     return {
@@ -2627,6 +2628,7 @@ class Order {
         const attemptParams = [];
         let attemptWhere = `WHERE pa.local_order_id IS NULL
             AND pa.status = 'failed'
+            AND LOWER(COALESCE(pa.failure_reason, '')) <> '${DUPLICATE_PAYMENT_SESSION_MESSAGE}'
             AND NOT EXISTS (
                 SELECT 1
                 FROM payment_attempts pa_success

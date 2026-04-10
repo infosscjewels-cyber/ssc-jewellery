@@ -742,9 +742,8 @@ export default function Orders() {
                                                 if (isRetryingPayment) return;
                                                 setIsRetryingPayment(true);
                                                 try {
-                                                    await orderService.retryRazorpayOrder({ orderId: selectedOrder.id });
-                                                    toast.success('New payment session created. Redirecting to checkout while ordering is available...');
                                                     navigate('/checkout');
+                                                    toast.success('Redirecting to checkout to create a fresh payment session...');
                                                 } catch (error) {
                                                     toast.error(error?.message || 'Unable to retry payment');
                                                 } finally {

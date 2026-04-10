@@ -1780,6 +1780,19 @@ const getPublicPaymentAttemptStatus = async (req, res) => {
 
 const retryRazorpayPayment = async (req, res) => {
     try {
+        // Legacy endpoint kept temporarily for backward compatibility with older clients.
+        // Safe removal: after deployment logs show no calls to POST /api/orders/razorpay/retry
+        // for at least one full release cycle, and all active retry UX paths create fresh sessions
+        // directly from /checkout instead of calling this endpoint first.
+        const getHeader = typeof req.get === 'function'
+            ? (name) => req.get(name)
+            : (name) => req?.headers?.[String(name || '').toLowerCase()] || null;
+        console.warn('Legacy retryRazorpayPayment endpoint called', {
+            userId: req.user?.id || null,
+            attemptId: req.body?.attemptId || null,
+            orderId: req.body?.orderId || null,
+            source: getHeader('referer') || getHeader('origin') || null
+        });
         await assertStorefrontOpenForCheckout();
         const userId = req.user.id;
         const { attemptId, orderId } = req.body || {};

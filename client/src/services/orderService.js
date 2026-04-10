@@ -413,6 +413,7 @@ const patchAdminAttemptCaches = (attempt) => {
         attempt_id: attempt.id,
         order_ref: attempt.order_ref || `PAY-${attempt.razorpay_order_id || attempt.id}`,
         status: 'failed',
+        payment_status: attempt.payment_status || attempt.paymentStatus || attempt.status || '',
         total: Number(attempt.amount_subunits || 0) / 100,
         subtotal: Number(attempt.amount_subunits || 0) / 100,
         shipping_fee: 0,
@@ -427,7 +428,17 @@ const patchAdminAttemptCaches = (attempt) => {
         const nextOrders = [...data.orders];
         const idx = nextOrders.findIndex((row) => String(row.attempt_id || '') === String(attempt.id) || String(row.id) === String(normalized.id));
         if (idx < 0) return;
-        nextOrders[idx] = { ...nextOrders[idx], ...normalized };
+        const previous = nextOrders[idx] || {};
+        nextOrders[idx] = {
+            ...previous,
+            ...normalized,
+            customer_name: normalized.customer_name || previous.customer_name || '',
+            customer_mobile: normalized.customer_mobile || previous.customer_mobile || '',
+            payment_status: normalized.payment_status || previous.payment_status || '',
+            order_ref: normalized.order_ref || previous.order_ref || '',
+            total: Number(normalized.total || 0) > 0 ? normalized.total : previous.total,
+            subtotal: Number(normalized.subtotal || 0) > 0 ? normalized.subtotal : previous.subtotal
+        };
         adminOrdersCache[key] = {
             ...entry,
             ts: Date.now(),
@@ -577,11 +588,14 @@ export const orderService = {
         });
         return handleResponse(res);
     },
-    retryRazorpayOrder: async ({ attemptId } = {}) => {
+    // Legacy helper retained for backward compatibility while we verify no clients still depend on
+    // POST /api/orders/razorpay/retry. Safe removal: after server logs show zero calls for at least
+    // one full release cycle and all retry UX paths route users back through /checkout.
+    retryRazorpayOrder: async ({ attemptId, orderId } = {}) => {
         const res = await fetch(`${API_URL}/razorpay/retry`, {
             method: 'POST',
             headers: getAuthHeader(),
-            body: JSON.stringify({ attemptId })
+            body: JSON.stringify({ attemptId, orderId })
         });
         return handleResponse(res);
     },

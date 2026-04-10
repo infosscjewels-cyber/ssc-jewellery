@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { orderService } from '../services/orderService';
 import { useToast } from '../context/ToastContext';
 import CheckoutFlowHeader from '../components/CheckoutFlowHeader';
 import paymentIllustration from '../assets/payment.svg';
@@ -13,21 +12,18 @@ export default function PaymentFailed() {
     const { user } = useAuth();
     const [searchParams] = useSearchParams();
     const reason = normalizePaymentFailureReason(searchParams.get('reason'));
-    const attemptId = searchParams.get('attemptId') || '';
     const [isRetrying, setIsRetrying] = useState(false);
     const isGuestFailure = !user;
 
     const handleRetry = async () => {
         if (isRetrying) return;
-        if (!user) {
-            navigate('/checkout');
-            return;
-        }
         setIsRetrying(true);
         try {
-            await orderService.retryRazorpayOrder({ attemptId: attemptId || undefined });
-            toast.success('New payment session created. Redirecting to checkout...');
             navigate('/checkout');
+            if (user) {
+                toast.success('Redirecting to checkout to create a fresh payment session...');
+            }
+            return;
         } catch (error) {
             toast.error(error?.message || 'Unable to retry payment');
         } finally {

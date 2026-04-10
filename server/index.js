@@ -104,6 +104,9 @@ const {
 const {
     refreshEnabledCategoryAutopilotCatalogs
 } = require('./services/categoryAutopilotService');
+const {
+    healDuplicatePaymentFailures
+} = require('./scripts/healDuplicatePaymentFailures');
 const sanitizeRequest = require('./middleware/sanitizeRequest');
 console.log('Boot: service and middleware modules loaded');
 
@@ -401,6 +404,27 @@ const schedulePaymentAttemptReconciliationJob = () => {
     setInterval(run, intervalMs);
 };
 
+const scheduleDuplicatePaymentAttemptCleanupJob = () => {
+    const intervalHours = Math.max(1, Number(process.env.DUPLICATE_PAYMENT_ATTEMPT_CLEANUP_INTERVAL_HOURS || 24));
+    const retentionHours = Math.max(24, Number(process.env.DUPLICATE_PAYMENT_ATTEMPT_RETENTION_HOURS || 72));
+    const intervalMs = intervalHours * 60 * 60 * 1000;
+    const run = async () => {
+        try {
+            const result = await healDuplicatePaymentFailures({
+                deleteOldDuplicates: true,
+                retentionHours
+            });
+            if (Number(result?.linked || 0) > 0 || Number(result?.normalized || 0) > 0 || Number(result?.deleted || 0) > 0) {
+                console.log('Duplicate payment attempt cleanup summary:', result);
+            }
+        } catch (error) {
+            console.error('Duplicate payment attempt cleanup job failed:', error?.message || error);
+        }
+    };
+    void run();
+    setInterval(run, intervalMs);
+};
+
 const scheduleSettlementSyncJob = () => {
     let lastRunKey = '';
     const runIfWindow = async () => {
@@ -599,6 +623,7 @@ const initBackgroundJobs = () => {
     scheduleMidnightJob();
     schedulePaymentAttemptExpiryJob();
     schedulePaymentAttemptReconciliationJob();
+    scheduleDuplicatePaymentAttemptCleanupJob();
     scheduleSettlementSyncJob();
     ensureLoyaltyConfigLoaded({ force: true }).catch(() => {});
     scheduleMonthlyLoyaltyReassessment();

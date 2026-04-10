@@ -234,6 +234,10 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const [isGoalSettingsOpen, setIsGoalSettingsOpen] = useState(false);
     const [isAlertSettingsOpen, setIsAlertSettingsOpen] = useState(false);
     const [isStoreIntroOpen, setIsStoreIntroOpen] = useState(false);
+    const [isSalesRangeOpen, setIsSalesRangeOpen] = useState(false);
+    const [draftQuickRange, setDraftQuickRange] = useState('last_30_days');
+    const [draftStartDate, setDraftStartDate] = useState('');
+    const [draftEndDate, setDraftEndDate] = useState('');
     const [goalCelebration, setGoalCelebration] = useState({ active: false, title: '' });
     const [showGoalSaveSpark, setShowGoalSaveSpark] = useState(false);
     const [syncTick, setSyncTick] = useState(0);
@@ -242,8 +246,6 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const [abandonedInsights, setAbandonedInsights] = useState(null);
     const forceRefreshRef = useRef(false);
     const hasTrackedFilterChangeRef = useRef(false);
-    const startDateInputRef = useRef(null);
-    const endDateInputRef = useRef(null);
     const goalStartInputRef = useRef(null);
     const goalEndInputRef = useRef(null);
 
@@ -794,6 +796,60 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         if (key === 'manual') return 'Manual';
         return key ? key.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase()) : 'Unknown';
     };
+    useEffect(() => {
+        if (!isSalesRangeOpen) return;
+        setDraftQuickRange(quickRange);
+        setDraftStartDate(startDate);
+        setDraftEndDate(endDate);
+    }, [isSalesRangeOpen, quickRange, startDate, endDate]);
+
+    const handleDashboardQuickRangeChange = (nextRange) => {
+        const resolved = String(nextRange || 'last_30_days');
+        if (resolved === 'custom') {
+            const fallbackStart = String(draftStartDate || startDate || data?.filter?.startDate || '').trim();
+            const fallbackEnd = String(draftEndDate || endDate || data?.filter?.endDate || fallbackStart || '').trim();
+            setDraftQuickRange('custom');
+            setDraftStartDate(fallbackStart);
+            setDraftEndDate(fallbackEnd || fallbackStart);
+            return;
+        }
+        setDraftQuickRange(resolved);
+    };
+    const handleDashboardStartDateChange = (value) => {
+        const nextStart = String(value || '').trim();
+        setDraftQuickRange('custom');
+        setDraftStartDate(nextStart);
+        setDraftEndDate((prev) => {
+            const currentEnd = String(prev || '').trim();
+            if (!nextStart) return currentEnd;
+            if (!currentEnd || currentEnd < nextStart) return nextStart;
+            return currentEnd;
+        });
+    };
+    const handleDashboardEndDateChange = (value) => {
+        const nextEnd = String(value || '').trim();
+        setDraftQuickRange('custom');
+        setDraftEndDate(nextEnd);
+        setDraftStartDate((prev) => {
+            const currentStart = String(prev || '').trim();
+            if (!nextEnd) return currentStart;
+            if (!currentStart || currentStart > nextEnd) return nextEnd;
+            return currentStart;
+        });
+    };
+    const handleApplySalesRange = () => {
+        setQuickRange(draftQuickRange);
+        if (draftQuickRange === 'custom') {
+            setStartDate(draftStartDate);
+            setEndDate(draftEndDate);
+        }
+        setIsSalesRangeOpen(false);
+    };
+    const selectedRangeChipLabel = quickRange === 'custom'
+        ? ((startDate && endDate)
+            ? `${formatPrettyDate(startDate)} - ${formatPrettyDate(endDate)}`
+            : 'Custom Range')
+        : (QUICK_RANGES.find((range) => range.value === quickRange)?.label || 'Last 30 Days');
 
     return (
         <div className="space-y-6">
@@ -988,17 +1044,87 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                     )}
 
                     <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
-                        <div className="xl:col-span-3 bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
+                        <div className="xl:col-span-3 bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative">
                             <div className="flex items-center justify-between gap-2">
                                 <h3 className="min-w-0 whitespace-nowrap text-base font-semibold leading-none text-gray-900 flex items-center gap-2">
                                     <BarChart3 size={16} className="shrink-0" />
                                     <span>{trendSalesTitle}</span>
                                 </h3>
-                                <select value={trendGranularity} onChange={(e) => setTrendGranularity(e.target.value)} className="px-2 py-1 rounded-md border border-gray-200 text-xs bg-white">
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly">Weekly</option>
-                                    <option value="monthly">Monthly</option>
-                                </select>
+                                <div className="relative flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsSalesRangeOpen((prev) => !prev)}
+                                        className="inline-flex items-center gap-2 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                                        aria-expanded={isSalesRangeOpen}
+                                        aria-label="Adjust sales analytics date range"
+                                    >
+                                        <CalendarDays size={14} />
+                                        <span className="hidden sm:inline">{selectedRangeChipLabel}</span>
+                                    </button>
+                                    <select value={trendGranularity} onChange={(e) => setTrendGranularity(e.target.value)} className="px-2 py-1 rounded-md border border-gray-200 text-xs bg-white">
+                                        <option value="daily">Daily</option>
+                                        <option value="weekly">Weekly</option>
+                                        <option value="monthly">Monthly</option>
+                                    </select>
+                                    {isSalesRangeOpen && (
+                                        <div className="absolute right-0 top-full z-20 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
+                                            <div className="space-y-3">
+                                                <div>
+                                                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">Range</label>
+                                                    <select
+                                                        value={draftQuickRange}
+                                                        onChange={(e) => handleDashboardQuickRangeChange(e.target.value)}
+                                                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                                                    >
+                                                        {QUICK_RANGES.map((range) => (
+                                                            <option key={range.value} value={range.value}>{range.label}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                {draftQuickRange === 'custom' && (
+                                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                                        <label className="block">
+                                                            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">From</span>
+                                                            <input
+                                                                type="date"
+                                                                value={draftStartDate}
+                                                                max={draftEndDate || undefined}
+                                                                onChange={(e) => handleDashboardStartDateChange(e.target.value)}
+                                                                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                                                            />
+                                                        </label>
+                                                        <label className="block">
+                                                            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">To</span>
+                                                            <input
+                                                                type="date"
+                                                                value={draftEndDate}
+                                                                min={draftStartDate || undefined}
+                                                                onChange={(e) => handleDashboardEndDateChange(e.target.value)}
+                                                                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                                                            />
+                                                        </label>
+                                                    </div>
+                                                )}
+                                                <div className="flex justify-end gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsSalesRangeOpen(false)}
+                                                        className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleApplySalesRange}
+                                                        className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-accent hover:bg-primary-light"
+                                                    >
+                                                        Apply
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                             <div className="mt-4 space-y-2">
                                 {trendVisibleSeries.map((entry) => {
@@ -1551,24 +1677,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                         <Bell size={14} /> Alert Settings
                                     </button>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-2 w-full md:w-auto">
-                                    <select
-                                        value={quickRange}
-                                        onChange={(e) => setQuickRange(e.target.value)}
-                                        className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white"
-                                    >
-                                        {QUICK_RANGES.map((range) => (
-                                            <option key={range.value} value={range.value}>{range.label}</option>
-                                        ))}
-                                    </select>
-                                    {quickRange === 'custom' && (
-                                        <>
-                                            <input ref={startDateInputRef} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="sr-only" />
-                                            <input ref={endDateInputRef} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="sr-only" />
-                                            <input type="button" value={startDate ? formatPrettyDate(startDate) : 'Start Date'} onClick={() => (startDateInputRef.current?.showPicker ? startDateInputRef.current.showPicker() : startDateInputRef.current?.click())} className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white text-left" />
-                                            <input type="button" value={endDate ? formatPrettyDate(endDate) : 'End Date'} onClick={() => (endDateInputRef.current?.showPicker ? endDateInputRef.current.showPicker() : endDateInputRef.current?.click())} className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white text-left" />
-                                        </>
-                                    )}
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2 w-full md:w-auto">
                                     <select value={comparisonMode} onChange={(e) => setComparisonMode(e.target.value)} className="px-3 py-2 rounded-lg border border-gray-200 text-sm bg-white">
                                         <option value="previous_period">Compare: Previous Period</option>
                                         <option value="same_period_last_month">Compare: Last Month</option>

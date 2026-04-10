@@ -8,7 +8,7 @@ const extractPaymentId = (text = '') => {
     return match ? match[0] : '';
 };
 
-const run = async () => {
+const run = async ({ deleteOldDuplicates = false, retentionHours = 72 } = {}) => {
     const [rows] = await db.execute(
         `SELECT id, razorpay_payment_id, failure_reason
          FROM payment_attempts
@@ -22,6 +22,7 @@ const run = async () => {
 
     let linked = 0;
     let normalized = 0;
+    let deleted = 0;
     for (const row of rows) {
         const paymentId = String(row.razorpay_payment_id || '').trim() || extractPaymentId(row.failure_reason || '');
         let orderId = null;
@@ -81,15 +82,38 @@ const run = async () => {
         normalized += 1;
     }
 
-    console.log(JSON.stringify({
+    if (deleteOldDuplicates) {
+        const safeRetentionHours = Math.max(1, Number(retentionHours || 72));
+        const [deleteResult] = await db.execute(
+            `DELETE FROM payment_attempts
+             WHERE local_order_id IS NULL
+               AND status = 'failed'
+               AND LOWER(COALESCE(failure_reason, '')) = ?
+               AND updated_at < DATE_SUB(NOW(), INTERVAL ? HOUR)`,
+            [FRIENDLY_REASON.toLowerCase(), safeRetentionHours]
+        );
+        deleted = Number(deleteResult?.affectedRows || 0);
+    }
+
+    const summary = {
         scanned: rows.length,
         linked,
-        normalized
-    }, null, 2));
+        normalized,
+        deleted
+    };
+    console.log(JSON.stringify(summary, null, 2));
+    return summary;
 };
 
-run()
-    .catch((error) => {
-        console.error(error?.stack || error?.message || String(error));
-        process.exitCode = 1;
-    });
+module.exports = {
+    FRIENDLY_REASON,
+    healDuplicatePaymentFailures: run
+};
+
+if (require.main === module) {
+    run()
+        .catch((error) => {
+            console.error(error?.stack || error?.message || String(error));
+            process.exitCode = 1;
+        });
+}
