@@ -17,8 +17,22 @@ import { BRAND_LOGO_URL } from '../utils/branding.js';
 import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 // import { io } from 'socket.io-client';
 // --- 1. STATIC HERO COMPONENT (Default) ---
+const setHomeHeroViewportHeight = ({ force = false } = {}) => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    const width = window.innerWidth || document.documentElement.clientWidth || 0;
+    const height = window.innerHeight || document.documentElement.clientHeight || 0;
+    const previousWidth = Number(document.documentElement.dataset.homeHeroViewportWidth || 0);
+
+    if (!force && previousWidth && Math.abs(width - previousWidth) < 2) return;
+    if (!height) return;
+
+    document.documentElement.dataset.homeHeroViewportWidth = String(width);
+    document.documentElement.style.setProperty('--home-hero-viewport-height', `${height}px`);
+};
+
 const StaticHero = () => (
-    <section className="relative -mb-px min-h-[calc(100dvh-var(--navbar-height,74px)-var(--hero-text-carousel-height,0px)+1px)] md:min-h-[calc(100vh-var(--navbar-height,74px)-var(--hero-text-carousel-height,0px)+1px)] flex items-center justify-center bg-primary overflow-hidden px-4 py-4 md:px-6 md:py-12">
+    <section className="relative -mb-px min-h-[calc(var(--home-hero-viewport-height,100dvh)-var(--navbar-height,74px)-var(--hero-text-carousel-height,0px)+1px)] md:min-h-[calc(100vh-var(--navbar-height,74px)-var(--hero-text-carousel-height,0px)+1px)] flex items-center justify-center bg-primary overflow-hidden px-4 py-4 md:px-6 md:py-12">
         {/* Background Pattern */}
         <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-gray-100 to-transparent"></div>
         
@@ -61,7 +75,7 @@ const CarouselHero = ({ slides }) => {
     const prevSlide = () => setCurrentSlide(prev => (prev === 0 ? slides.length - 1 : prev - 1));
 
     return (
-        <section className="group relative -mb-px h-[calc(100dvh-var(--navbar-height,74px)-var(--hero-text-carousel-height,0px)+1px)] overflow-hidden bg-primary md:h-[calc(100vh-var(--navbar-height,74px)-var(--hero-text-carousel-height,0px)+1px)]">
+        <section className="group relative -mb-px h-[calc(var(--home-hero-viewport-height,100dvh)-var(--navbar-height,74px)-var(--hero-text-carousel-height,0px)+1px)] overflow-hidden bg-primary md:h-[calc(100vh-var(--navbar-height,74px)-var(--hero-text-carousel-height,0px)+1px)]">
             {slides.map((slide, index) => (
                 <div 
                     key={slide.id}
@@ -331,6 +345,26 @@ export default function Home() {
     const [showTopBtn, setShowTopBtn] = useState(false);
     const [showBirthdayModal, setShowBirthdayModal] = useState(false);
     const [showConfetti, setShowConfetti] = useState(false);
+
+    useEffect(() => {
+        setHomeHeroViewportHeight({ force: true });
+
+        const handleResize = () => setHomeHeroViewportHeight();
+        const handleOrientationChange = () => {
+            window.setTimeout(() => setHomeHeroViewportHeight({ force: true }), 120);
+        };
+
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('orientationchange', handleOrientationChange);
+
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            window.removeEventListener('orientationchange', handleOrientationChange);
+            document.documentElement.style.removeProperty('--home-hero-viewport-height');
+            delete document.documentElement.dataset.homeHeroViewportWidth;
+        };
+    }, []);
+
     const usageAudienceCards = useMemo(() => {
         if (companyInfo?.usageAudienceEnabled !== true) return [];
         return [
