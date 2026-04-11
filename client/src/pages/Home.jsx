@@ -18,7 +18,7 @@ import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 // import { io } from 'socket.io-client';
 // --- 1. STATIC HERO COMPONENT (Default) ---
 const StaticHero = () => (
-    <section className="relative -mb-px min-h-[calc(100dvh-var(--navbar-height,74px)+1px)] md:min-h-[calc(100vh-var(--navbar-height,74px)+1px)] flex items-center justify-center bg-primary overflow-hidden px-4 py-4 md:px-6 md:py-12">
+    <section className="relative -mb-px min-h-[calc(100dvh-var(--navbar-height,74px)-var(--hero-text-carousel-height,0px)+1px)] md:min-h-[calc(100vh-var(--navbar-height,74px)-var(--hero-text-carousel-height,0px)+1px)] flex items-center justify-center bg-primary overflow-hidden px-4 py-4 md:px-6 md:py-12">
         {/* Background Pattern */}
         <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-gray-100 to-transparent"></div>
         
@@ -61,7 +61,7 @@ const CarouselHero = ({ slides }) => {
     const prevSlide = () => setCurrentSlide(prev => (prev === 0 ? slides.length - 1 : prev - 1));
 
     return (
-        <section className="group relative -mb-px h-[calc(100dvh-var(--navbar-height,74px)+1px)] overflow-hidden bg-primary md:h-[calc(100vh-var(--navbar-height,74px)+1px)]">
+        <section className="group relative -mb-px h-[calc(100dvh-var(--navbar-height,74px)-var(--hero-text-carousel-height,0px)+1px)] overflow-hidden bg-primary md:h-[calc(100vh-var(--navbar-height,74px)-var(--hero-text-carousel-height,0px)+1px)]">
             {slides.map((slide, index) => (
                 <div 
                     key={slide.id}
@@ -205,6 +205,7 @@ const getPromoTitleFont = (value) => PROMO_TITLE_FONTS[stableHash(value) % PROMO
 
 const TextCarousel = ({ texts }) => {
     const [index, setIndex] = useState(0);
+    const carouselRef = useRef(null);
 
     useEffect(() => {
         if (!texts || texts.length === 0) return;
@@ -214,10 +215,46 @@ const TextCarousel = ({ texts }) => {
         return () => clearInterval(interval);
     }, [texts]);
 
+    useEffect(() => {
+        if (typeof document === 'undefined') return;
+
+        if (!texts || texts.length === 0) {
+            document.documentElement.style.setProperty('--hero-text-carousel-height', '0px');
+            return;
+        }
+
+        const carousel = carouselRef.current;
+        if (!carousel) return;
+
+        const updateTextCarouselHeight = () => {
+            document.documentElement.style.setProperty('--hero-text-carousel-height', `${Math.ceil(carousel.getBoundingClientRect().height)}px`);
+        };
+
+        updateTextCarouselHeight();
+
+        if (typeof ResizeObserver === 'undefined') {
+            window.addEventListener('resize', updateTextCarouselHeight);
+            return () => {
+                document.documentElement.style.setProperty('--hero-text-carousel-height', '0px');
+                window.removeEventListener('resize', updateTextCarouselHeight);
+            };
+        }
+
+        const observer = new ResizeObserver(updateTextCarouselHeight);
+        observer.observe(carousel);
+        window.addEventListener('resize', updateTextCarouselHeight);
+
+        return () => {
+            document.documentElement.style.setProperty('--hero-text-carousel-height', '0px');
+            observer.disconnect();
+            window.removeEventListener('resize', updateTextCarouselHeight);
+        };
+    }, [texts]);
+
     if (!texts || texts.length === 0) return null;
 
     return (
-        <div className="w-full bg-primary text-accent">
+        <div ref={carouselRef} className="w-full bg-primary text-accent">
             <div className="container mx-auto px-6 md:px-4 py-4 md:py-3 overflow-hidden">
                 <div className="relative h-6 text-center">
                     {texts.map((item, i) => (
