@@ -2,7 +2,10 @@ import { absoluteUrl, buildCanonical, firstCategoryName, getProductImageCandidat
 import { SITE_DESCRIPTION, SITE_NAME } from './constants.js';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 
+const safeObject = (value) => (value && typeof value === 'object' ? value : {});
+
 const buildPostalAddress = (company = {}) => {
+    company = safeObject(company);
     const address = normalizeText(company.address);
     const city = normalizeText(company.city);
     const state = normalizeText(company.state);
@@ -20,6 +23,7 @@ const buildPostalAddress = (company = {}) => {
 };
 
 export const buildOrganizationSchema = (company = {}) => {
+    company = safeObject(company);
     const name = normalizeText(company.displayName) || SITE_NAME;
     const logo = absoluteUrl(BRAND_LOGO_URL);
     const sameAs = [
@@ -54,6 +58,7 @@ export const buildOrganizationSchema = (company = {}) => {
 };
 
 export const buildLocalBusinessSchema = (company = {}) => {
+    company = safeObject(company);
     const name = normalizeText(company.displayName) || SITE_NAME;
     const logo = absoluteUrl(BRAND_LOGO_URL);
     const image = absoluteUrl(company.contactJumbotronImageUrl || company.logoUrl || '/contact.jpg');

@@ -28,6 +28,7 @@ import {
 
 const robotsIndex = 'index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1';
 const robotsNoindex = 'noindex,nofollow';
+const safeObject = (value) => (value && typeof value === 'object' ? value : {});
 
 export const isNoindexPath = (pathname = '') => {
     const path = String(pathname || '/').split('?')[0].toLowerCase();
@@ -55,6 +56,7 @@ export const buildHomeSeo = ({
     slides = [],
     banners = []
 } = {}) => {
+    company = safeObject(company);
     const categoryNames = (Array.isArray(categories) ? categories : []).map((entry) => normalizeText(entry?.name)).filter(Boolean);
     const productTitles = (Array.isArray(products) ? products : []).map((entry) => normalizeText(entry?.title)).filter(Boolean);
     const preferredImages = [
@@ -92,6 +94,7 @@ export const buildShopSeo = ({
     categories = [],
     selectedCategory = 'all'
 } = {}) => {
+    company = safeObject(company);
     const brand = normalizeText(company.displayName) || SITE_NAME;
     const categoryNames = (Array.isArray(categories) ? categories : []).map((entry) => normalizeText(entry?.name)).filter(Boolean);
     const selected = normalizeText(selectedCategory);
@@ -130,6 +133,7 @@ export const buildCategorySeo = ({
     category = null,
     products = []
 } = {}) => {
+    company = safeObject(company);
     const categoryName = normalizeText(category?.name || category?.title) || 'Category';
     const brand = normalizeText(company.displayName) || SITE_NAME;
     const topProducts = (Array.isArray(products) ? products : []).map((product) => normalizeText(product?.title)).filter(Boolean);
@@ -167,6 +171,7 @@ export const buildProductSeo = ({
     company = {},
     product = null
 } = {}) => {
+    company = safeObject(company);
     if (!product?.id) return buildDefaultSeo('/product');
     const brand = normalizeText(company.displayName) || SITE_NAME;
     const categoryName = firstCategoryName(product.categories);
@@ -225,6 +230,7 @@ export const buildProductSeo = ({
 };
 
 export const buildFaqSeo = ({ company = {} } = {}) => {
+    company = safeObject(company);
     const brand = normalizeText(company.displayName) || SITE_NAME;
     return {
         title: toTitle('Frequently Asked Questions'),
@@ -246,6 +252,7 @@ export const buildFaqSeo = ({ company = {} } = {}) => {
 };
 
 export const buildAboutSeo = ({ company = {}, products = [], categories = [] } = {}) => {
+    company = safeObject(company);
     const brand = normalizeText(company.displayName) || SITE_NAME;
     const categoryNames = (categories || []).map((entry) => normalizeText(entry?.name)).filter(Boolean);
     return {
@@ -273,6 +280,7 @@ export const buildAboutSeo = ({ company = {}, products = [], categories = [] } =
 };
 
 export const buildContactSeo = ({ company = {} } = {}) => {
+    company = safeObject(company);
     const brand = normalizeText(company.displayName) || SITE_NAME;
     const cityOrAddress = normalizeText(company.address);
     return {
@@ -296,6 +304,7 @@ export const buildContactSeo = ({ company = {} } = {}) => {
 };
 
 export const buildPolicySeo = ({ company = {}, policyKey = 'terms', policyTitle = 'Terms & Conditions' } = {}) => {
+    company = safeObject(company);
     const brand = normalizeText(company.displayName) || SITE_NAME;
     return {
         title: toTitle(policyTitle),
@@ -316,6 +325,7 @@ export const buildPolicySeo = ({ company = {}, policyKey = 'terms', policyTitle 
 };
 
 export const buildCreditsSeo = ({ company = {} } = {}) => {
+    company = safeObject(company);
     const brand = normalizeText(company.displayName) || SITE_NAME;
     const title = 'Site Credits';
     const description = clampDescription(
@@ -351,6 +361,7 @@ export const buildCreditsSeo = ({ company = {} } = {}) => {
 };
 
 export const buildSitemapPageSeo = ({ company = {}, links = [] } = {}) => {
+    company = safeObject(company);
     const brand = normalizeText(company.displayName) || SITE_NAME;
     const title = 'Sitemap';
     const description = clampDescription(
