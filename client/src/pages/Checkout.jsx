@@ -13,7 +13,6 @@ import { useShipping } from '../context/ShippingContext';
 import { useSocket } from '../context/SocketContext';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
-import amexLogo from '../assets/amex.png';
 import cartIllustration from '../assets/cart.svg';
 import successDing from '../assets/success_ding.mp3';
 import waitIllustration from '../assets/wait.svg';
@@ -181,6 +180,7 @@ export default function Checkout() {
     const [postOtpCheckoutSync, setPostOtpCheckoutSync] = useState(null);
     const [isPreparingVerifiedCheckout, setIsPreparingVerifiedCheckout] = useState(false);
     const [profileFieldErrors, setProfileFieldErrors] = useState({ mobile: '', email: '' });
+    const [touchedFields, setTouchedFields] = useState({ mobile: false });
     const orderCelebratedRef = useRef(false);
     const autoCouponAttemptsRef = useRef(new Set());
     const lastTierSeenRef = useRef(String(user?.loyaltyTier || 'regular').toLowerCase());
@@ -760,6 +760,13 @@ export default function Checkout() {
         setForm((prev) => ({ ...prev, [name]: nextValue }));
     };
 
+    const handleFieldBlur = (e) => {
+        const { name } = e.target;
+        if (name === 'mobile') {
+            setTouchedFields((prev) => ({ ...prev, mobile: true }));
+        }
+    };
+
     const handleAddressChange = useCallback((section, field, value) => {
         let nextValue = value;
         if (field === 'zip') {
@@ -971,6 +978,10 @@ export default function Checkout() {
         totalWeightKg,
         useDefaultZone: true
     }), [zones, form.address?.state, subtotal, totalWeightKg]);
+    const freeShippingSavings = useMemo(
+        () => Number(fallbackShippingPreview?.freeShippingSavings || 0),
+        [fallbackShippingPreview?.freeShippingSavings]
+    );
     const isShippingUnavailable = Boolean(
         hasCompleteAddress(form.address)
         && fallbackShippingPreview
@@ -1053,8 +1064,8 @@ export default function Checkout() {
     const isEstimatedLoyaltyDiscount = loyaltyDiscount > 0 && !hasServerLoyaltyDiscount;
     const isEstimatedLoyaltyShippingDiscount = loyaltyShippingDiscount > 0 && !hasServerLoyaltyShippingDiscount;
     const totalSavings = useMemo(
-        () => Number(productMrpSavings || 0) + Number(couponDiscount || 0) + Number(loyaltyDiscount || 0) + Number(loyaltyShippingDiscount || 0),
-        [productMrpSavings, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]
+        () => Number(productMrpSavings || 0) + Number(couponDiscount || 0) + Number(loyaltyDiscount || 0) + Number(loyaltyShippingDiscount || 0) + Number(freeShippingSavings || 0),
+        [productMrpSavings, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount, freeShippingSavings]
     );
     const displayPricing = useMemo(
         () => checkoutSummary?.displayPricing && typeof checkoutSummary.displayPricing === 'object' ? checkoutSummary.displayPricing : null,
@@ -1163,6 +1174,7 @@ export default function Checkout() {
         )
     );
     const shouldShowValidationHints = Boolean(attemptedPay || hasLoggedInRequiredDetailsMissing);
+    const shouldShowMobileValidationHint = Boolean(fieldErrors.mobile && (attemptedPay || touchedFields.mobile || hasLoggedInRequiredDetailsMissing));
     const formInputsDisabled = Boolean(user && !editing && !hasLoggedInRequiredDetailsMissing);
     const selectedCouponForInput = useMemo(
         () => availableCoupons.find((entry) => String(entry.code || '').toUpperCase() === String(coupon || '').trim().toUpperCase()) || null,
@@ -1779,17 +1791,18 @@ export default function Checkout() {
                                                 maxLength={10}
                                                 value={form.mobile}
                                                 onChange={handleFieldChange}
+                                                onBlur={handleFieldBlur}
                                                 disabled={Boolean(user) || formInputsDisabled}
                                                 placeholder="9876543210"
-                                                className={`input-field pl-10 disabled:bg-gray-50 ${(mobileValidationMessage && String(form.mobile || '').trim()) || (shouldShowValidationHints && fieldErrors.mobile) ? 'border-red-400 bg-red-50/30' : ''}`}
+                                                className={`input-field pl-10 disabled:bg-gray-50 ${shouldShowMobileValidationHint ? 'border-red-400 bg-red-50/30' : ''}`}
                                             />
                                             <Phone size={16} className="absolute left-3 top-3.5 text-gray-400" />
                                         </div>
                                         {isGuestLookupLoading && !user && (
                                             <p className="text-[11px] text-gray-500">Checking this mobile number...</p>
                                         )}
-                                        {shouldShowValidationHints && fieldErrors.mobile && (
-                                            <p className="text-[11px] text-red-600">{fieldErrors.mobile}</p>
+                                        {shouldShowMobileValidationHint && (
+                                            <p className="text-[11px] text-red-600">{fieldErrors.mobile || 'Enter a valid 10-digit mobile number.'}</p>
                                         )}
                                     </div>
                                     <div className="space-y-2">
@@ -2181,6 +2194,13 @@ export default function Checkout() {
                                         <span>Shipping</span>
                                         {isShippingUnavailable ? (
                                             <span className="font-semibold text-amber-700">Unavailable for this state</span>
+                                        ) : Number(summaryShippingDisplay || 0) <= 0 ? (
+                                            <span className="inline-flex items-center gap-2 font-semibold">
+                                                {freeShippingSavings > 0 && (
+                                                    <span className="text-gray-400 line-through">₹{freeShippingSavings.toLocaleString()}</span>
+                                                )}
+                                                <span className="text-emerald-600">FREE</span>
+                                            </span>
                                         ) : (
                                             <span className="font-semibold text-gray-800">₹{summaryShippingDisplay.toLocaleString()}</span>
                                         )}
@@ -2218,6 +2238,12 @@ export default function Checkout() {
                                             <span className="font-semibold">- ₹{Number(loyaltyShippingDiscount || 0).toLocaleString()}</span>
                                         </div>
                                     )}
+                                    {freeShippingSavings > 0 && (
+                                        <div className="flex items-center justify-between text-emerald-700">
+                                            <span>Shipping Waived</span>
+                                            <span className="font-semibold">- ₹{Number(freeShippingSavings || 0).toLocaleString()}</span>
+                                        </div>
+                                    )}
                                     {totalSavings > 0 && (
                                         <div className="flex items-center justify-between text-emerald-700">
                                             <span>Total Savings</span>
@@ -2226,7 +2252,7 @@ export default function Checkout() {
                                     )}
                                     {totalSavings > 0 && (
                                         <p className="text-[11px] text-emerald-700/80 pt-1">
-                                            Savings = Product Discount + Coupon + Member Discount + Shipping Benefit.
+                                            Savings = Product Discount + Coupon + Member Discount + Shipping Benefit + Shipping Waived.
                                         </p>
                                     )}
                                     <div className="flex items-start justify-between text-gray-500">
@@ -2306,20 +2332,18 @@ export default function Checkout() {
                                 </div>
                                 <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-gray-500">
                                     {[
-                                        { name: 'Visa', logo: '/payment-logos/visa.svg' },
-                                        { name: 'Mastercard', logo: '/payment-logos/mastercard.svg' },
-                                        { name: 'Amex', logo: amexLogo },
-                                        { name: 'RuPay', logo: '/payment-logos/rupay.svg' },
-                                        { name: 'UPI', logo: '/payment-logos/upi.svg' },
-                                        { name: 'EMI', logo: '/payment-logos/emi.svg' },
-                                        { name: 'NetBanking', logo: '/payment-logos/netbanking.svg' },
-                                        { name: 'Wallets', logo: '/payment-logos/wallets.svg' }
+                                        { name: 'Visa', logo: '/payment-logos/visa.png' },
+                                        { name: 'Mastercard', logo: '/payment-logos/mastercard.png' },
+                                        { name: 'American Express', logo: '/payment-logos/amex.png' },
+                                        { name: 'RuPay', logo: '/payment-logos/rupay.png' },
+                                        { name: 'Google Pay', logo: '/payment-logos/google-pay.png' },
+                                        { name: 'Paytm', logo: '/payment-logos/paytm.png' }
                                     ].map((method) => (
                                         <div key={method.name} className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50">
                                             <img
                                                 src={method.logo}
                                                 alt={method.name}
-                                                className={`${method.name === 'Amex' ? 'h-8 w-full max-w-[150px]' : 'h-6 w-full max-w-[72px]'} object-contain`}
+                                                className="h-8 w-full max-w-[120px] object-contain"
                                                 loading="lazy"
                                                 onError={(e) => {
                                                     e.currentTarget.style.display = 'none';
@@ -2461,7 +2485,11 @@ export default function Checkout() {
                                             </div>
                                             <div className="flex items-center justify-between text-sm">
                                                 <span className="text-gray-500">Shipping</span>
-                                                <span className="font-semibold text-gray-800">₹{Number(displayPricingValue?.displayShippingBase ?? shippingValue).toLocaleString()}</span>
+                                                {Number(displayPricingValue?.displayShippingBase ?? shippingValue) <= 0 ? (
+                                                    <span className="font-semibold text-emerald-600">FREE</span>
+                                                ) : (
+                                                    <span className="font-semibold text-gray-800">₹{Number(displayPricingValue?.displayShippingBase ?? shippingValue).toLocaleString()}</span>
+                                                )}
                                             </div>
                                             <div className="flex items-center justify-between text-sm">
                                                 <span className="text-gray-500">Price Before Discounts</span>

@@ -704,7 +704,7 @@ export default function CategoryStore() {
                                 <Share2 size={18} />
                             </button>
                             {isShareOpen && (
-                                <div className="absolute left-full ml-3 top-0 w-56 bg-white border border-gray-200 shadow-2xl rounded-xl p-3 z-[70]">
+                                <div className="fixed inset-x-4 top-1/2 z-[70] w-auto max-w-sm -translate-y-1/2 rounded-xl border border-gray-200 bg-white p-3 shadow-2xl sm:absolute sm:inset-x-auto sm:left-full sm:top-0 sm:mt-0 sm:ml-3 sm:w-56 sm:max-w-none sm:translate-y-0">
                                     <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Share</p>
                                     <div className="grid grid-cols-2 gap-2">
                                         <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.whatsapp} target="_blank" rel="noreferrer">

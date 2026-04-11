@@ -37,21 +37,21 @@ const QUICK_RANGES = [
 
 const MAX_RANGE_DAYS = 90;
 const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
-const MOBILE_STATUS_FILTER_VALUES = ['confirmed', 'pending', 'completed', 'cancelled', 'all'];
+const MOBILE_STATUS_FILTER_VALUES = ['confirmed', 'pending', 'completed', 'attempted', 'cancelled', 'failed', 'all'];
 const KPI_CARD_THEMES = {
     sky: {
         shell: 'bg-gradient-to-br from-sky-200 via-sky-300 to-cyan-500 border-sky-700/80',
-        label: 'text-sky-950',
-        value: 'text-sky-950',
-        iconChip: 'text-sky-950 bg-white/20 border-sky-400/50',
-        iconGhost: 'text-sky-950/20'
+        label: 'text-slate-900/85',
+        value: 'text-slate-950',
+        iconChip: 'text-slate-900 bg-slate-900/8 border-slate-900/10',
+        iconGhost: 'text-slate-900/20'
     },
     green: {
         shell: 'bg-gradient-to-br from-lime-200 via-emerald-300 to-green-500 border-emerald-700/80',
-        label: 'text-emerald-950',
-        value: 'text-emerald-950',
-        iconChip: 'text-emerald-950 bg-white/20 border-lime-400/50',
-        iconGhost: 'text-emerald-950/20'
+        label: 'text-black/85',
+        value: 'text-black',
+        iconChip: 'text-black bg-black/10 border-black/10',
+        iconGhost: 'text-black/25'
     },
     pink: {
         shell: 'bg-gradient-to-br from-fuchsia-200 via-pink-300 to-rose-500 border-fuchsia-700/80',
@@ -62,19 +62,42 @@ const KPI_CARD_THEMES = {
     },
     brown: {
         shell: 'bg-gradient-to-br from-amber-200 via-orange-300 to-stone-500 border-amber-800/80',
-        label: 'text-stone-950',
-        value: 'text-stone-950',
-        iconChip: 'text-stone-950 bg-white/20 border-amber-400/50',
-        iconGhost: 'text-stone-950/20'
+        label: 'text-white/90 drop-shadow-sm',
+        value: 'text-white drop-shadow-sm',
+        iconChip: 'text-white bg-white/15 border-white/25 backdrop-blur-[1px]',
+        iconGhost: 'text-white/45 drop-shadow-sm'
     },
     red: {
         shell: 'bg-gradient-to-br from-rose-200 via-red-300 to-red-500 border-red-700/80',
-        label: 'text-red-950',
-        value: 'text-red-950',
-        iconChip: 'text-red-950 bg-white/20 border-red-400/50',
-        iconGhost: 'text-red-950/20'
+        label: 'text-white/90 drop-shadow-sm',
+        value: 'text-white drop-shadow-sm',
+        iconChip: 'text-white bg-white/15 border-white/25 backdrop-blur-[1px]',
+        iconGhost: 'text-white/45 drop-shadow-sm'
     }
 };
+const KPI_PATTERN_STYLES = {
+    sky: {
+        backgroundColor: '#ffffff',
+        backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.28), rgba(30,64,175,0.04)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 200 200'%3E%3Cpolygon fill='%23DCEFFA' points='100 0 0 100 100 100 100 200 200 100 200 0'/%3E%3C/svg%3E")`,
+        backgroundSize: 'cover, 160px 160px'
+    },
+    green: {
+        backgroundColor: '#ddffaa',
+        backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.16), rgba(34,68,17,0.06)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cpolygon fill='%23AE9' points='120 120 60 120 90 90 120 60 120 0 120 0 60 60 0 0 0 60 30 90 60 120 120 120'/%3E%3C/svg%3E")`,
+        backgroundSize: 'cover, 120px 120px'
+    },
+    red: {
+        backgroundColor: '#7f1d1d',
+        backgroundImage: 'linear-gradient(135deg, rgba(15,23,42,0.36), rgba(127,29,29,0.2)), linear-gradient(135deg, rgba(254,202,202,0.12) 25%, transparent 25%), linear-gradient(225deg, rgba(244,63,94,0.2) 25%, transparent 25%), linear-gradient(45deg, rgba(190,18,60,0.22) 25%, transparent 25%)',
+        backgroundSize: 'cover, 90px 90px, 90px 90px, 90px 90px'
+    },
+    brown: {
+        backgroundColor: '#9a5b00',
+        backgroundImage: `linear-gradient(135deg, rgba(69,26,3,0.32), rgba(245,158,11,0.08)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 100 100'%3E%3Crect x='0' y='0' width='46' height='46' fill-opacity='0.45' fill='%23c77700'/%3E%3C/svg%3E")`,
+        backgroundSize: 'cover, 40px 40px'
+    }
+};
+const getKpiCardStyle = (theme) => KPI_PATTERN_STYLES[theme] || undefined;
 const applyKpiThemeRotation = (cards = [], startIndex = 0) => cards.map((card, index) => ({
     ...card,
     theme: KPI_THEME_SEQUENCE[(startIndex + index) % KPI_THEME_SEQUENCE.length]
@@ -110,6 +133,7 @@ const getOrderStatusBadgeClasses = (status) => {
     const normalized = normalizeOrderStatus(status);
     if (normalized === 'confirmed') return 'bg-sky-200 text-sky-950 border border-sky-300';
     if (normalized === 'pending') return 'bg-amber-200 text-amber-950 border border-amber-300';
+    if (normalized === 'attempted') return 'bg-orange-200 text-orange-950 border border-orange-300';
     if (normalized === 'completed') return 'bg-lime-200 text-emerald-950 border border-lime-300';
     if (normalized === 'failed') return 'bg-rose-200 text-rose-950 border border-rose-300';
     if (normalized === 'cancelled') return 'bg-red-200 text-red-950 border border-red-300';
@@ -219,23 +243,39 @@ const isTerminalOrderStatus = (status) => {
     const current = normalizeOrderStatus(status);
     return current === 'cancelled';
 };
+const PAYMENT_CONFIRMATION_PENDING_STATUSES = new Set([
+    'attempted',
+    'verification_pending',
+    'paid_unverified',
+    'reconciliation_pending',
+    'authorized'
+]);
+const PAYMENT_SESSION_PENDING_STATUSES = new Set([
+    ...PAYMENT_CONFIRMATION_PENDING_STATUSES,
+    'created',
+    'checkout_opened'
+]);
 const orderMatchesStatusFilter = (order, filterValue = 'all') => {
     const filter = String(filterValue || 'all').trim().toLowerCase();
     if (!filter || filter === 'all') return true;
     const status = normalizeOrderStatus(order?.status || 'confirmed');
     const createdTs = new Date(order?.created_at || order?.createdAt || 0).getTime();
+    const paymentStatus = String(order?.payment_status || order?.paymentStatus || '').trim().toLowerCase();
     const ageHours = Number.isFinite(createdTs) && createdTs > 0
         ? (Date.now() - createdTs) / (1000 * 60 * 60)
         : null;
     const isOverdueConfirmed = status === 'confirmed' && Number.isFinite(ageHours) && ageHours >= 24;
     if (filter === 'failed') {
-        return status === 'failed' || String(order?.payment_status || '').trim().toLowerCase() === 'failed';
+        return status === 'failed' || paymentStatus === 'failed';
+    }
+    if (filter === 'attempted') {
+        return PAYMENT_CONFIRMATION_PENDING_STATUSES.has(paymentStatus);
     }
     if (filter === 'pending') {
-        return status === 'pending' || isOverdueConfirmed;
+        return status === 'pending' || (isOverdueConfirmed && ['paid', 'captured'].includes(paymentStatus));
     }
     if (filter === 'confirmed') {
-        return status === 'confirmed' && !isOverdueConfirmed;
+        return ['paid', 'captured'].includes(paymentStatus) && status === 'confirmed' && !isOverdueConfirmed;
     }
     return status === filter;
 };
@@ -243,7 +283,9 @@ const getPaymentStatusBadgeClasses = (status) => {
     const normalized = String(status || '').trim().toLowerCase();
     if (normalized === 'paid') return 'bg-lime-200 text-emerald-950 border border-lime-300';
     if (['failed', 'expired'].includes(normalized)) return 'bg-red-200 text-red-950 border border-red-300';
-    if (['pending', 'created', 'attempted'].includes(normalized)) return 'bg-amber-200 text-amber-950 border border-amber-300';
+    if (PAYMENT_SESSION_PENDING_STATUSES.has(normalized) || normalized === 'pending') {
+        return 'bg-amber-200 text-amber-950 border border-amber-300';
+    }
     if (normalized === 'refunded') return 'bg-sky-200 text-sky-950 border border-sky-300';
     return 'bg-fuchsia-200 text-rose-950 border border-fuchsia-300';
 };
@@ -251,7 +293,7 @@ const getPaymentHeaderBadgeClasses = (status) => {
     const normalized = String(status || '').trim().toLowerCase();
     if (normalized === 'paid') return 'bg-lime-50/95 text-lime-900 border border-lime-100';
     if (['failed', 'expired'].includes(normalized)) return 'bg-red-50/95 text-red-900 border border-red-100';
-    if (['pending', 'created', 'attempted'].includes(normalized)) return 'bg-amber-50/95 text-amber-900 border border-amber-100';
+    if (PAYMENT_SESSION_PENDING_STATUSES.has(normalized) || normalized === 'pending') return 'bg-amber-50/95 text-amber-900 border border-amber-100';
     if (normalized === 'refunded') return 'bg-sky-50/95 text-sky-900 border border-sky-100';
     return 'bg-fuchsia-50/95 text-fuchsia-900 border border-fuchsia-100';
 };
@@ -767,8 +809,8 @@ export function Orders({
     const [searchInput, setSearchInput] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
-    const [quickRange, setQuickRange] = useState('latest_10');
-    const [draftQuickRange, setDraftQuickRange] = useState('latest_10');
+    const [quickRange, setQuickRange] = useState('last_30_days');
+    const [draftQuickRange, setDraftQuickRange] = useState('last_30_days');
     const [draftStartDate, setDraftStartDate] = useState('');
     const [draftEndDate, setDraftEndDate] = useState('');
     const [sourceChannel, setSourceChannel] = useState('all');
@@ -791,6 +833,7 @@ export function Orders({
     const [isDetailsOpen, setIsDetailsOpen] = useState(false);
     const [isDetailsLoading, setIsDetailsLoading] = useState(false);
     const [detailsLastSyncedAt, setDetailsLastSyncedAt] = useState(null);
+    const [isDetailsDrawerScrolled, setIsDetailsDrawerScrolled] = useState(false);
     const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
     const [cancellationMode, setCancellationMode] = useState('');
     const [manualRefundAmount, setManualRefundAmount] = useState('');
@@ -818,8 +861,9 @@ export function Orders({
     const [preferredPrinter, setPreferredPrinter] = useState(() => getStoredPrinterPreference());
     const [labelPrintModalOrder, setLabelPrintModalOrder] = useState(null);
     const [isPrinterConnecting, setIsPrinterConnecting] = useState(false);
-    const [selectedStatusCount, setSelectedStatusCount] = useState(0);
+    const [selectedStatusCount, setSelectedStatusCount] = useState(null);
     const [zoomedItemPreview, setZoomedItemPreview] = useState(null);
+    const detailsDrawerScrollRef = useRef(null);
     const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 4), [page, totalPages]);
     const [confirmModal, setConfirmModal] = useState({
         isOpen: false,
@@ -955,7 +999,7 @@ export function Orders({
         if (isAttemptEntry(order)) return `attempt:${order?.attempt_id || order?.id}`;
         return `order:${order?.order_id || order?.id}`;
     };
-    const isPaidPayment = (order) => String(order?.payment_status || '').toLowerCase() === 'paid';
+    const isPaidPayment = (order) => ['paid', 'captured'].includes(String(order?.payment_status || '').toLowerCase());
     const canDeleteRow = (order) => !isPaidPayment(order);
     const canReconcileAttempt = (order) => {
         if (!isAttemptEntry(order)) return false;
@@ -1321,8 +1365,18 @@ export function Orders({
             const listData = await orderService.getAdminOrders(listParams);
             if (requestSeq !== fetchSeqRef.current) return;
 
+            if (import.meta.env.DEV) {
+                console.debug('[admin orders] list response', {
+                    params: listParams,
+                    pagination: listData?.pagination || null,
+                    totalOrders: listData?.pagination?.totalOrders,
+                    ordersCount: Array.isArray(listData?.orders) ? listData.orders.length : 0
+                });
+            }
+
             setOrders(sortOrdersForView(listData.orders || [], sortBy));
-            setSelectedStatusCount(Number(listData?.pagination?.totalOrders || 0));
+            const totalOrdersValue = Number(listData?.pagination?.totalOrders);
+            setSelectedStatusCount(Number.isFinite(totalOrdersValue) ? totalOrdersValue : 0);
             const resolvedMetrics = listData?.metrics || null;
             setMetrics(resolvedMetrics);
             if (resolvedMetrics) {
@@ -1462,10 +1516,10 @@ export function Orders({
         const nextEndDate = toDateOnly(nextEnd);
         const span = (nextStartDate && nextEndDate) ? diffInDays(nextStartDate, nextEndDate) : 0;
         if (nextStartDate && nextEndDate && span > MAX_RANGE_DAYS) {
-            setDraftQuickRange('latest_10');
+            setDraftQuickRange('last_30_days');
             setDraftStartDate('');
             setDraftEndDate('');
-            setQuickRange('latest_10');
+            setQuickRange('last_30_days');
             setStartDate('');
             setEndDate('');
             shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
@@ -1512,10 +1566,10 @@ export function Orders({
         const normalizedStatus = normalizeStatusSelection(nextStatus);
         setDraftStatusFilter(normalizedStatus);
         if (shouldResetDashboardRangeOnNextStatusChangeRef.current && quickRange === 'custom') {
-            setDraftQuickRange('latest_10');
+            setDraftQuickRange('last_30_days');
             setDraftStartDate('');
             setDraftEndDate('');
-            setQuickRange('latest_10');
+            setQuickRange('last_30_days');
             setStartDate('');
             setEndDate('');
             shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
@@ -2567,7 +2621,9 @@ export function Orders({
             value: dynamicStatusValue,
             icon: CheckCircle2
         }
-    ]), [dynamicStatusLabel, dynamicStatusValue, effectiveMetrics]);
+    ]).map((card) => (
+        card.label === 'Pending' ? { ...card, theme: 'red' } : card
+    )), [dynamicStatusLabel, dynamicStatusValue, effectiveMetrics]);
     const activeLabelOrder = labelPrintModalOrder;
     const activeLabelOrderId = activeLabelOrder?.order_id || activeLabelOrder?.id || '';
     const activeFromValidation = activeLabelOrder ? getFromLabelValidation(activeLabelOrder) : { ok: false, missing: [] };
@@ -2586,7 +2642,9 @@ export function Orders({
         { value: 'confirmed', label: 'New' },
         { value: 'pending', label: 'Pending' },
         { value: 'completed', label: 'Completed' },
+        { value: 'attempted', label: 'Attempted' },
         { value: 'cancelled', label: 'Cancelled' },
+        { value: 'failed', label: 'Failed' },
         { value: 'all', label: 'All' }
     ];
     const mobileStatusMetricCounts = useMemo(() => (
@@ -2600,23 +2658,29 @@ export function Orders({
         const rows = Array.isArray(orders) ? orders : [];
         const counts = {
             confirmed: Number(mobileStatusMetricCounts.confirmed || 0),
+            attempted: Number(mobileStatusMetricCounts.attempted || 0),
             pending: Number(mobileStatusMetricCounts.pending || 0),
             completed: Number(mobileStatusMetricCounts.completed || 0),
             cancelled: Number(mobileStatusMetricCounts.cancelled || 0),
+            failed: Number(mobileStatusMetricCounts.failed || 0),
             all: Number(mobileStatusMetricCounts.all || rows.length)
         };
 
-        if (!counts.confirmed && !counts.pending && !counts.completed && !counts.cancelled && !counts.all) {
+        if (!counts.confirmed && !counts.pending && !counts.completed && !counts.attempted && !counts.cancelled && !counts.failed && !counts.all) {
             rows.forEach((order) => {
                 if (orderMatchesStatusFilter(order, 'confirmed')) counts.confirmed += 1;
                 if (orderMatchesStatusFilter(order, 'pending')) counts.pending += 1;
                 if (orderMatchesStatusFilter(order, 'completed')) counts.completed += 1;
+                if (orderMatchesStatusFilter(order, 'attempted')) counts.attempted += 1;
                 if (orderMatchesStatusFilter(order, 'cancelled')) counts.cancelled += 1;
+                if (orderMatchesStatusFilter(order, 'failed')) counts.failed += 1;
             });
             counts.all = rows.length;
         }
 
-        counts[statusFilter] = selectedStatusCount;
+        if (selectedStatusCount !== null) {
+            counts[statusFilter] = selectedStatusCount;
+        }
         return counts;
     }, [mobileStatusMetricCounts, orders, selectedStatusCount, statusFilter]);
     const selectedPeriodText = useMemo(() => {
@@ -2654,6 +2718,7 @@ export function Orders({
     useEffect(() => {
         if (!isDetailsOpen) {
             setZoomedItemPreview(null);
+            setIsDetailsDrawerScrolled(false);
         }
     }, [isDetailsOpen]);
     const sortOptions = [
@@ -2911,11 +2976,8 @@ export function Orders({
 
             <div className="hidden md:grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
                 {cards.map((card, index) => (
-                    <div key={`${card.label}-${index}`} className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm p-5 flex items-center gap-4 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`}>
+                    <div key={`${card.label}-${index}`} className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm p-5 flex items-center gap-4 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`} style={getKpiCardStyle(card.theme)}>
                         <card.icon size={56} className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || 'sky'].iconGhost}`} />
-                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${KPI_CARD_THEMES[card.theme || 'sky'].iconChip}`}>
-                            <card.icon size={20} />
-                        </div>
                         <div>
                             <p className={`text-xs uppercase tracking-widest font-semibold ${KPI_CARD_THEMES[card.theme || 'sky'].label}`}>{card.label}</p>
                             <p className={`text-lg font-bold ${KPI_CARD_THEMES[card.theme || 'sky'].value}`}>{card.value}</p>
@@ -2952,22 +3014,29 @@ export function Orders({
                             <Filter size={17} />
                         </button>
                     </div>
-                    <div className="grid grid-cols-5 gap-1.5">
-                        {mobileStatusChips.map((chip) => {
-                            const active = statusFilter === chip.value;
-                            return (
-                                <button
-                                    key={chip.value}
-                                    type="button"
-                                    onClick={() => handleStatusFilterChange(chip.value)}
-                                    className={`min-w-0 rounded-full border px-1 py-2 text-[9px] font-semibold leading-none tracking-normal whitespace-nowrap transition ${
-                                        active ? getOrderStatusBadgeClasses(chip.value) : 'border-gray-200 bg-white text-gray-600'
-                                    }`}
-                                >
-                                    {chip.label} ({mobileStatusChipCounts[chip.value] || 0})
-                                </button>
-                            );
-                        })}
+                    <div className="w-full max-w-full overflow-hidden">
+                        <div
+                            className="w-full overflow-x-auto overscroll-x-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                            style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
+                        >
+                            <div className="inline-flex min-w-max flex-nowrap gap-1.5 pr-1">
+                                {mobileStatusChips.map((chip) => {
+                                    const active = statusFilter === chip.value;
+                                    return (
+                                        <button
+                                            key={chip.value}
+                                            type="button"
+                                            onClick={() => handleStatusFilterChange(chip.value)}
+                                            className={`inline-flex shrink-0 items-center rounded-full border px-2 py-1.5 text-[10px] font-semibold leading-none tracking-normal whitespace-nowrap transition ${
+                                                active ? getOrderStatusBadgeClasses(chip.value) : 'border-gray-200 bg-white text-gray-600'
+                                            }`}
+                                        >
+                                            {chip.label} ({mobileStatusChipCounts[chip.value] || 0})
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div className="px-6 py-4 border-b border-gray-100 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -2979,12 +3048,13 @@ export function Orders({
                                 onChange={(e) => handleStatusFilterChange(e.target.value)}
                                 className="w-full md:w-auto pl-9 pr-7 py-2 bg-white rounded-lg border border-gray-200 text-sm focus:border-accent outline-none appearance-none cursor-pointer"
                             >
-                                <option value="all">All Status</option>
                                 <option value="confirmed">New</option>
                                 <option value="pending">Pending</option>
                                 <option value="completed">Completed</option>
+                                <option value="attempted">Attempted</option>
                                 <option value="cancelled">Cancelled</option>
                                 <option value="failed">Failed</option>
+                                <option value="all">All Status</option>
                             </select>
                         </div>
                         <div className="relative hidden md:block w-full md:w-auto order-2 md:order-3">
@@ -3209,26 +3279,26 @@ export function Orders({
                                         <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${theme.strip}`} />
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0">
-                                                <p className="text-base font-semibold text-slate-900 break-all">#{order.order_ref}</p>
+                                                <p className="font-mono text-[15px] font-bold leading-tight tracking-tight text-slate-900 break-words">#{order.order_ref}</p>
                                                 <p className="mt-1 text-sm font-semibold text-slate-800">{order.customer_name || 'Guest'}</p>
                                                 {order.customer_mobile && (
                                                     <p className="mt-1 text-xs text-slate-600">{order.customer_mobile}</p>
                                                 )}
                                             </div>
-                                            <div className="flex shrink-0 flex-col items-end gap-2">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    <span className={`inline-flex min-w-[88px] items-center justify-center px-2.5 py-1 rounded-full text-xs font-semibold ${getOrderStatusBadgeClasses(order.status)}`}>
-                                                    {formatStatusLabel(order.status || 'pending')}
+                                            <div className="flex shrink-0 flex-col items-end gap-1.5">
+                                                <div className="flex items-center justify-end gap-1.5">
+                                                    <span className={`inline-flex min-w-[74px] items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${getOrderStatusBadgeClasses(order.status)}`}>
+                                                        {formatStatusLabel(order.status || 'pending')}
                                                     </span>
                                                     {!isAttemptEntry(order) && !['completed', 'cancelled'].includes(normalizeOrderStatus(order.status)) && (
                                                         <button
                                                             type="button"
                                                             onClick={(e) => handleQuickComplete(order, e)}
                                                             disabled={isQuickCompleting}
-                                                            className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-gradient-to-r from-emerald-50 via-lime-50 to-emerald-100 px-3 py-1.5 text-[11px] font-semibold text-emerald-800 shadow-sm shadow-emerald-100/70 transition-all hover:from-emerald-100 hover:via-lime-100 hover:to-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                                            className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-gradient-to-r from-emerald-50 via-lime-50 to-emerald-100 px-2.5 py-1 text-[10px] font-semibold text-emerald-800 shadow-sm shadow-emerald-100/70 transition-all hover:from-emerald-100 hover:via-lime-100 hover:to-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
                                                             title="Mark order as completed"
                                                         >
-                                                            <CheckCircle2 size={13} className={isQuickCompleting ? 'animate-pulse' : ''} />
+                                                            <CheckCircle2 size={12} className={isQuickCompleting ? 'animate-pulse' : ''} />
                                                             {isQuickCompleting ? 'Completing...' : 'Complete'}
                                                         </button>
                                                     )}
@@ -3390,17 +3460,26 @@ export function Orders({
 
             {isDetailsOpen && createPortal(
                 <div className="fixed inset-0 z-[70] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
-                    <div className="bg-white w-full max-w-xl h-full shadow-2xl p-6 overflow-y-auto">
-                        <div className="flex items-center gap-2 mb-4">
+                    <div
+                        ref={detailsDrawerScrollRef}
+                        className="bg-white w-full max-w-xl h-full shadow-2xl overflow-y-auto"
+                        onScroll={(event) => setIsDetailsDrawerScrolled(event.currentTarget.scrollTop > 8)}
+                    >
+                        <div className="sticky top-0 z-20 px-4 py-3 bg-white/68 backdrop-blur-xl supports-[backdrop-filter]:bg-white/60">
                             <button
                                 onClick={() => setIsDetailsOpen(false)}
-                                className="inline-flex items-center justify-center p-2 rounded-lg hover:bg-gray-100 text-gray-600"
+                                className={`absolute left-4 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border transition ${
+                                    isDetailsDrawerScrolled
+                                        ? 'border-slate-900/70 bg-slate-950/85 text-white backdrop-blur-md'
+                                        : 'border-white/70 bg-white/85 text-slate-800 shadow-sm'
+                                }`}
                                 aria-label="Back"
                             >
                                 <ArrowLeft size={18} />
                             </button>
-                            <h3 className="text-xl font-semibold text-gray-900">Order Details</h3>
+                            <h3 className="m-0 flex min-h-[44px] items-center justify-center text-center text-base font-semibold leading-none text-gray-900">Order Details</h3>
                         </div>
+                        <div className="px-6 pb-6 pt-4">
                         {!selectedOrder ? (
                             <div className="py-16 text-center text-gray-400">Loading order details...</div>
                         ) : (
@@ -3425,14 +3504,14 @@ export function Orders({
                                         { label: 'Name', value: selectedOrder.customer_name || 'Guest' },
                                         { label: 'Shipping Address', value: formatAddress(selectedOrder.shipping_address) },
                                         { label: 'Landmark', value: shippingAddress.landmark || '—' },
-                                        { label: 'Customer Phone', value: combinedCustomerPhone },
                                         ...(billingAddressEnabled ? [{ label: 'Billing Address', value: formatAddress(selectedOrder.billing_address) }] : []),
                                         { label: 'City & State', value: (() => {
                                             return [shippingAddress.city, shippingAddress.state].filter(Boolean).join(', ') || '—';
                                         })() },
                                         { label: 'Pin Code', value: (() => {
                                             return shippingAddress.zip || '—';
-                                        })() }
+                                        })() },
+                                        { label: 'Customer Phone', value: combinedCustomerPhone }
                                     ];
                                     return (
                                         <>
@@ -3600,95 +3679,6 @@ export function Orders({
                                                                 </button>
                                                             </>
                                                         )}
-                                                    </div>
-                                                )}
-                                                {!isAttemptEntry(selectedOrder) && !isRefundLockedOrder(selectedOrder) && !isTerminalOrderStatus(selectedOrder.status) && (
-                                                    <div className="mt-4">
-                                                        <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Update Status</label>
-                                                        <select
-                                                            value={pendingStatus || ''}
-                                                            onChange={(e) => setPendingStatus(e.target.value)}
-                                                            disabled={isUpdatingStatus}
-                                                            className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
-                                                        >
-                                                            <option value="">{formatStatusLabel(selectedOrder.status || 'confirmed')}</option>
-                                                            {getAvailableStatusOptions(selectedOrder.status).map((option) => (
-                                                                <option key={option.value} value={option.value}>{option.label}</option>
-                                                            ))}
-                                                        </select>
-                                                        {pendingStatus === 'cancelled' && isPaidPayment(selectedOrder) && (
-                                                            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
-                                                                <p className="text-xs text-amber-800 font-semibold">
-                                                                    Shipping charge is non-refundable. Maximum refundable amount: ₹{Math.max(0, Number(selectedOrder?.total || 0) - Number(selectedOrder?.shipping_fee || 0)).toLocaleString('en-IN')}
-                                                                </p>
-                                                                <div>
-                                                                    <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Cancellation Mode</label>
-                                                                    <select
-                                                                        value={cancellationMode}
-                                                                        onChange={(e) => setCancellationMode(e.target.value)}
-                                                                        disabled={isUpdatingStatus}
-                                                                        className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
-                                                                    >
-                                                                        <option value="">Select cancellation mode</option>
-                                                                        {CANCELLATION_MODES.map((mode) => (
-                                                                            <option key={mode.value} value={mode.value}>{mode.label}</option>
-                                                                        ))}
-                                                                    </select>
-                                                                </div>
-                                                                {cancellationMode === 'manual' && (
-                                                                    <div className="grid grid-cols-1 gap-3">
-                                                                        <div>
-                                                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Refunded Amount</label>
-                                                                            <input type="number" min="0" step="0.01" value={manualRefundAmount} onChange={(e) => setManualRefundAmount(e.target.value)} disabled={isUpdatingStatus} placeholder="Enter refunded amount" className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none" />
-                                                                        </div>
-                                                                        <div>
-                                                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Refund Method</label>
-                                                                            <select value={manualRefundMethod} onChange={(e) => setManualRefundMethod(e.target.value)} disabled={isUpdatingStatus} className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none">
-                                                                                <option value="">Select refund method</option>
-                                                                                {MANUAL_REFUND_METHODS.map((method) => (
-                                                                                    <option key={method} value={method}>{method}</option>
-                                                                                ))}
-                                                                            </select>
-                                                                        </div>
-                                                                        {(manualRefundMethod === 'UPI' || manualRefundMethod === 'Bank A/c Transfer') && (
-                                                                            <div>
-                                                                                <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Reference Number</label>
-                                                                                <input type="text" value={manualRefundRef} onChange={(e) => setManualRefundRef(e.target.value)} disabled={isUpdatingStatus} placeholder="Enter reference number" className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none" />
-                                                                            </div>
-                                                                        )}
-                                                                        {manualRefundMethod === 'NEFT/RTGS' && (
-                                                                            <div>
-                                                                                <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">UTR Number</label>
-                                                                                <input type="text" value={manualRefundUtr} onChange={(e) => setManualRefundUtr(e.target.value)} disabled={isUpdatingStatus} placeholder="Enter UTR number" className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none" />
-                                                                            </div>
-                                                                        )}
-                                                                        {manualRefundMethod === 'Voucher code' && (
-                                                                            <p className="text-xs text-amber-700">
-                                                                                A customer-specific coupon will be auto-generated with 180 days validity after cancellation.
-                                                                            </p>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                        <button
-                                                            type="button"
-                                                            onClick={handleStatusUpdate}
-                                                            disabled={isUpdatingStatus || !selectedOrder || !pendingStatus}
-                                                            className="mt-3 w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60"
-                                                        >
-                                                            {isUpdatingStatus ? 'Updating...' : 'Update Status'}
-                                                        </button>
-                                                    </div>
-                                                )}
-                                                {!isAttemptEntry(selectedOrder) && !isRefundLockedOrder(selectedOrder) && isTerminalOrderStatus(selectedOrder.status) && (
-                                                    <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600">
-                                                        This order is already {formatStatusLabel(selectedOrder.status).toLowerCase()}. Status updates are disabled.
-                                                    </div>
-                                                )}
-                                                {!isAttemptEntry(selectedOrder) && isRefundLockedOrder(selectedOrder) && (
-                                                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                                                        Refund has been initiated for this cancelled order. Status changes are locked.
                                                     </div>
                                                 )}
                                             </div>
@@ -4030,11 +4020,101 @@ export function Orders({
                                                     </div>
                                                 </div>
                                             </div>
+                                            {!isAttemptEntry(selectedOrder) && !isRefundLockedOrder(selectedOrder) && !isTerminalOrderStatus(selectedOrder.status) && (
+                                                <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                                                    <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Update Status</label>
+                                                    <select
+                                                        value={pendingStatus || ''}
+                                                        onChange={(e) => setPendingStatus(e.target.value)}
+                                                        disabled={isUpdatingStatus}
+                                                        className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                                    >
+                                                        <option value="">{formatStatusLabel(selectedOrder.status || 'confirmed')}</option>
+                                                        {getAvailableStatusOptions(selectedOrder.status).map((option) => (
+                                                            <option key={option.value} value={option.value}>{option.label}</option>
+                                                        ))}
+                                                    </select>
+                                                    {pendingStatus === 'cancelled' && isPaidPayment(selectedOrder) && (
+                                                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
+                                                            <p className="text-xs text-amber-800 font-semibold">
+                                                                Shipping charge is non-refundable. Maximum refundable amount: ₹{Math.max(0, Number(selectedOrder?.total || 0) - Number(selectedOrder?.shipping_fee || 0)).toLocaleString('en-IN')}
+                                                            </p>
+                                                            <div>
+                                                                <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Cancellation Mode</label>
+                                                                <select
+                                                                    value={cancellationMode}
+                                                                    onChange={(e) => setCancellationMode(e.target.value)}
+                                                                    disabled={isUpdatingStatus}
+                                                                    className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                                                >
+                                                                    <option value="">Select cancellation mode</option>
+                                                                    {CANCELLATION_MODES.map((mode) => (
+                                                                        <option key={mode.value} value={mode.value}>{mode.label}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                            {cancellationMode === 'manual' && (
+                                                                <div className="grid grid-cols-1 gap-3">
+                                                                    <div>
+                                                                        <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Refunded Amount</label>
+                                                                        <input type="number" min="0" step="0.01" value={manualRefundAmount} onChange={(e) => setManualRefundAmount(e.target.value)} disabled={isUpdatingStatus} placeholder="Enter refunded amount" className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none" />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Refund Method</label>
+                                                                        <select value={manualRefundMethod} onChange={(e) => setManualRefundMethod(e.target.value)} disabled={isUpdatingStatus} className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none">
+                                                                            <option value="">Select refund method</option>
+                                                                            {MANUAL_REFUND_METHODS.map((method) => (
+                                                                                <option key={method} value={method}>{method}</option>
+                                                                            ))}
+                                                                        </select>
+                                                                    </div>
+                                                                    {(manualRefundMethod === 'UPI' || manualRefundMethod === 'Bank A/c Transfer') && (
+                                                                        <div>
+                                                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Reference Number</label>
+                                                                            <input type="text" value={manualRefundRef} onChange={(e) => setManualRefundRef(e.target.value)} disabled={isUpdatingStatus} placeholder="Enter reference number" className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none" />
+                                                                        </div>
+                                                                    )}
+                                                                    {manualRefundMethod === 'NEFT/RTGS' && (
+                                                                        <div>
+                                                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">UTR Number</label>
+                                                                            <input type="text" value={manualRefundUtr} onChange={(e) => setManualRefundUtr(e.target.value)} disabled={isUpdatingStatus} placeholder="Enter UTR number" className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none" />
+                                                                        </div>
+                                                                    )}
+                                                                    {manualRefundMethod === 'Voucher code' && (
+                                                                        <p className="text-xs text-amber-700">
+                                                                            A customer-specific coupon will be auto-generated with 180 days validity after cancellation.
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleStatusUpdate}
+                                                        disabled={isUpdatingStatus || !selectedOrder || !pendingStatus}
+                                                        className="mt-3 w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60"
+                                                    >
+                                                        {isUpdatingStatus ? 'Updating...' : 'Update Status'}
+                                                    </button>
+                                                </div>
+                                            )}
+                                            {!isAttemptEntry(selectedOrder) && !isRefundLockedOrder(selectedOrder) && isTerminalOrderStatus(selectedOrder.status) && (
+                                                <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600">
+                                                    This order is already {formatStatusLabel(selectedOrder.status).toLowerCase()}. Status updates are disabled.
+                                                </div>
+                                            )}
+                                            {!isAttemptEntry(selectedOrder) && isRefundLockedOrder(selectedOrder) && (
+                                                <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                                                    Refund has been initiated for this cancelled order. Status changes are locked.
+                                                </div>
+                                            )}
                                         </>
                                     );
                                 })()}
                             </>
                         )}
+                        </div>
                     </div>
                 </div>,
                 document.body

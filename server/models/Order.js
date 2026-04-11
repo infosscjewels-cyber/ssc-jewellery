@@ -780,19 +780,25 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
 };
 
 const MAX_FETCH_RANGE_DAYS = 90;
+const ADMIN_PAID_PAYMENT_CONDITION = (alias = 'o') => `LOWER(COALESCE(${alias}.payment_status, '')) IN ('paid', 'captured')`;
+const ADMIN_OVERDUE_CONFIRMED_CONDITION = (alias = 'o') => `(${alias}.status = 'confirmed' AND ${ADMIN_PAID_PAYMENT_CONDITION(alias)} AND TIMESTAMPDIFF(HOUR, ${alias}.created_at, NOW()) >= 24)`;
+const ADMIN_ATTEMPTED_PAYMENT_CONDITION = (alias = 'o') => `LOWER(COALESCE(${alias}.payment_status, '')) IN ('attempted', 'verification_pending', 'paid_unverified', 'reconciliation_pending', 'authorized')`;
 
 const buildSingleAdminStatusCondition = ({ status = 'all', alias = 'o', params = [] } = {}) => {
     const requestedStatus = String(status || '').trim().toLowerCase();
     const normalizedStatus = requestedStatus === 'shipped' ? 'completed' : requestedStatus;
     if (!normalizedStatus || normalizedStatus === 'all') return '';
     if (normalizedStatus === 'pending') {
-        return `(${alias}.status = 'pending' OR (${alias}.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, ${alias}.created_at, NOW()) >= 24))`;
+        return `(${alias}.status = 'pending' OR ${ADMIN_OVERDUE_CONFIRMED_CONDITION(alias)})`;
     }
     if (normalizedStatus === 'confirmed') {
-        return `(${alias}.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, ${alias}.created_at, NOW()) < 24)`;
+        return `(${alias}.status = 'confirmed' AND ${ADMIN_PAID_PAYMENT_CONDITION(alias)} AND TIMESTAMPDIFF(HOUR, ${alias}.created_at, NOW()) < 24)`;
     }
     if (normalizedStatus === 'failed') {
         return `(${alias}.status = 'failed' OR LOWER(COALESCE(${alias}.payment_status, '')) = 'failed')`;
+    }
+    if (normalizedStatus === 'attempted') {
+        return ADMIN_ATTEMPTED_PAYMENT_CONDITION(alias);
     }
     params.push(normalizedStatus);
     return `${alias}.status = ?`;
@@ -2561,7 +2567,9 @@ class Order {
         const safePage = Math.max(1, Number(page) || 1);
         const offset = (safePage - 1) * safeLimit;
         const latestLimit = quickRange === 'latest_10' ? 10 : null;
-        const includeAttemptRows = (status === 'all' || status === 'failed') && String(sourceChannel || 'all').toLowerCase() === 'all';
+        const normalizedListStatus = String(status || 'all').trim().toLowerCase();
+        const includeAttemptRows = ['all', 'failed', 'attempted'].includes(normalizedListStatus) && String(sourceChannel || 'all').toLowerCase() === 'all';
+        const attemptedAttemptStatuses = ['attempted', 'verification_pending', 'paid_unverified', 'reconciliation_pending', 'authorized'];
 
         const buildDateClause = (alias, params) => {
             switch (quickRange) {
@@ -2627,7 +2635,9 @@ class Order {
 
         const attemptParams = [];
         let attemptWhere = `WHERE pa.local_order_id IS NULL
-            AND pa.status = 'failed'
+            AND ${normalizedListStatus === 'attempted'
+                ? `LOWER(COALESCE(pa.status, '')) IN (${attemptedAttemptStatuses.map(() => '?').join(', ')})`
+                : `pa.status = ?`}
             AND LOWER(COALESCE(pa.failure_reason, '')) <> '${DUPLICATE_PAYMENT_SESSION_MESSAGE}'
             AND NOT EXISTS (
                 SELECT 1
@@ -2652,6 +2662,11 @@ class Order {
                       )
                 )
             )`;
+        if (normalizedListStatus === 'attempted') {
+            attemptParams.push(...attemptedAttemptStatuses);
+        } else {
+            attemptParams.push('failed');
+        }
         attemptWhere += searchClauseForAttempt(attemptParams);
         attemptWhere += buildDateClause('pa', attemptParams);
 
@@ -2714,7 +2729,7 @@ class Order {
                 pa.id as attempt_id,
                 CONCAT('PAY-', pa.razorpay_order_id) as order_ref,
                 pa.user_id,
-                'failed' as status,
+                CASE WHEN pa.status = 'failed' THEN 'failed' ELSE 'pending' END as status,
                 pa.status as payment_status,
                 'razorpay' as payment_gateway,
                 pa.razorpay_order_id,
@@ -3302,8 +3317,8 @@ class Order {
                 `SELECT
                     COUNT(*) as total_orders,
                     SUM(CASE WHEN scoped.status <> 'cancelled' THEN scoped.total ELSE 0 END) as total_revenue,
-                    SUM(CASE WHEN scoped.status = 'pending' OR (scoped.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, scoped.created_at, NOW()) >= 24) THEN 1 ELSE 0 END) as pending_orders,
-                    SUM(CASE WHEN scoped.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, scoped.created_at, NOW()) < 24 THEN 1 ELSE 0 END) as confirmed_orders,
+                    SUM(CASE WHEN scoped.status = 'pending' OR ${ADMIN_OVERDUE_CONFIRMED_CONDITION('scoped')} THEN 1 ELSE 0 END) as pending_orders,
+                    SUM(CASE WHEN scoped.status = 'confirmed' AND ${ADMIN_PAID_PAYMENT_CONDITION('scoped')} AND TIMESTAMPDIFF(HOUR, scoped.created_at, NOW()) < 24 THEN 1 ELSE 0 END) as confirmed_orders,
                     SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
                     SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() AND scoped.status <> 'cancelled' THEN scoped.total ELSE 0 END) as today_revenue
                  FROM (
@@ -3322,8 +3337,8 @@ class Order {
                 `SELECT
                     COUNT(*) as total_orders,
                     SUM(CASE WHEN o.status <> 'cancelled' THEN o.total ELSE 0 END) as total_revenue,
-                    SUM(CASE WHEN o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) >= 24) THEN 1 ELSE 0 END) as pending_orders,
-                    SUM(CASE WHEN o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) < 24 THEN 1 ELSE 0 END) as confirmed_orders,
+                    SUM(CASE WHEN o.status = 'pending' OR ${ADMIN_OVERDUE_CONFIRMED_CONDITION('o')} THEN 1 ELSE 0 END) as pending_orders,
+                    SUM(CASE WHEN o.status = 'confirmed' AND ${ADMIN_PAID_PAYMENT_CONDITION('o')} AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) < 24 THEN 1 ELSE 0 END) as confirmed_orders,
                     SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
                     SUM(CASE WHEN DATE(o.created_at) = CURDATE() AND o.status <> 'cancelled' THEN o.total ELSE 0 END) as today_revenue
                  FROM orders o

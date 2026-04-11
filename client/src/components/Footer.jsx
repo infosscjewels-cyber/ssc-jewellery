@@ -111,9 +111,19 @@ export default function Footer() {
             <div className="container mx-auto px-4 py-12">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
                     <div className="space-y-4">
-                        <img src={BRAND_LOGO_URL} alt="SSC Jewellery" className="h-14 w-auto" loading="lazy" decoding="async" fetchPriority="low" />
+                        <div className="flex items-center gap-2">
+                            <img src={BRAND_LOGO_URL} alt="SSC Jewellery" className="h-14 w-auto" loading="lazy" decoding="async" fetchPriority="low" />
+                            <span className="flex min-w-0 flex-col justify-center leading-none">
+                                <span className="truncate font-serif text-[1.05rem] font-bold tracking-[0.06em] text-white">
+                                    Sree Sai Collections
+                                </span>
+                                <span className="mt-1 inline-flex w-fit max-w-full items-center rounded-full border border-amber-200/80 bg-amber-50/90 px-2 py-0.5 text-[8px] font-semibold uppercase tracking-[0.16em] text-amber-900">
+                                    1 gm Imitiation Jewellery
+                                </span>
+                            </span>
+                        </div>
                         <p className="text-sm text-white/70">
-                            Premium Impon jewellery crafted with care. Discover timeless designs and elegant collections.
+                            Premium Impon jewellery hand-crafted with care. Discover timeless designs and elegant collections.
                         </p>
                         <div className="space-y-3 text-sm text-white/70">
                             <div className="flex items-start gap-2">

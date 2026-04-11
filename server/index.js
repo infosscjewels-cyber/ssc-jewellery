@@ -107,6 +107,9 @@ const {
 const {
     healDuplicatePaymentFailures
 } = require('./scripts/healDuplicatePaymentFailures');
+const {
+    archiveInactiveCustomers
+} = require('./services/customerArchiveService');
 const sanitizeRequest = require('./middleware/sanitizeRequest');
 console.log('Boot: service and middleware modules loaded');
 
@@ -292,9 +295,17 @@ app.get('/sitemap.xml', async (req, res) => {
     }
 });
 // Serve Frontend
-app.use(express.static(path.join(__dirname, '../client/dist')));
+const clientDistPath = path.join(__dirname, '../client/dist');
+app.get('/manifest.webmanifest', (req, res, next) => {
+    res.type('application/manifest+json');
+    res.set('Cache-Control', 'no-store');
+    res.sendFile(path.join(clientDistPath, 'manifest.webmanifest'), (error) => {
+        if (error) next();
+    });
+});
+app.use(express.static(clientDistPath));
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+    res.sendFile(path.join(clientDistPath, 'index.html'));
 });
 
 // [CHANGE] Use server.listen instead of app.listen
@@ -536,6 +547,61 @@ const scheduleDailyBirthdayCoupons = () => {
     runIfWindow();
 };
 
+const scheduleDailyInactiveCustomerArchive = () => {
+    let lastRunKey = '';
+    const runIfWindow = async () => {
+        try {
+            const now = new Date();
+            const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'Asia/Kolkata',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            }).formatToParts(now).reduce((acc, part) => {
+                if (part.type !== 'literal') acc[part.type] = part.value;
+                return acc;
+            }, {});
+            const runKey = `${parts.year}-${parts.month}-${parts.day}`;
+            const hour = Number(parts.hour || 0);
+            const minute = Number(parts.minute || 0);
+            const inWindow = hour === 2 && minute >= 30 && minute < 45;
+            if (!inWindow || lastRunKey === runKey) return;
+
+            lastRunKey = runKey;
+            const dryRun = ['1', 'true', 'yes', 'on'].includes(String(process.env.CUSTOMER_ARCHIVE_DRY_RUN || '').trim().toLowerCase());
+            const result = await archiveInactiveCustomers({
+                inactiveDays: process.env.CUSTOMER_ARCHIVE_RETENTION_DAYS || 90,
+                limit: process.env.CUSTOMER_ARCHIVE_SCAN_LIMIT || 200,
+                dryRun,
+                reason: 'daily_inactive_customer_cleanup'
+            });
+            if (Number(result?.archived || 0) > 0 || dryRun) {
+                console.log('Daily inactive customer archive completed:', {
+                    scanned: result.scanned,
+                    archived: result.archived,
+                    dryRun: result.dryRun,
+                    ids: result.ids
+                });
+            }
+            if (!dryRun && Array.isArray(result?.users)) {
+                result.users.forEach((archivedUser) => {
+                    if (archivedUser?.id) {
+                        io.to('admin').emit('user:update', User.toSafePayload(archivedUser));
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Daily inactive customer archive failed:', error?.message || error);
+        }
+    };
+
+    setInterval(runIfWindow, 10 * 60 * 1000);
+    runIfWindow();
+};
+
 const scheduleDashboardAlerts = () => {
     const run = async () => {
         try {
@@ -628,6 +694,7 @@ const initBackgroundJobs = () => {
     ensureLoyaltyConfigLoaded({ force: true }).catch(() => {});
     scheduleMonthlyLoyaltyReassessment();
     scheduleDailyBirthdayCoupons();
+    scheduleDailyInactiveCustomerArchive();
     scheduleDashboardAlerts();
     scheduleDashboardAggregatesRefresh();
     scheduleCommunicationRetryProcessing();

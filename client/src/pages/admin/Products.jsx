@@ -883,7 +883,7 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
                             onClick={() => setIsMobileSearchModalOpen(false)}
                             className="mt-4 w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
                         >
-                            Close
+                            Search
                         </button>
                     </div>
                 </div>,

@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRight, AlertTriangle, Activity, TrendingUp, IndianRupee, Users, ShoppingBag, Target, Bell, Save, Play, Trash2, BarChart3, Funnel, Boxes, UsersRound, Route, CalendarDays, ShieldAlert, Sparkles, PieChart, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowRight, AlertTriangle, Activity, TrendingUp, IndianRupee, Users, ShoppingBag, Target, Bell, Save, Play, Trash2, BarChart3, Funnel, Boxes, UsersRound, Route, CalendarDays, ShieldAlert, Sparkles, PieChart, X, ChevronDown, ChevronUp, Download, Share2 } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import dashboardIllustration from '../../assets/dashboard.svg';
 import successIllustration from '../../assets/success.svg';
 import successDingAudio from '../../assets/success_ding.mp3';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
+import { usePwaInstall } from '../../hooks/usePwaInstall';
 import { burstConfetti } from '../../utils/celebration';
 import EmptyState from '../../components/EmptyState';
+import Modal from '../../components/Modal';
 import TierBadge from '../../components/TierBadge';
 
 const QUICK_RANGES = [
@@ -19,25 +21,33 @@ const QUICK_RANGES = [
     { value: 'custom', label: 'Custom Range' }
 ];
 const DAILY_TREND_PAGE_SIZE = 6;
+const DASHBOARD_CUSTOM_RANGE_MAX_DAYS = 90;
 const KPI_THEME_SEQUENCE = ['green', 'red', 'sky', 'brown', 'pink'];
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+const STORE_SHARE_URL = 'https://www.sscjewels.com';
+const STORE_SHARE_TEXT = `SSC Jewels is now Online 🏪
+Order 24x7 - Click on the link to place an order
+
+${STORE_SHARE_URL}
+
+Pay using Gpay, Paytm, Phonepe and 150 UPI Apps or Cash.`;
 const KPI_CARD_THEMES = {
     sky: {
         shell: 'bg-gradient-to-br from-sky-200 via-sky-300 to-cyan-500 border-sky-700/80',
-        label: 'text-sky-950',
-        value: 'text-sky-950',
-        icon: 'text-sky-950/75',
-        accent: 'text-sky-950',
-        subtext: 'text-sky-950/75'
+        label: 'text-slate-900/85',
+        value: 'text-slate-950',
+        icon: 'text-slate-900/70',
+        accent: 'text-slate-900/85',
+        subtext: 'text-slate-900/70'
     },
     green: {
         shell: 'bg-gradient-to-br from-lime-200 via-emerald-300 to-green-500 border-emerald-700/80',
-        label: 'text-emerald-950',
-        value: 'text-emerald-950',
-        icon: 'text-emerald-950/75',
-        accent: 'text-emerald-950',
-        subtext: 'text-emerald-950/75'
+        label: 'text-black/85',
+        value: 'text-black',
+        icon: 'text-black/70',
+        accent: 'text-black/85',
+        subtext: 'text-black/70'
     },
     pink: {
         shell: 'bg-gradient-to-br from-fuchsia-200 via-pink-300 to-rose-500 border-fuchsia-700/80',
@@ -49,20 +59,59 @@ const KPI_CARD_THEMES = {
     },
     brown: {
         shell: 'bg-gradient-to-br from-amber-200 via-orange-300 to-stone-500 border-amber-800/80',
-        label: 'text-stone-950',
-        value: 'text-stone-950',
-        icon: 'text-stone-950/75',
-        accent: 'text-stone-950',
-        subtext: 'text-stone-950/75'
+        label: 'text-white/90 drop-shadow-sm',
+        value: 'text-white drop-shadow-sm',
+        icon: 'text-white/80 drop-shadow-sm',
+        accent: 'text-white/90 drop-shadow-sm',
+        subtext: 'text-white/78 drop-shadow-sm'
     },
     red: {
         shell: 'bg-gradient-to-br from-rose-200 via-red-300 to-red-500 border-red-700/80',
-        label: 'text-red-950',
-        value: 'text-red-950',
-        icon: 'text-red-950/75',
-        accent: 'text-red-950',
-        subtext: 'text-red-950/75'
+        label: 'text-white/90 drop-shadow-sm',
+        value: 'text-white drop-shadow-sm',
+        icon: 'text-white/80 drop-shadow-sm',
+        accent: 'text-white/90 drop-shadow-sm',
+        subtext: 'text-white/78 drop-shadow-sm'
     }
+};
+const GREEN_KPI_PATTERN_STYLE = {
+    backgroundColor: '#ddffaa',
+    backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.16), rgba(34,68,17,0.06)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cpolygon fill='%23AE9' points='120 120 60 120 90 90 120 60 120 0 120 0 60 60 0 0 0 60 30 90 60 120 120 120'/%3E%3C/svg%3E")`,
+    backgroundSize: 'cover, 120px 120px'
+};
+const RED_KPI_PATTERN_STYLE = {
+    backgroundColor: '#7f1d1d',
+    backgroundImage: 'linear-gradient(135deg, rgba(15,23,42,0.36), rgba(127,29,29,0.2)), linear-gradient(135deg, rgba(254,202,202,0.12) 25%, transparent 25%), linear-gradient(225deg, rgba(244,63,94,0.2) 25%, transparent 25%), linear-gradient(45deg, rgba(190,18,60,0.22) 25%, transparent 25%)',
+    backgroundSize: 'cover, 90px 90px, 90px 90px, 90px 90px'
+};
+const SKY_KPI_PATTERN_STYLE = {
+    backgroundColor: '#ffffff',
+    backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.28), rgba(30,64,175,0.04)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 200 200'%3E%3Cpolygon fill='%23DCEFFA' points='100 0 0 100 100 100 100 200 200 100 200 0'/%3E%3C/svg%3E")`,
+    backgroundSize: 'cover, 160px 160px'
+};
+const BROWN_KPI_PATTERN_STYLE = {
+    backgroundColor: '#9a5b00',
+    backgroundImage: `linear-gradient(135deg, rgba(69,26,3,0.32), rgba(245,158,11,0.08)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 100 100'%3E%3Crect x='0' y='0' width='46' height='46' fill-opacity='0.45' fill='%23c77700'/%3E%3C/svg%3E")`,
+    backgroundSize: 'cover, 40px 40px'
+};
+const SALES_BAR_PATTERN_STYLES = {
+    green: {
+        backgroundColor: '#113311',
+        backgroundImage: `linear-gradient(135deg, rgba(0,0,0,0.18), rgba(16,185,129,0.1)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='250' height='250' viewBox='0 0 20 20'%3E%3Cg%3E%3Cpolygon fill='%23242' points='20 10 10 0 0 0 20 20'/%3E%3Cpolygon fill='%23242' points='0 10 0 20 10 20'/%3E%3C/g%3E%3C/svg%3E")`,
+        backgroundSize: 'cover, 250px 250px'
+    },
+    red: {
+        backgroundColor: '#7f1d1d',
+        backgroundImage: RED_KPI_PATTERN_STYLE.backgroundImage,
+        backgroundSize: 'cover'
+    }
+};
+const getKpiCardStyle = (theme) => {
+    if (theme === 'green') return GREEN_KPI_PATTERN_STYLE;
+    if (theme === 'red') return RED_KPI_PATTERN_STYLE;
+    if (theme === 'sky') return SKY_KPI_PATTERN_STYLE;
+    if (theme === 'brown') return BROWN_KPI_PATTERN_STYLE;
+    return undefined;
 };
 const applyKpiThemeRotation = (cards = []) => cards.map((card, index) => ({
     ...card,
@@ -177,7 +226,7 @@ const isDashboardCustomRangeAllowed = (startDate = '', endDate = '') => {
     const end = endDate ? new Date(`${endDate}T00:00:00`) : null;
     if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return false;
     const diff = Math.ceil((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
-    return diff >= 1 && diff <= 90;
+    return diff >= 1 && diff <= DASHBOARD_CUSTOM_RANGE_MAX_DAYS;
 };
 const buildLifetimeOrderTarget = ({ status = 'all', count = 0, oldestDate = '', endDate = '' } = {}) => {
     const hasOrders = Number(count || 0) > 0;
@@ -193,7 +242,10 @@ const buildLifetimeOrderTarget = ({ status = 'all', count = 0, oldestDate = '', 
 
 export default function DashboardInsights({ onRunAction = () => {} }) {
     const toast = useToast();
+    const { canInstall, install, isPrompting, showIosHint } = usePwaInstall();
+    const installAppLabel = showIosHint ? 'Add to Home Screen' : 'Install app';
     const toastRef = useRef(toast);
+    const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
     const [quickRange, setQuickRange] = useState('last_30_days');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
@@ -766,6 +818,31 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             setIsAnalyticsModeSaving(false);
         }
     };
+    const handleShareStore = useCallback(async () => {
+        try {
+            if (navigator.share) {
+                await navigator.share({
+                    title: 'SSC Jewels',
+                    text: STORE_SHARE_TEXT,
+                    url: STORE_SHARE_URL
+                });
+                return;
+            }
+            await navigator.clipboard.writeText(STORE_SHARE_TEXT);
+            toastRef.current.success('Store share text copied');
+        } catch (error) {
+            if (error?.name !== 'AbortError') {
+                toastRef.current.error('Unable to open share drawer');
+            }
+        }
+    }, []);
+    const handleInstallApp = useCallback(async () => {
+        if (showIosHint) {
+            setIsInstallModalOpen(true);
+            return;
+        }
+        await install();
+    }, [install, showIosHint]);
     const lastUpdatedLabel = data?.lastUpdatedAt
         ? formatPrettyDate(new Date(data.lastUpdatedAt).toISOString().slice(0, 10))
         : null;
@@ -806,8 +883,9 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const handleDashboardQuickRangeChange = (nextRange) => {
         const resolved = String(nextRange || 'last_30_days');
         if (resolved === 'custom') {
-            const fallbackStart = String(draftStartDate || startDate || data?.filter?.startDate || '').trim();
-            const fallbackEnd = String(draftEndDate || endDate || data?.filter?.endDate || fallbackStart || '').trim();
+            const today = toLocalIsoDate(new Date());
+            const fallbackEnd = String(draftEndDate || endDate || data?.filter?.endDate || today || '').trim();
+            const fallbackStart = String(draftStartDate || startDate || data?.filter?.startDate || addDaysToIsoDate(fallbackEnd, -(DASHBOARD_CUSTOM_RANGE_MAX_DAYS - 1)) || fallbackEnd || '').trim();
             setDraftQuickRange('custom');
             setDraftStartDate(fallbackStart);
             setDraftEndDate(fallbackEnd || fallbackStart);
@@ -819,25 +897,25 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         const nextStart = String(value || '').trim();
         setDraftQuickRange('custom');
         setDraftStartDate(nextStart);
-        setDraftEndDate((prev) => {
-            const currentEnd = String(prev || '').trim();
-            if (!nextStart) return currentEnd;
-            if (!currentEnd || currentEnd < nextStart) return nextStart;
-            return currentEnd;
-        });
+        if (nextStart) {
+            setDraftEndDate(addDaysToIsoDate(nextStart, DASHBOARD_CUSTOM_RANGE_MAX_DAYS - 1) || nextStart);
+        }
     };
     const handleDashboardEndDateChange = (value) => {
         const nextEnd = String(value || '').trim();
         setDraftQuickRange('custom');
         setDraftEndDate(nextEnd);
-        setDraftStartDate((prev) => {
-            const currentStart = String(prev || '').trim();
-            if (!nextEnd) return currentStart;
-            if (!currentStart || currentStart > nextEnd) return nextEnd;
-            return currentStart;
-        });
+        if (nextEnd) {
+            setDraftStartDate(addDaysToIsoDate(nextEnd, -(DASHBOARD_CUSTOM_RANGE_MAX_DAYS - 1)) || nextEnd);
+        }
     };
+    const isDraftSalesRangeValid = draftQuickRange !== 'custom'
+        || isDashboardCustomRangeAllowed(draftStartDate, draftEndDate);
     const handleApplySalesRange = () => {
+        if (!isDraftSalesRangeValid) {
+            toastRef.current.error(`Custom dashboard range can be at most ${DASHBOARD_CUSTOM_RANGE_MAX_DAYS} days.`);
+            return;
+        }
         setQuickRange(draftQuickRange);
         if (draftQuickRange === 'custom') {
             setStartDate(draftStartDate);
@@ -919,17 +997,18 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     key={card.label}
                                     type="button"
                                     onClick={() => handleOpenCard(card)}
-                                    className={`group relative overflow-hidden rounded-2xl border px-3 pb-2.5 pt-3 shadow-sm flex h-full min-h-0 items-start justify-between text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
+                                    className={`group relative overflow-hidden rounded-2xl border px-3 pb-2.5 pt-2.5 shadow-sm flex h-full min-h-0 flex-col text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
+                                    style={getKpiCardStyle(card.theme)}
                                 >
-                                    <div className="min-w-0 pr-2">
-                                        <p className={`text-[10px] uppercase tracking-[0.16em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
+                                    <div className="flex items-start justify-between gap-2">
+                                        <p className={`max-w-full break-words text-[7px] leading-3 uppercase tracking-[0.08em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
                                             {card.label === 'New Orders' ? 'New Orders' : 'Pending Orders'}
                                         </p>
-                                        <p className={`mt-1.5 text-[42px] leading-none font-semibold ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
+                                        <ArrowRight size={14} className={KPI_CARD_THEMES[card.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
                                     </div>
-                                    <div className="flex h-full flex-col items-end justify-between">
-                                        <ArrowRight size={18} className={KPI_CARD_THEMES[card.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
-                                        <card.icon size={28} className={`mt-5 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
+                                    <div className="mt-auto flex items-end justify-between gap-2">
+                                        <p className={`min-w-0 text-[29px] leading-[0.88] font-semibold ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
+                                        <card.icon size={20} className={`mb-3.5 shrink-0 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
                                     </div>
                                 </button>
                             ))}
@@ -938,20 +1017,29 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                             <button
                                 type="button"
                                 onClick={() => handleOpenCard(mobileAbandonedCard)}
-                                className={`group relative overflow-hidden rounded-2xl border p-3 shadow-sm flex aspect-square items-start justify-between text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
+                                className={`group relative overflow-hidden rounded-2xl border px-3 pb-2.5 pt-2.5 shadow-sm flex aspect-square flex-col text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
+                                style={getKpiCardStyle(mobileAbandonedCard.theme)}
                             >
-                                <div>
-                                    <p className={`text-[10px] uppercase tracking-[0.16em] ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
+                                <div className="flex items-start justify-between gap-2">
+                                    <p className={`max-w-full break-words text-[7px] leading-3 uppercase tracking-[0.08em] ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
                                         Abandoned Carts
                                     </p>
-                                    <p className={`mt-2 text-3xl font-semibold ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{mobileAbandonedCard.value}</p>
-                                    <p className={`mt-2 pr-1 text-[10px] leading-4 ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext}`}>
-                                        {mobileAbandonedCard.helper || 'Tap to inspect detailed records'}
-                                    </p>
+                                    <ArrowRight size={14} className={KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
                                 </div>
-                                <div className="flex h-full flex-col items-end justify-between">
-                                    <ArrowRight size={18} className={KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
-                                    <MobileAbandonedIcon size={34} className={`mt-6 opacity-90 ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
+                                <p className={`mt-auto inline-flex max-w-full rounded-full px-2 py-1 text-[7px] font-medium leading-3 ${
+                                    mobileAbandonedCard.theme === 'green'
+                                        ? 'bg-black/10 text-black/75'
+                                        : mobileAbandonedCard.theme === 'sky'
+                                            ? 'bg-slate-900/8 text-slate-900/75'
+                                            : ['red', 'brown'].includes(mobileAbandonedCard.theme)
+                                            ? 'bg-white/15 text-white shadow-sm backdrop-blur-[1px]'
+                                            : (KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext)
+                                }`}>
+                                    {mobileAbandonedCard.helper || 'Tap to inspect detailed records'}
+                                </p>
+                                <div className="mt-2 flex items-end justify-between gap-2">
+                                    <p className={`min-w-0 text-[30px] leading-[0.88] font-semibold ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{mobileAbandonedCard.value}</p>
+                                    <MobileAbandonedIcon size={20} className={`mb-3.5 shrink-0 opacity-90 ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
                                 </div>
                             </button>
                         )}
@@ -963,13 +1051,22 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                 type="button"
                                 onClick={() => handleOpenCard(card)}
                                 className={`group relative overflow-hidden rounded-2xl border p-5 shadow-sm flex min-h-[184px] items-start justify-between text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
+                                style={getKpiCardStyle(card.theme)}
                             >
                                 <div>
                                     <p className={`text-xs uppercase tracking-[0.18em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
                                         {card.label}
                                     </p>
                                     <p className={`text-3xl font-semibold mt-2 ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
-                                    <p className={`mt-2 pr-2 text-xs leading-4 ${KPI_CARD_THEMES[card.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext}`}>
+                                    <p className={`mt-2 inline-flex max-w-full rounded-full px-2 py-1 text-xs font-medium leading-4 ${
+                                        card.theme === 'green'
+                                            ? 'bg-black/10 text-black/75'
+                                            : card.theme === 'sky'
+                                                ? 'bg-slate-900/8 text-slate-900/75'
+                                                : ['red', 'brown'].includes(card.theme)
+                                                ? 'bg-white/15 text-white shadow-sm backdrop-blur-[1px]'
+                                                : (KPI_CARD_THEMES[card.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext)
+                                    }`}>
                                         {card.helper || 'Tap to inspect detailed records'}
                                     </p>
                                 </div>
@@ -1066,77 +1163,87 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                         <option value="weekly">Weekly</option>
                                         <option value="monthly">Monthly</option>
                                     </select>
-                                    {isSalesRangeOpen && (
-                                        <div className="absolute right-0 top-full z-20 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-3 shadow-xl">
-                                            <div className="space-y-3">
-                                                <div>
-                                                    <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">Range</label>
-                                                    <select
-                                                        value={draftQuickRange}
-                                                        onChange={(e) => handleDashboardQuickRangeChange(e.target.value)}
-                                                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-                                                    >
-                                                        {QUICK_RANGES.map((range) => (
-                                                            <option key={range.value} value={range.value}>{range.label}</option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                                {draftQuickRange === 'custom' && (
-                                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                                        <label className="block">
-                                                            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">From</span>
-                                                            <input
-                                                                type="date"
-                                                                value={draftStartDate}
-                                                                max={draftEndDate || undefined}
-                                                                onChange={(e) => handleDashboardStartDateChange(e.target.value)}
-                                                                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-                                                            />
-                                                        </label>
-                                                        <label className="block">
-                                                            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">To</span>
-                                                            <input
-                                                                type="date"
-                                                                value={draftEndDate}
-                                                                min={draftStartDate || undefined}
-                                                                onChange={(e) => handleDashboardEndDateChange(e.target.value)}
-                                                                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
-                                                            />
-                                                        </label>
-                                                    </div>
-                                                )}
-                                                <div className="flex justify-end gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setIsSalesRangeOpen(false)}
-                                                        className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                                                    >
-                                                        Cancel
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleApplySalesRange}
-                                                        className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-accent hover:bg-primary-light"
-                                                    >
-                                                        Apply
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
+                            {isSalesRangeOpen && (
+                                <div className="absolute left-4 right-4 top-[4.5rem] z-20 rounded-xl border border-gray-200 bg-white p-3 shadow-xl sm:left-auto sm:right-5 sm:top-14 sm:w-[22rem]">
+                                    <div className="space-y-3">
+                                        <div>
+                                            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">Range</label>
+                                            <select
+                                                value={draftQuickRange}
+                                                onChange={(e) => handleDashboardQuickRangeChange(e.target.value)}
+                                                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                                            >
+                                                {QUICK_RANGES.map((range) => (
+                                                    <option key={range.value} value={range.value}>{range.label}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        {draftQuickRange === 'custom' && (
+                                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                                <label className="block">
+                                                    <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">From</span>
+                                                    <input
+                                                        type="date"
+                                                        value={draftStartDate}
+                                                        onChange={(e) => handleDashboardStartDateChange(e.target.value)}
+                                                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                                                    />
+                                                </label>
+                                                <label className="block">
+                                                    <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">To</span>
+                                                    <input
+                                                        type="date"
+                                                        value={draftEndDate}
+                                                        onChange={(e) => handleDashboardEndDateChange(e.target.value)}
+                                                        className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+                                                    />
+                                                </label>
+                                                <p className="sm:col-span-2 text-[11px] leading-4 text-gray-500">
+                                                    Selecting either date auto-adjusts the other to keep the range within {DASHBOARD_CUSTOM_RANGE_MAX_DAYS} days.
+                                                </p>
+                                            </div>
+                                        )}
+                                        <div className="flex justify-end gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsSalesRangeOpen(false)}
+                                                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleApplySalesRange}
+                                                disabled={!isDraftSalesRangeValid}
+                                                className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-accent hover:bg-primary-light disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                                Apply
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                             <div className="mt-4 space-y-2">
                                 {trendVisibleSeries.map((entry) => {
                                     const revenue = Number(entry?.revenue || 0);
                                     const width = Math.max(3, Math.round((revenue / maxTrendRevenue) * 100));
                                     const level = revenue / maxTrendRevenue;
-                                    const barColor = level >= 0.67 ? 'bg-emerald-500' : (level >= 0.34 ? 'bg-orange-500' : 'bg-red-500');
+                                    const barColor = level >= 0.67 ? '' : (level >= 0.34 ? 'bg-orange-500' : '');
+                                    const barStyle = {
+                                        width: `${width}%`,
+                                        ...(level >= 0.67
+                                            ? SALES_BAR_PATTERN_STYLES.green
+                                            : level >= 0.34
+                                                ? {}
+                                                : SALES_BAR_PATTERN_STYLES.red)
+                                    };
                                     return (
                                         <div key={entry.date} className="grid grid-cols-[120px_1fr_100px] items-center gap-3 sm:grid-cols-[140px_1fr_100px]">
                                             <span className="text-[11px] leading-4 text-gray-500">{formatTrendRowLabel(entry, trendGranularity)}</span>
                                             <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                                                <div className={`h-full rounded-full ${barColor}`} style={{ width: `${width}%` }} />
+                                                <div className={`h-full rounded-full ${barColor}`} style={barStyle} />
                                             </div>
                                             <span className="text-xs font-medium text-gray-700 text-right">{formatCurrency(revenue)}</span>
                                         </div>
@@ -1204,7 +1311,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                 { label: 'Failed Payments (6h)', value: Number(risk.failedPaymentsCurrent6h || 0).toLocaleString('en-IN'), helper: `vs prev 6h: ${Number(risk.failedPaymentsSpikePct || 0)}%`, icon: ShieldAlert },
                                 { label: 'Pending Aging', value: `${Number(risk.pendingAging?.over72h || 0)} over 72h`, helper: `24-72h: ${Number(risk.pendingAging?.from24hTo72h || 0)}, <24h: ${Number(risk.pendingAging?.under24h || 0)}`, icon: CalendarDays }
                             ]).map((card) => (
-                                <div key={card.label} className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${KPI_CARD_THEMES[card.theme].shell}`}>
+                                <div key={card.label} className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${KPI_CARD_THEMES[card.theme].shell}`} style={getKpiCardStyle(card.theme)}>
                                     <p className={`text-xs uppercase tracking-[0.2em] flex items-center gap-1 ${KPI_CARD_THEMES[card.theme].label}`}><card.icon size={12} />{card.label}</p>
                                     <p className={`text-xl font-semibold mt-2 ${KPI_CARD_THEMES[card.theme].value}`}>{card.value}</p>
                                     <p className={`text-xs mt-2 ${KPI_CARD_THEMES[card.theme].subtext}`}>{card.helper}</p>
@@ -1706,6 +1813,36 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                             </div>
                         )}
                     </div>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        {canInstall && (
+                            <button
+                                type="button"
+                                onClick={handleInstallApp}
+                                disabled={isPrompting}
+                                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900 shadow-sm transition hover:bg-emerald-100 disabled:opacity-60"
+                            >
+                                <Download size={17} />
+                                {isPrompting ? 'Preparing install...' : installAppLabel}
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={handleShareStore}
+                            className="inline-flex items-center justify-center gap-2 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-950 shadow-sm transition hover:bg-sky-100"
+                        >
+                            <Share2 size={17} />
+                            Share store
+                        </button>
+                    </div>
+                    <Modal
+                        isOpen={isInstallModalOpen}
+                        onClose={() => setIsInstallModalOpen(false)}
+                        title="Install SSC Jewellery"
+                        message="To install SSC Jewellery on iPhone, tap Share in Safari, then choose Add to Home Screen."
+                        type="default"
+                        confirmText="OK"
+                        onConfirm={() => setIsInstallModalOpen(false)}
+                    />
                 </>
             )}
         </div>

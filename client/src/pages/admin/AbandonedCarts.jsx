@@ -42,22 +42,22 @@ const insightRangeOptions = [
 const journeyWindowOptions = [
     { value: 'last_10', label: 'Last 10 Journeys' },
     { value: '7', label: 'Last Week' },
-    { value: '30', label: 'Last Month' },
+    { value: '30', label: 'Last 30 Days' },
     { value: '90', label: 'Last 3 Months' }
 ];
 const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
 const KPI_CARD_THEMES = {
     sky: {
         shell: 'bg-gradient-to-br from-sky-200 via-sky-300 to-cyan-500 border-sky-700/80',
-        label: 'text-sky-950',
-        value: 'text-sky-950',
-        iconGhost: 'text-sky-950/20'
+        label: 'text-slate-900/85',
+        value: 'text-slate-950',
+        iconGhost: 'text-slate-900/20'
     },
     green: {
         shell: 'bg-gradient-to-br from-lime-200 via-emerald-300 to-green-500 border-emerald-700/80',
-        label: 'text-emerald-950',
-        value: 'text-emerald-950',
-        iconGhost: 'text-emerald-950/20'
+        label: 'text-black/85',
+        value: 'text-black',
+        iconGhost: 'text-black/25'
     },
     pink: {
         shell: 'bg-gradient-to-br from-fuchsia-200 via-pink-300 to-rose-500 border-fuchsia-700/80',
@@ -67,17 +67,40 @@ const KPI_CARD_THEMES = {
     },
     brown: {
         shell: 'bg-gradient-to-br from-amber-200 via-orange-300 to-stone-500 border-amber-800/80',
-        label: 'text-stone-950',
-        value: 'text-stone-950',
-        iconGhost: 'text-stone-950/20'
+        label: 'text-white/90 drop-shadow-sm',
+        value: 'text-white drop-shadow-sm',
+        iconGhost: 'text-white/45 drop-shadow-sm'
     },
     red: {
         shell: 'bg-gradient-to-br from-rose-200 via-red-300 to-red-500 border-red-700/80',
-        label: 'text-red-950',
-        value: 'text-red-950',
-        iconGhost: 'text-red-950/20'
+        label: 'text-white/90 drop-shadow-sm',
+        value: 'text-white drop-shadow-sm',
+        iconGhost: 'text-white/45 drop-shadow-sm'
     }
 };
+const KPI_PATTERN_STYLES = {
+    sky: {
+        backgroundColor: '#ffffff',
+        backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.28), rgba(30,64,175,0.04)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 200 200'%3E%3Cpolygon fill='%23DCEFFA' points='100 0 0 100 100 100 100 200 200 100 200 0'/%3E%3C/svg%3E")`,
+        backgroundSize: 'cover, 160px 160px'
+    },
+    green: {
+        backgroundColor: '#ddffaa',
+        backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.16), rgba(34,68,17,0.06)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cpolygon fill='%23AE9' points='120 120 60 120 90 90 120 60 120 0 120 0 60 60 0 0 0 60 30 90 60 120 120 120'/%3E%3C/svg%3E")`,
+        backgroundSize: 'cover, 120px 120px'
+    },
+    red: {
+        backgroundColor: '#7f1d1d',
+        backgroundImage: 'linear-gradient(135deg, rgba(15,23,42,0.36), rgba(127,29,29,0.2)), linear-gradient(135deg, rgba(254,202,202,0.12) 25%, transparent 25%), linear-gradient(225deg, rgba(244,63,94,0.2) 25%, transparent 25%), linear-gradient(45deg, rgba(190,18,60,0.22) 25%, transparent 25%)',
+        backgroundSize: 'cover, 90px 90px, 90px 90px, 90px 90px'
+    },
+    brown: {
+        backgroundColor: '#9a5b00',
+        backgroundImage: `linear-gradient(135deg, rgba(69,26,3,0.32), rgba(245,158,11,0.08)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 100 100'%3E%3Crect x='0' y='0' width='46' height='46' fill-opacity='0.45' fill='%23c77700'/%3E%3C/svg%3E")`,
+        backgroundSize: 'cover, 40px 40px'
+    }
+};
+const getKpiCardStyle = (theme) => KPI_PATTERN_STYLES[theme] || undefined;
 const applyKpiThemeRotation = (cards = [], startIndex = 0) => cards.map((card, index) => ({
     ...card,
     theme: KPI_THEME_SEQUENCE[(startIndex + index) % KPI_THEME_SEQUENCE.length]
@@ -435,7 +458,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     const [searchInput, setSearchInput] = useState('');
     const [page, setPage] = useState(1);
     const [rangeDays, setRangeDays] = useState(30);
-    const [journeyWindow, setJourneyWindow] = useState('last_10');
+    const [journeyWindow, setJourneyWindow] = useState('30');
     const [isMobileStatusModalOpen, setIsMobileStatusModalOpen] = useState(false);
     const [isMobileSortModalOpen, setIsMobileSortModalOpen] = useState(false);
     const [isMobileSearchModalOpen, setIsMobileSearchModalOpen] = useState(false);
@@ -585,7 +608,9 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
             { label: 'Recovered', value: Number(totals.recoveredJourneys || 0) },
             { label: 'Recovery Rate', value: `${Number(totals.recoveryRate || 0).toFixed(2)}%` },
             { label: 'Recovered Value', value: inr(totals.recoveredValue || 0) }
-        ]);
+        ]).map((card) => (
+            card.label === 'Recovery Rate' ? { ...card, theme: 'red' } : card
+        ));
     }, [insights, sharedInsights]);
     const mobileJourneys = useMemo(() => {
         if (mobileStatusFilter === 'all') return journeys;
@@ -1134,7 +1159,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     }
 
     return (
-        <div className="animate-fade-in space-y-6">
+        <div className="animate-fade-in space-y-6 overflow-x-hidden">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-3 md:block">
@@ -1183,7 +1208,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
 
             <div className="hidden md:grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 {cards.map((card) => (
-                    <div key={card.label} className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm p-5 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`}>
+                    <div key={card.label} className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm p-5 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`} style={getKpiCardStyle(card.theme)}>
                         <ShoppingCart size={54} className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || 'sky'].iconGhost}`} />
                         <p className={`text-xs uppercase tracking-widest font-semibold ${KPI_CARD_THEMES[card.theme || 'sky'].label}`}>{card.label}</p>
                         <p className={`text-xl font-bold mt-1 ${KPI_CARD_THEMES[card.theme || 'sky'].value}`}>{card.value}</p>
@@ -1192,7 +1217,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
             </div>
 
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100 flex flex-col md:flex-row md:items-center gap-2 md:justify-between">
+                <div className="px-5 py-4 border-b border-gray-100 flex flex-col md:flex-row md:items-center gap-2 overflow-x-hidden md:justify-between">
                     <p className="text-sm text-gray-500">Journeys ({journeyTotal})</p>
                     <div className="hidden md:flex flex-col md:flex-row gap-2 w-full md:w-auto">
                         <div className="relative">
@@ -1203,7 +1228,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                         </div>
                         <div className="relative">
                             <CalendarDays className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-                            <select value={journeyWindow} onChange={(e) => setJourneyWindow(String(e.target.value || 'last_10'))} className="pl-9 pr-7 py-2 rounded-lg border border-gray-200 bg-white text-sm w-full md:w-auto">
+                            <select value={journeyWindow} onChange={(e) => setJourneyWindow(String(e.target.value || '30'))} className="pl-9 pr-7 py-2 rounded-lg border border-gray-200 bg-white text-sm w-full md:w-auto">
                                 {journeyWindowOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                             </select>
                         </div>
@@ -1215,7 +1240,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                             <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="pl-9 pr-3 py-2 rounded-lg border border-gray-200 bg-white text-sm w-full md:w-64" placeholder="Search customer / id" />
                         </div>
                     </div>
-                    <div className="flex items-center justify-end gap-2 md:hidden">
+                    <div className="flex items-center justify-center gap-2 md:hidden">
                         <button
                             type="button"
                             onClick={() => setIsMobileSortModalOpen(true)}
@@ -1231,40 +1256,46 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                             type="button"
                             onClick={() => setIsMobileRangeModalOpen(true)}
                             className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
-                                journeyWindow !== 'last_10' ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700' : 'border-gray-200 bg-white text-gray-600'
+                                journeyWindow !== '30' ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700' : 'border-gray-200 bg-white text-gray-600'
                             }`}
                             title="Journey duration"
                             aria-label="Journey duration"
                         >
                             <CalendarDays size={18} />
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => setIsMobileSearchModalOpen(true)}
-                            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
-                                searchInput ? 'border-primary/20 bg-primary/5 text-primary' : 'border-gray-200 bg-white text-gray-600'
-                            }`}
-                            title="Search Journeys"
-                            aria-label="Search Journeys"
-                        >
-                            <Search size={18} />
-                        </button>
+                        <div className="relative min-w-0 w-full max-w-[220px]">
+                            <Search className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 ${searchInput ? 'text-primary' : 'text-gray-400'}`} />
+                            <input
+                                value={searchInput}
+                                onChange={(e) => setSearchInput(e.target.value)}
+                                className={`w-full rounded-xl border bg-white py-2.5 pl-9 pr-3 text-sm shadow-sm outline-none transition ${
+                                    searchInput ? 'border-primary/20 bg-primary/5 text-primary placeholder:text-primary/60' : 'border-gray-200 text-gray-700'
+                                }`}
+                                placeholder="Search journeys"
+                                aria-label="Search journeys"
+                            />
+                        </div>
                     </div>
-                    <div className="md:hidden w-full pb-1 overflow-x-hidden">
-                        <div className="grid grid-cols-5 gap-1.5">
-                            {mobileJourneyStatusOptions.map((option) => {
-                                const active = mobileStatusFilter === option.value;
-                                return (
-                                    <button
-                                        key={option.value}
-                                        type="button"
-                                        onClick={() => setMobileStatusFilter(option.value)}
-                                        className={`min-w-0 rounded-full border px-1 py-2 text-[9px] font-semibold leading-none tracking-normal whitespace-nowrap transition ${getMobileJourneyFilterBadgeClass(option.value, active)}`}
-                                    >
-                                        {option.label} ({mobileJourneyStatusCounts[option.value] || fallbackMobileJourneyStatusCounts[option.value] || 0})
-                                    </button>
-                                );
-                            })}
+                    <div className="md:hidden w-full max-w-full overflow-hidden">
+                        <div
+                            className="w-full overflow-x-auto overscroll-x-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                            style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
+                        >
+                            <div className="inline-flex min-w-max flex-nowrap gap-1.5 pr-1">
+                                {mobileJourneyStatusOptions.map((option) => {
+                                    const active = mobileStatusFilter === option.value;
+                                    return (
+                                        <button
+                                            key={option.value}
+                                            type="button"
+                                            onClick={() => setMobileStatusFilter(option.value)}
+                                            className={`inline-flex shrink-0 items-center rounded-full border px-2 py-1.5 text-[10px] font-semibold leading-none tracking-normal whitespace-nowrap transition ${getMobileJourneyFilterBadgeClass(option.value, active)}`}
+                                        >
+                                            {option.label} ({mobileJourneyStatusCounts[option.value] || fallbackMobileJourneyStatusCounts[option.value] || 0})
+                                        </button>
+                                    );
+                                })}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1548,7 +1579,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-200" />
                         <h3 className="text-lg font-bold text-gray-900">Journey Duration</h3>
                         <p className="mt-1 text-sm text-gray-500">Limit the list to recent abandoned-cart journeys.</p>
-                        <select value={journeyWindow} onChange={(e) => setJourneyWindow(String(e.target.value || 'last_10'))} className="mt-4 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:border-accent">
+                        <select value={journeyWindow} onChange={(e) => setJourneyWindow(String(e.target.value || '30'))} className="mt-4 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:border-accent">
                             {journeyWindowOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                         </select>
                         <button type="button" onClick={() => setIsMobileRangeModalOpen(false)} className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light">

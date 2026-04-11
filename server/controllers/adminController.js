@@ -1586,7 +1586,8 @@ const getUsers = async (req, res) => {
         const limit = parseInt(req.query.limit) || 10;
         const role = req.query.role || 'all';
         const search = String(req.query.search || '').trim();
-        const result = await User.getPaginated(page, limit, role, search);
+        const archiveMode = User.normalizeArchiveMode(req.query.archiveMode || (req.query.includeArchived === 'true' ? 'all' : 'active'));
+        const result = await User.getPaginated(page, limit, role, search, { archiveMode });
         
         res.json({
             users: result.users.map((entry) => User.toSafePayload(entry)),
@@ -1725,6 +1726,39 @@ const setUserStatus = async (req, res) => {
         return res.json({
             message: isActive ? 'Customer reactivated' : 'Customer deactivated',
             user: safeUser
+        });
+    } catch (error) {
+        return res.status(500).json({ message: error?.message || 'Server Error' });
+    }
+};
+
+const setUserArchiveStatus = async (req, res) => {
+    try {
+        const userId = String(req.params.id || '').trim();
+        const userToUpdate = await User.findById(userId);
+        if (!userToUpdate) return res.status(404).json({ message: 'User not found' });
+
+        if (String(userToUpdate.role || '').toLowerCase() !== 'customer') {
+            return res.status(400).json({ message: 'Only customer accounts can be archived.' });
+        }
+
+        const requestedArchived = req.body?.isArchived;
+        const isArchived = requestedArchived === undefined
+            ? true
+            : requestedArchived === true || requestedArchived === 'true' || requestedArchived === 1 || requestedArchived === '1';
+        const reason = String(req.body?.reason || '').trim() || (isArchived ? 'Archived by admin' : 'Unarchived by admin');
+
+        const updatedUser = await User.setArchiveStatus(userId, { isArchived, reason });
+        const safeUser = User.toSafePayload(updatedUser);
+        const io = req.app.get('io');
+        if (io) {
+            emitToUserAudiences(io, safeUser, 'user:update', safeUser);
+        }
+
+        return res.json({
+            message: isArchived ? 'Customer archived' : 'Customer unarchived',
+            user: safeUser,
+            action: isArchived ? 'archived' : 'unarchived'
         });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Server Error' });
@@ -2698,6 +2732,7 @@ module.exports = {
     createUser,
     deleteUser,
     setUserStatus,
+    setUserArchiveStatus,
     resetUserPassword,
     getUserCart,
     addUserCartItem,

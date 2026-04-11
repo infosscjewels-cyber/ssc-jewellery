@@ -1,17 +1,19 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, ChevronRight, Heart, Search, Home, Info, Phone, Store, Package } from 'lucide-react';
+import { Menu, X, User, LogOut, ShoppingCart, ChevronDown, ChevronRight, Heart, Search, Home, Info, Phone, Store, Package, Download } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { productService } from '../services/productService';
 import emptyIllustration from '../assets/closed.svg';
 import placeholderImg from '../assets/placeholder.jpg';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
+import { usePwaInstall } from '../hooks/usePwaInstall';
 import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { BUILD_VERSION } from '../generated/buildInfo.js';
 import { formatTierLabel } from '../utils/tierFormat';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import EmptyState from './EmptyState';
+import Modal from './Modal';
 import TierBadge from './TierBadge';
 
 const TIER_STYLES = {
@@ -92,8 +94,11 @@ export default function Navbar() {
     const { user, logout } = useAuth();
     const { itemCount, openCart } = useCart();
     const { companyInfo } = usePublicCompanyInfo();
+    const { canInstall, install, isPrompting, showIosHint } = usePwaInstall();
+    const installAppLabel = showIosHint ? 'Add to Home Screen' : 'Install app';
     const [shakeCart, setShakeCart] = useState(false);
     const [popBadge, setPopBadge] = useState(false);
+    const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
     const prevCountRef = useRef(itemCount);
     const navigate = useNavigate();
     const location = useLocation();
@@ -533,12 +538,19 @@ export default function Navbar() {
         setIsOpen(true);
         setShouldFocusMobileSearch(true);
     };
+    const handleInstallApp = useCallback(async () => {
+        if (showIosHint) {
+            setIsInstallModalOpen(true);
+            return;
+        }
+        await install();
+    }, [install, showIosHint]);
 
     return (
         // [FIX] Dynamic Classes for Animation
         // - 'py-4' -> 'py-2': Shrinks height
         // - 'shadow-none' -> 'shadow-md': Adds depth
-        <nav className={`fixed top-0 w-full z-[80] bg-white/90 backdrop-blur-2xl transition-all duration-300 ease-in-out py-2 md:py-4 shadow-sm border-b border-white/70`}>
+        <nav className={`sticky top-0 w-full z-[80] bg-white/90 backdrop-blur-2xl transition-all duration-300 ease-in-out py-2 md:py-4 shadow-sm border-b border-white/70`}>
             <div className="container mx-auto px-4 md:px-8">
                 <div className="flex justify-between items-center">
                     
@@ -551,11 +563,11 @@ export default function Navbar() {
                             decoding="async"
                             fetchPriority="high"
                         />
-                        <span className="flex min-w-0 flex-col justify-center leading-none">
-                            <span className="truncate font-serif text-[0.9rem] font-bold tracking-[0.04em] text-primary transition-all duration-300 md:text-[1.2rem] md:tracking-[0.08em]">
+                        <span className="flex min-w-0 flex-col items-start justify-center leading-tight">
+                            <span className="font-serif text-[0.85rem] font-bold tracking-[0.03em] text-primary transition-all duration-300 sm:text-[0.95rem] md:text-[1.2rem] md:tracking-[0.08em] whitespace-normal break-words max-w-[140px] sm:max-w-[180px] md:max-w-none">
                                 Sree Sai Collections
                             </span>
-                            <span className="mt-0.5 inline-flex w-fit max-w-full items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[7px] font-semibold uppercase tracking-[0.12em] text-amber-800 md:mt-1 md:text-[10px] md:tracking-[0.18em]">
+                            <span className="mt-1 inline-flex max-w-[160px] items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[6px] font-semibold uppercase tracking-[0.12em] text-amber-800 whitespace-normal break-words text-left sm:text-[7px] md:mt-1 md:max-w-none md:text-[10px] md:tracking-[0.18em]">
                                 1 gm Imitiation Jewellery
                             </span>
                         </span>
@@ -1169,6 +1181,23 @@ export default function Navbar() {
                             <ChevronRight size={18} className="text-primary/60" />
                         </Link>
                     )}
+                    {canInstall && (
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                await handleInstallApp();
+                                setIsOpen(false);
+                            }}
+                            disabled={isPrompting}
+                            className="flex w-full items-center justify-between border-b border-gray-100 py-3 text-left text-lg font-medium text-gray-600 disabled:opacity-60"
+                        >
+                            <span className="flex items-center gap-2">
+                                <Download size={20} />
+                                {isPrompting ? 'Preparing install...' : installAppLabel}
+                            </span>
+                            <ChevronRight size={18} className="text-gray-300" />
+                        </button>
+                    )}
                     {showTierBadge && (
                         <div className="border-b border-gray-100 py-3 text-left text-sm text-gray-500">
                             Tier:
@@ -1176,11 +1205,20 @@ export default function Navbar() {
                             <TierBadge tier={tier} label={tierLabel} className="px-2 py-0.5 text-[10px] font-bold tracking-wider" iconSize={11} />
                         </div>
                     )}
-                    <div className="pt-3 text-center text-[10px] tracking-wide text-gray-300">
-                        Build {BUILD_VERSION}
-                    </div>
+                <div className="pt-3 text-center text-[10px] tracking-wide text-gray-300">
+                    Build {BUILD_VERSION}
                 </div>
             </div>
-        </nav>
-    );
+        </div>
+        <Modal
+            isOpen={isInstallModalOpen}
+            onClose={() => setIsInstallModalOpen(false)}
+            title="Install SSC Jewellery"
+            message="To install SSC Jewellery on iPhone, tap Share in Safari, then choose Add to Home Screen."
+            type="default"
+            confirmText="OK"
+            onConfirm={() => setIsInstallModalOpen(false)}
+        />
+    </nav>
+  );
 }

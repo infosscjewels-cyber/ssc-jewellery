@@ -620,6 +620,13 @@ exports.login = async (req, res) => {
             if (!isValidOtp) return res.status(400).json({ message: 'Invalid OTP' });
         }
 
+        if (user?.isArchived) {
+            void User.unarchiveIfArchived(user.id, 'customer_login_reactivated').catch((error) => {
+                console.error('Archived customer login reactivation failed:', error?.message || error);
+            });
+            user = { ...user, isArchived: false, archivedAt: null, archiveReason: null };
+        }
+
         try {
             const loyalty = await getUserLoyaltyStatus(user.id);
             applyUserLoyaltySnapshot(user, loyalty);

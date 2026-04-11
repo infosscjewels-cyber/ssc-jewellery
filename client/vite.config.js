@@ -31,35 +31,13 @@ export default defineConfig(({ mode }) => {
     define: {
       __APP_BASE_URL__: JSON.stringify(publicBaseUrl)
     },
-    build: {
-      rollupOptions: {
-        output: {
-          manualChunks(id) {
-            const normalized = String(id || '');
-            if (normalized.includes('node_modules/react') || normalized.includes('node_modules/scheduler')) {
-              return 'react-vendor';
-            }
-            if (normalized.includes('node_modules/react-router')) {
-              return 'router-vendor';
-            }
-            if (normalized.includes('node_modules/lucide-react')) {
-              return 'icons-vendor';
-            }
-            if (normalized.includes('node_modules/firebase')) {
-              return 'firebase-vendor';
-            }
-            if (normalized.includes('/src/pages/admin/')) {
-              return 'admin-pages';
-            }
-            return undefined;
-          }
-        }
-      }
-    },
     plugins: [
       react(),
       VitePWA({
         registerType: 'autoUpdate',
+        devOptions: {
+          enabled: true
+        },
         manifest: {
           name: 'SSC Impon Jewellery',      // <--- Fixed Full Name
           short_name: 'SSC Impon',          // <--- Fixed App Name (Home Screen)

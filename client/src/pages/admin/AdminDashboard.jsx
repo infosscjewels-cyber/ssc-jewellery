@@ -5,7 +5,7 @@ import { useProducts } from '../../context/ProductContext';
 import Customers from './Customers';
 import Products from './Products';
 import Categories from './Categories';
-import { Users, ShoppingBag, LayoutDashboard, LogOut, Package, Truck, ShoppingCart, Settings, X } from 'lucide-react';
+import { Users, ShoppingBag, LayoutDashboard, LogOut, Package, Truck, ShoppingCart, Settings, Sparkles, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Images } from 'lucide-react'; // Add 'Images' icon
 import HeroCMS from './HeroCMS'; // Import the new component
@@ -145,7 +145,7 @@ export default function AdminDashboard() {
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 
             ${disabled
                 ? 'text-gray-500 bg-white/5 grayscale cursor-not-allowed opacity-80'
-                : (activeTab === id || (id === 'customers' && activeTab === 'loyalty'))
+                : activeTab === id
                 ? 'bg-accent text-primary font-bold shadow-lg shadow-accent/20' 
                 : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
         >
@@ -486,6 +486,7 @@ export default function AdminDashboard() {
                         )}
                     </div>
                     <NavItem icon={Users} label="Customers" id="customers" />
+                    <NavItem icon={Sparkles} label="Loyalty" id="loyalty" />
                     <NavItem icon={ShoppingBag} label="Orders" id="orders" />
                     <NavItem icon={Truck} label="Shipping" id="shipping" />
                     <NavItem icon={ShoppingCart} label="Abandoned Carts" id="abandoned" disabled={!storefrontOpen} />
@@ -507,7 +508,7 @@ export default function AdminDashboard() {
             </aside>
 
             {/* --- MAIN CONTENT AREA --- */}
-            <main className="flex-1 md:ml-64 min-h-screen transition-all flex flex-col">
+            <main className="flex-1 md:ml-64 min-h-screen transition-all flex flex-col overflow-x-hidden">
                 {/* Mobile Header */}
                 <div className="md:hidden bg-white p-4 flex items-center justify-between shadow-sm sticky top-0 z-40">
                     <img src={BRAND_LOGO_URL} className="w-10 h-auto" alt="Logo" />
@@ -536,7 +537,7 @@ export default function AdminDashboard() {
                     </div>
                 )}
 
-                <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full">
+                <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full overflow-x-hidden">
                     <div className="mb-6 hidden items-center justify-end md:flex">
                         <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
                             storefrontOpen
@@ -589,7 +590,6 @@ export default function AdminDashboard() {
                     {activeTab === 'customers' && (
                         <Customers
                             storefrontOpen={storefrontOpen}
-                            onOpenLoyalty={() => setActiveTab('loyalty')}
                             onCreateOrderForCustomer={(userId) => {
                                 setActiveTab('orders');
                                 setOrdersInitialManualCustomerId(String(userId || '').trim());
@@ -625,7 +625,7 @@ export default function AdminDashboard() {
                         />
                     )}
                     {activeTab === 'abandoned' && <AbandonedCarts storefrontOpen={storefrontOpen} />}
-                    {activeTab === 'loyalty' && <LoyaltySettings onBack={() => setActiveTab('customers')} storefrontOpen={storefrontOpen} />}
+                    {activeTab === 'loyalty' && <LoyaltySettings onBack={() => setActiveTab('dashboard')} storefrontOpen={storefrontOpen} />}
                     {activeTab === 'companyInfo' && <CompanyInfo />}
                 </div>
 
@@ -644,7 +644,7 @@ export default function AdminDashboard() {
             <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-[0_-5px_20px_rgba(0,0,0,0.05)] pb-safe pt-2 px-4 flex justify-between items-center z-40">
                 <MobileNavBtn icon={LayoutDashboard} label="Home" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
                 <MobileNavBtn icon={Package} label="Products" active={activeTab === 'products'} onClick={() => setActiveTab('products')} />
-                <MobileNavBtn icon={Users} label="Customers" active={activeTab === 'customers' || activeTab === 'loyalty'} onClick={() => setActiveTab('customers')} />
+                <MobileNavBtn icon={Users} label="Customers" active={activeTab === 'customers'} onClick={() => setActiveTab('customers')} />
                 <MobileNavBtn icon={ShoppingBag} label="Orders" active={activeTab === 'orders'} onClick={() => setActiveTab('orders')} />
                 <MobileNavBtn icon={ShoppingCart} label="Carts" active={activeTab === 'abandoned'} disabled={!storefrontOpen} onClick={() => storefrontOpen && setActiveTab('abandoned')} />
             </div>

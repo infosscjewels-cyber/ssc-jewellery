@@ -140,7 +140,7 @@ const PublicLayout = () => {
   return (
     <>
       <Navbar />
-      <main className="min-h-screen bg-secondary pt-[74px] pb-32 md:pb-0 tier-surface"> 
+      <main className="min-h-screen bg-secondary pb-32 md:pb-0 tier-surface"> 
         {!storefrontOpen && (
           <div className="border-b border-amber-200 bg-amber-50/95 px-4 text-sm text-amber-900">
             <div className="mx-auto flex min-h-[64px] max-w-7xl items-center justify-center py-4 text-center">

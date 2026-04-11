@@ -60,6 +60,9 @@ const initDB = async () => {
                 billing_address TEXT,
                 profile_image TEXT,
                 role VARCHAR(20) DEFAULT 'customer', -- Updated default to match logic
+                is_archived TINYINT(1) NOT NULL DEFAULT 0,
+                archived_at TIMESTAMP NULL DEFAULT NULL,
+                archive_reason VARCHAR(255) NULL DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
@@ -91,7 +94,19 @@ const initDB = async () => {
             await connection.query('ALTER TABLE users ADD COLUMN deactivation_reason VARCHAR(255) NULL DEFAULT NULL');
         } catch {}
         try {
+            await connection.query('ALTER TABLE users ADD COLUMN is_archived TINYINT(1) NOT NULL DEFAULT 0');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE users ADD COLUMN archived_at TIMESTAMP NULL DEFAULT NULL');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE users ADD COLUMN archive_reason VARCHAR(255) NULL DEFAULT NULL');
+        } catch {}
+        try {
             await connection.query('ALTER TABLE users ADD INDEX idx_users_created_at (created_at)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE users ADD INDEX idx_users_archived_role_created (is_archived, role, created_at)');
         } catch {}
 
         // 3. PRODUCTS TABLE (Added 'options' column)

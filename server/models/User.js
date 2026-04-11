@@ -28,6 +28,11 @@ class User {
                 : (row.isActive === undefined ? true : Boolean(row.isActive)),
             deactivatedAt: row.deactivated_at || row.deactivatedAt || null,
             deactivationReason: row.deactivation_reason || row.deactivationReason || null,
+            isArchived: row.is_archived !== undefined
+                ? (row.is_archived === 1 || row.is_archived === true)
+                : Boolean(row.isArchived),
+            archivedAt: row.archived_at || row.archivedAt || null,
+            archiveReason: row.archive_reason || row.archiveReason || null,
             dob: row.dob
                 ? (row.dob instanceof Date
                     ? `${row.dob.getFullYear()}-${String(row.dob.getMonth() + 1).padStart(2, '0')}-${String(row.dob.getDate()).padStart(2, '0')}`
@@ -56,6 +61,9 @@ class User {
         delete safe.is_active;
         delete safe.deactivated_at;
         delete safe.deactivation_reason;
+        delete safe.is_archived;
+        delete safe.archived_at;
+        delete safe.archive_reason;
 
         return safe;
     }
@@ -76,8 +84,16 @@ class User {
     }
 
     // --- 2. PAGINATION (Pure SQL) ---
-    static async getPaginated(page = 1, limit = 10, roleFilter = null, search = '') {
+    static normalizeArchiveMode(mode = 'active') {
+        const normalized = String(mode || 'active').trim().toLowerCase();
+        if (['all', 'include', 'include_archived'].includes(normalized)) return 'all';
+        if (['archived', 'archived_only', 'only_archived'].includes(normalized)) return 'archived';
+        return 'active';
+    }
+
+    static async getPaginated(page = 1, limit = 10, roleFilter = null, search = '', options = {}) {
         const offset = (page - 1) * limit;
+        const archiveMode = User.normalizeArchiveMode(options.archiveMode);
         
         let query = `SELECT u.*,
             COALESCE(ul.tier, 'regular') as loyalty_tier,
@@ -128,6 +144,11 @@ class User {
         if (roleFilter && roleFilter !== 'all') {
             whereParts.push('u.role = ?');
             params.push(roleFilter);
+        }
+        if (archiveMode === 'archived') {
+            whereParts.push('COALESCE(u.is_archived, 0) = 1');
+        } else if (archiveMode === 'active') {
+            whereParts.push('COALESCE(u.is_archived, 0) = 0');
         }
         const normalizedSearch = String(search || '').trim();
         if (normalizedSearch) {
@@ -322,6 +343,33 @@ class User {
                 activeFlag ? null : (String(reason || '').trim() || null),
                 id
             ]
+        );
+        return User.findById(id);
+    }
+
+    static async setArchiveStatus(id, { isArchived = true, reason = null } = {}) {
+        const archivedFlag = isArchived ? 1 : 0;
+        await db.execute(
+            `UPDATE users
+             SET is_archived = ?, archived_at = ?, archive_reason = ?
+             WHERE id = ?`,
+            [
+                archivedFlag,
+                archivedFlag ? new Date() : null,
+                archivedFlag ? (String(reason || '').trim() || 'inactive_customer_cleanup') : null,
+                id
+            ]
+        );
+        return User.findById(id);
+    }
+
+    static async unarchiveIfArchived(id, reason = 'customer_reactivated') {
+        if (!id) return null;
+        await db.execute(
+            `UPDATE users
+             SET is_archived = 0, archived_at = NULL, archive_reason = NULL
+             WHERE id = ? AND COALESCE(is_archived, 0) = 1`,
+            [id]
         );
         return User.findById(id);
     }

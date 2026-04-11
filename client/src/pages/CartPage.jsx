@@ -81,22 +81,49 @@ export default function CartPage() {
     const cartTotal = useMemo(() => {
         return Math.max(0, Number(cartTotalBeforeMemberPerks || 0) - estimatedMemberDiscount - estimatedMemberShippingBenefit);
     }, [cartTotalBeforeMemberPerks, estimatedMemberDiscount, estimatedMemberShippingBenefit]);
+    const freeProgress = useMemo(() => {
+        const candidates = [];
+        if (shippingPreview?.freeThreshold) {
+            const remaining = Math.max(0, Number(shippingPreview.freeThreshold || 0) - Number(subtotal || 0));
+            candidates.push({
+                type: 'price',
+                pct: Math.min(100, (Number(subtotal || 0) / Number(shippingPreview.freeThreshold || 1)) * 100),
+                remaining,
+                remainingLabel: `₹${remaining.toLocaleString('en-IN')}`,
+                message: hasSavedShippingState
+                    ? `Add ₹${remaining.toLocaleString('en-IN')} more to enjoy free shipping.`
+                    : `Add ₹${remaining.toLocaleString('en-IN')} more to qualify for free shipping on the default delivery zone.`
+            });
+        }
+        if (shippingPreview?.freeWeightThreshold) {
+            const remaining = Math.max(0, Number(shippingPreview.freeWeightThreshold || 0) - Number(totalWeightKg || 0));
+            const remainingLabel = `${Number(remaining.toFixed(2)).toLocaleString('en-IN')} kg`;
+            candidates.push({
+                type: 'weight',
+                pct: Math.min(100, (Number(totalWeightKg || 0) / Number(shippingPreview.freeWeightThreshold || 1)) * 100),
+                remaining,
+                remainingLabel,
+                message: hasSavedShippingState
+                    ? `Add ${remainingLabel} more cart weight to enjoy free shipping.`
+                    : `Add ${remainingLabel} more cart weight to qualify for free shipping on the default delivery zone.`
+            });
+        }
+        return candidates.sort((a, b) => a.remaining - b.remaining)[0] || null;
+    }, [hasSavedShippingState, shippingPreview?.freeThreshold, shippingPreview?.freeWeightThreshold, subtotal, totalWeightKg]);
+    const freeShippingSavings = useMemo(
+        () => Number(shippingPreview?.freeShippingSavings || 0),
+        [shippingPreview?.freeShippingSavings]
+    );
     const totalSavings = useMemo(() => {
-        return items.reduce((sum, item) => {
+        const productSavings = items.reduce((sum, item) => {
             const mrp = Number(item.compareAt || 0);
             const price = Number(item.price || 0);
             const qty = Number(item.quantity || 0);
             if (mrp <= price || qty <= 0) return sum;
             return sum + (mrp - price) * qty;
         }, 0);
-    }, [items]);
-
-    const freeProgress = useMemo(() => {
-        if (!shippingPreview?.freeThreshold) return null;
-        const pct = Math.min(100, (subtotal / shippingPreview.freeThreshold) * 100);
-        const remaining = Math.max(0, shippingPreview.freeThreshold - subtotal);
-        return { pct, remaining };
-    }, [shippingPreview, subtotal]);
+        return productSavings + freeShippingSavings;
+    }, [freeShippingSavings, items]);
     const hasFreeShipping = useMemo(() => Number(shippingPreview?.fee || 0) === 0, [shippingPreview?.fee]);
     const shouldShowProgress = !!freeProgress && !hasFreeShipping;
     const isShippingUnavailable = Boolean(shippingPreview?.isUnavailable);
@@ -368,9 +395,9 @@ export default function CartPage() {
                                         <span className="font-semibold text-amber-700">Unavailable for this state</span>
                                     ) : hasFreeShipping ? (
                                         <span className="inline-flex items-center gap-2 font-semibold">
-                                            {struckShippingFee != null && struckShippingFee > 0 && (
+                                            {Number(struckShippingFee || freeShippingSavings || 0) > 0 && (
                                                 <span className={`text-gray-400 transition-all duration-500 ${showFreeShippingFx ? 'line-through opacity-100' : 'line-through opacity-70'}`}>
-                                                    ₹{struckShippingFee.toLocaleString()}
+                                                    ₹{Number(struckShippingFee || freeShippingSavings || 0).toLocaleString()}
                                                 </span>
                                             )}
                                             <span className={`text-emerald-600 transition-all duration-300 ${showFreeShippingFx ? 'scale-110' : 'scale-100'}`}>
@@ -397,15 +424,13 @@ export default function CartPage() {
                                     <div className={`overflow-hidden transition-all duration-300 ease-out ${shouldShowProgress ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
                                         <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
                                             <span>{hasSavedShippingState ? 'Free shipping progress' : 'Free shipping progress from default zone'}</span>
-                                            <span>₹{Math.max(0, freeProgress.remaining).toLocaleString()} to go</span>
+                                            <span>{freeProgress.remainingLabel} to go</span>
                                         </div>
                                         <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
                                             <div className="h-full bg-emerald-500" style={{ width: `${freeProgress.pct}%` }} />
                                         </div>
                                         <p className="mt-2 text-xs text-gray-500">
-                                            {hasSavedShippingState
-                                                ? `Add ₹${Math.max(0, freeProgress.remaining).toLocaleString('en-IN')} more to enjoy free shipping.`
-                                                : `Add ₹${Math.max(0, freeProgress.remaining).toLocaleString('en-IN')} more to qualify for free shipping on the default delivery zone.`}
+                                            {freeProgress.message}
                                         </p>
                                         <Link
                                             to="/shop"

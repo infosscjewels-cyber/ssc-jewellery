@@ -58,9 +58,8 @@ export const buildHomeSeo = ({
     const categoryNames = (Array.isArray(categories) ? categories : []).map((entry) => normalizeText(entry?.name)).filter(Boolean);
     const productTitles = (Array.isArray(products) ? products : []).map((entry) => normalizeText(entry?.title)).filter(Boolean);
     const preferredImages = [
-        ...(Array.isArray(slides) ? slides : []).map((entry) => normalizeText(entry?.image_url || entry?.imageUrl)).filter(Boolean),
-        ...(Array.isArray(banners) ? banners : []).map((entry) => normalizeText(entry?.image_url || entry?.imageUrl || entry?.image)).filter(Boolean)
-    ];
+        normalizeText(company.logoUrl || company.logo_url || '/logo.webp')
+    ].filter(Boolean);
     const categoryImages = (Array.isArray(categories) ? categories : []).map((entry) => getCategoryImage(entry)).filter(Boolean);
     const productImages = (Array.isArray(products) ? products : []).flatMap((product) => getProductImageCandidates(product));
     const brand = normalizeText(company.displayName) || SITE_NAME;

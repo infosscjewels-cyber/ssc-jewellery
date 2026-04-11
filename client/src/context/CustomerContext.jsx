@@ -6,7 +6,7 @@ import { useSocket } from './SocketContext';
 
 const CustomerContext = createContext(null);
 const CACHE_TTL = 5 * 60 * 1000;
-const STORAGE_KEY = 'admin_users_cache_v2';
+const STORAGE_KEY = 'admin_users_cache_v3';
 
 export const CustomerProvider = ({ children }) => {
     const { user } = useAuth();
@@ -16,6 +16,7 @@ export const CustomerProvider = ({ children }) => {
     const [loading, setLoading] = useState(false);
     const usersCountRef = useRef(0);
     const lastFetchedAtRef = useRef(0);
+    const archiveModeRef = useRef('active');
 
     useEffect(() => {
         usersCountRef.current = users.length;
@@ -25,21 +26,26 @@ export const CustomerProvider = ({ children }) => {
         lastFetchedAtRef.current = lastFetchedAt;
     }, [lastFetchedAt]);
 
-    const refreshUsers = useCallback(async (force = false) => {
+    const refreshUsers = useCallback(async (force = false, options = {}) => {
         if (!user || (user.role !== 'admin' && user.role !== 'staff')) return;
-        if (!force && Date.now() - lastFetchedAtRef.current < CACHE_TTL && usersCountRef.current > 0) return;
+        const archiveMode = String(options.archiveMode || 'active').trim().toLowerCase() || 'active';
+        const canUseLocalCache = archiveMode === 'active';
+        if (canUseLocalCache && !force && Date.now() - lastFetchedAtRef.current < CACHE_TTL && usersCountRef.current > 0) return;
 
         setLoading(true);
         try {
             adminService.clearCache();
-            const all = await adminService.getUsersAll('all');
+            const all = await adminService.getUsersAll('all', '', { archiveMode });
+            archiveModeRef.current = archiveMode;
             setUsers(all);
             const ts = Date.now();
             setLastFetchedAt(ts);
-            try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify({ users: all, ts }));
-            } catch {
-                // Ignore storage write failures for admin list cache.
+            if (archiveMode === 'active') {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify({ users: all, ts, archiveMode: 'active' }));
+                } catch {
+                    // Ignore storage write failures for admin list cache.
+                }
             }
         } finally {
             setLoading(false);
@@ -49,7 +55,7 @@ export const CustomerProvider = ({ children }) => {
     useEffect(() => {
         try {
             const cached = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-            if (cached && Array.isArray(cached.users)) {
+            if (cached && Array.isArray(cached.users) && (cached.archiveMode || 'active') === 'active') {
                 setUsers(cached.users);
                 setLastFetchedAt(cached.ts || 0);
             }
@@ -67,10 +73,12 @@ export const CustomerProvider = ({ children }) => {
                 const nextUsers = typeof updater === 'function' ? updater(prev) : updater;
                 const ts = Date.now();
                 setLastFetchedAt(ts);
-                try {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify({ users: nextUsers, ts }));
-                } catch {
-                    // Ignore storage write failures for admin list cache.
+                if (archiveModeRef.current === 'active') {
+                    try {
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify({ users: nextUsers, ts, archiveMode: 'active' }));
+                    } catch {
+                        // Ignore storage write failures for admin list cache.
+                    }
                 }
                 return nextUsers;
             });
@@ -97,6 +105,7 @@ export const CustomerProvider = ({ children }) => {
 
         const handleCreate = (newUser) => {
             if (!newUser?.id) return;
+            if (archiveModeRef.current === 'active' && newUser.isArchived) return;
             adminService.clearCache();
             persist((prev) => {
                 const exists = prev.find((u) => u.id === newUser.id);
@@ -109,6 +118,9 @@ export const CustomerProvider = ({ children }) => {
             if (!updatedUser?.id) return;
             adminService.clearCache();
             persist((prev) => {
+                if (archiveModeRef.current === 'active' && updatedUser.isArchived) {
+                    return prev.filter((u) => u.id !== updatedUser.id);
+                }
                 const exists = prev.find((u) => u.id === updatedUser.id);
                 if (!exists) return prev;
                 return prev.map((u) => (u.id === updatedUser.id ? { ...u, ...updatedUser } : u));

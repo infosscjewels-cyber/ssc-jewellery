@@ -46,9 +46,10 @@ const handleResponse = async (res) => {
 };
 
 export const adminService = {
-    getUsers: async (page = 1, role = 'all', limit = 10, search = '') => {
+    getUsers: async (page = 1, role = 'all', limit = 10, search = '', options = {}) => {
+        const archiveMode = String(options.archiveMode || 'active').trim().toLowerCase() || 'active';
         // 1. Create a unique key for this request (e.g., "page1_roleadmin")
-        const cacheKey = `page${page}_role${role}_limit${limit}_search${String(search || '').trim().toLowerCase()}`;
+        const cacheKey = `page${page}_role${role}_limit${limit}_search${String(search || '').trim().toLowerCase()}_archive${archiveMode}`;
 
         // 2. Check Cache
         if (userCache[cacheKey]) {
@@ -57,7 +58,7 @@ export const adminService = {
         }
 
         // 3. Fetch from Network
-        const query = `?page=${page}&limit=${limit}&role=${encodeURIComponent(role)}&search=${encodeURIComponent(String(search || '').trim())}`;
+        const query = `?page=${page}&limit=${limit}&role=${encodeURIComponent(role)}&search=${encodeURIComponent(String(search || '').trim())}&archiveMode=${encodeURIComponent(archiveMode)}`;
         const res = await getWithRetry(`${API_URL}/users${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
 
@@ -78,6 +79,16 @@ export const adminService = {
 
     setUserStatus: async (id, payload = {}) => {
         const res = await fetch(`${API_URL}/users/${id}/status`, {
+            method: 'PUT',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        userCache = {};
+        return handleResponse(res);
+    },
+
+    setUserArchiveStatus: async (id, payload = {}) => {
+        const res = await fetch(`${API_URL}/users/${id}/archive`, {
             method: 'PUT',
             headers: getAuthHeader(),
             body: JSON.stringify(payload || {})
@@ -173,13 +184,13 @@ export const adminService = {
         return handleResponse(res);
     },
 
-    getUsersAll: async (role = 'all', search = '') => {
+    getUsersAll: async (role = 'all', search = '', options = {}) => {
         const all = [];
         let page = 1;
         let totalPages = 1;
         const pageSize = 200;
         do {
-            const data = await adminService.getUsers(page, role, pageSize, search);
+            const data = await adminService.getUsers(page, role, pageSize, search, options);
             const users = data.users || data || [];
             all.push(...users);
             totalPages = Number(data.totalPages || data.pagination?.totalPages || 1);

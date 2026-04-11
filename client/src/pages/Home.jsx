@@ -279,6 +279,7 @@ export default function Home() {
     const featuredCategoryNameRef = useRef('');
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
     const seoConfig = useMemo(() => buildHomeSeo({
+        company: companyInfo,
         categories,
         products: [
             ...bestSellers,
@@ -288,7 +289,7 @@ export default function Home() {
         ],
         slides,
         banners: [homeBanner, secondaryBanner, tertiaryBanner].filter(Boolean)
-    }), [bestSellers, categories, featuredSectionProducts, homeBanner, newArrivals, offersProducts, secondaryBanner, slides, tertiaryBanner]);
+    }), [bestSellers, categories, companyInfo, featuredSectionProducts, homeBanner, newArrivals, offersProducts, secondaryBanner, slides, tertiaryBanner]);
     useSeo(seoConfig);
     const [showTopBtn, setShowTopBtn] = useState(false);
     const [showBirthdayModal, setShowBirthdayModal] = useState(false);

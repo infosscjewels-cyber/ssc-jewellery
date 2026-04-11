@@ -212,6 +212,9 @@ const getPrimaryCategoryName = (categoriesInput) => {
     }
     return null;
 };
+const PRODUCT_IMAGE_MIN_ZOOM = 1;
+const PRODUCT_IMAGE_MAX_ZOOM = 3;
+const PRODUCT_IMAGE_ZOOM_STEP = 0.5;
 
 export default function ProductPage() {
     const { id } = useParams();
@@ -232,6 +235,8 @@ export default function ProductPage() {
     const [youtubeAspectCache, setYoutubeAspectCache] = useState({});
     const [loading, setLoading] = useState(true);
     const [zoomStyle, setZoomStyle] = useState({ display: 'none' });
+    const [imageZoomLevel, setImageZoomLevel] = useState(PRODUCT_IMAGE_MIN_ZOOM);
+    const [showImageZoomBadge, setShowImageZoomBadge] = useState(false);
     const [activeAccordion, setActiveAccordion] = useState(null);
     const [isShareOpen, setIsShareOpen] = useState(false);
     const [justAddedToCart, setJustAddedToCart] = useState(false);
@@ -246,6 +251,8 @@ export default function ProductPage() {
     const youtubeAspectInFlightRef = useRef({});
     const cartPressTimerRef = useRef(null);
     const heartPressTimerRef = useRef(null);
+    const imagePanRef = useRef({ active: false, lastX: 0, lastY: 0, x: 50, y: 50 });
+    const imageZoomBadgeTimerRef = useRef(null);
     const selectedCartEntries = useMemo(() => {
         if (!product?.id) return [];
         return (items || []).filter((entry) => {
@@ -301,6 +308,7 @@ export default function ProductPage() {
         () => orderedMedia.filter((item) => item.kind === 'image').map((item) => item.url),
         [orderedMedia]
     );
+    const canZoomProductImage = Boolean(selectedImage);
 
     // 2. Additional Info (Accordion)
     const parsedAdditionalInfo = useMemo(() => {
@@ -750,15 +758,94 @@ export default function ProductPage() {
         }
     };
 
-    const handleMouseMove = (e) => {
-        const { left, top, width, height } = e.target.getBoundingClientRect();
-        const x = ((e.pageX - left) / width) * 100;
-        const y = ((e.pageY - top) / height) * 100;
+    useEffect(() => {
+        setImageZoomLevel(PRODUCT_IMAGE_MIN_ZOOM);
+        setShowImageZoomBadge(false);
+        imagePanRef.current = { active: false, lastX: 0, lastY: 0, x: 50, y: 50 };
+        setZoomStyle({ display: 'none' });
+    }, [selectedImage]);
+
+    const revealImageZoomBadge = () => {
+        setShowImageZoomBadge(true);
+        if (imageZoomBadgeTimerRef.current) clearTimeout(imageZoomBadgeTimerRef.current);
+        imageZoomBadgeTimerRef.current = setTimeout(() => {
+            setShowImageZoomBadge(false);
+        }, 1600);
+    };
+
+    const applyImageZoomPosition = (x, y) => {
+        const nextX = Math.min(100, Math.max(0, x));
+        const nextY = Math.min(100, Math.max(0, y));
+        imagePanRef.current.x = nextX;
+        imagePanRef.current.y = nextY;
         setZoomStyle({
             display: 'block',
-            backgroundPosition: `${x}% ${y}%`,
-            backgroundImage: `url(${selectedImage})`
+            backgroundPosition: `${nextX}% ${nextY}%`,
+            backgroundImage: `url(${getImgUrl(selectedImage)})`
         });
+    };
+
+    const updateImageZoomPosition = (event, { fromDrag = false } = {}) => {
+        if (!canZoomProductImage) return;
+        const target = mainImageRef.current || event.currentTarget;
+        const rect = target.getBoundingClientRect();
+        const pointer = event.touches?.[0] || event.changedTouches?.[0] || event;
+        const clientX = pointer.clientX ?? event.clientX;
+        const clientY = pointer.clientY ?? event.clientY;
+        if (fromDrag) {
+            const zoomSpan = Math.max(1, imageZoomLevel - PRODUCT_IMAGE_MIN_ZOOM);
+            const deltaX = ((imagePanRef.current.lastX - clientX) / rect.width) * 100 * zoomSpan;
+            const deltaY = ((imagePanRef.current.lastY - clientY) / rect.height) * 100 * zoomSpan;
+            imagePanRef.current.lastX = clientX;
+            imagePanRef.current.lastY = clientY;
+            applyImageZoomPosition(imagePanRef.current.x + deltaX, imagePanRef.current.y + deltaY);
+            return;
+        }
+        const x = Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100));
+        const y = Math.min(100, Math.max(0, ((clientY - rect.top) / rect.height) * 100));
+        applyImageZoomPosition(x, y);
+    };
+
+    const handleMouseMove = (event) => {
+        if (imageZoomLevel <= PRODUCT_IMAGE_MIN_ZOOM) return;
+        updateImageZoomPosition(event);
+    };
+
+    const handleImageZoomChange = (direction) => {
+        if (!canZoomProductImage) return;
+        revealImageZoomBadge();
+        setImageZoomLevel((current) => {
+            const next = direction > 0
+                ? Math.min(PRODUCT_IMAGE_MAX_ZOOM, current + PRODUCT_IMAGE_ZOOM_STEP)
+                : Math.max(PRODUCT_IMAGE_MIN_ZOOM, current - PRODUCT_IMAGE_ZOOM_STEP);
+            setZoomStyle(next > PRODUCT_IMAGE_MIN_ZOOM
+                ? {
+                    display: 'block',
+                    backgroundPosition: zoomStyle.backgroundPosition || `${imagePanRef.current.x}% ${imagePanRef.current.y}%`,
+                    backgroundImage: `url(${getImgUrl(selectedImage)})`
+                }
+                : { display: 'none' });
+            return next;
+        });
+    };
+
+    const handleImagePanStart = (event) => {
+        if (imageZoomLevel <= PRODUCT_IMAGE_MIN_ZOOM || !canZoomProductImage) return;
+        revealImageZoomBadge();
+        const pointer = event.touches?.[0] || event;
+        imagePanRef.current.active = true;
+        imagePanRef.current.lastX = pointer.clientX ?? 0;
+        imagePanRef.current.lastY = pointer.clientY ?? 0;
+    };
+
+    const handleImagePanMove = (event) => {
+        if (!imagePanRef.current.active || imageZoomLevel <= PRODUCT_IMAGE_MIN_ZOOM) return;
+        event.preventDefault?.();
+        updateImageZoomPosition(event, { fromDrag: true });
+    };
+
+    const handleImagePanEnd = () => {
+        imagePanRef.current.active = false;
     };
 
     const shareUrl = window.location.href;
@@ -812,6 +899,7 @@ export default function ProductPage() {
         if (cartFeedbackTimerRef.current) clearTimeout(cartFeedbackTimerRef.current);
         if (cartPressTimerRef.current) clearTimeout(cartPressTimerRef.current);
         if (heartPressTimerRef.current) clearTimeout(heartPressTimerRef.current);
+        if (imageZoomBadgeTimerRef.current) clearTimeout(imageZoomBadgeTimerRef.current);
     }, []);
     useEffect(() => {
         if (!videoModal.open || !videoModal.item || videoModal.item.videoType !== 'instagram') return;
@@ -915,9 +1003,19 @@ export default function ProductPage() {
                         {/* Main Image with Zoom */}
                         <div
                             className={`relative aspect-square bg-white rounded-2xl overflow-hidden border shadow-sm group
-                            ${isOutOfStock ? 'grayscale opacity-75 cursor-not-allowed' : 'cursor-crosshair'}`}
+                            ${isOutOfStock ? 'grayscale opacity-75 cursor-not-allowed' : imageZoomLevel > PRODUCT_IMAGE_MIN_ZOOM ? 'cursor-crosshair' : 'cursor-default'}`}
                             onMouseMove={handleMouseMove}
-                            onMouseLeave={() => setZoomStyle({ display: 'none' })}
+                            onMouseDown={handleImagePanStart}
+                            onMouseUp={handleImagePanEnd}
+                            onTouchStart={handleImagePanStart}
+                            onTouchMove={handleImagePanMove}
+                            onTouchEnd={handleImagePanEnd}
+                            onTouchCancel={handleImagePanEnd}
+                            onMouseLeave={() => {
+                                handleImagePanEnd();
+                                if (imageZoomLevel <= PRODUCT_IMAGE_MIN_ZOOM) setZoomStyle({ display: 'none' });
+                            }}
+                            style={{ touchAction: imageZoomLevel > PRODUCT_IMAGE_MIN_ZOOM ? 'none' : 'auto' }}
                         >
                             <img
                                 ref={mainImageRef}
@@ -930,9 +1028,41 @@ export default function ProductPage() {
                                 className="absolute inset-0 z-10 pointer-events-none bg-no-repeat transition-opacity duration-200"
                                 style={{
                                     ...zoomStyle,
-                                    backgroundSize: '200%', // Zoom level
+                                    backgroundSize: `${imageZoomLevel * 100}%`,
                                 }}
                             />
+                            <div className="absolute right-4 top-4 z-[60] overflow-hidden rounded-2xl border border-white/20 bg-slate-950/90 text-white shadow-2xl shadow-black/30 backdrop-blur">
+                                <button
+                                    type="button"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleImageZoomChange(1);
+                                    }}
+                                    disabled={!canZoomProductImage || imageZoomLevel >= PRODUCT_IMAGE_MAX_ZOOM}
+                                    className="flex h-11 w-11 items-center justify-center transition hover:bg-white/15 disabled:cursor-not-allowed disabled:text-white/35"
+                                    aria-label="Zoom in product image"
+                                >
+                                    <Plus size={18} strokeWidth={2.4} />
+                                </button>
+                                <div className="h-px bg-white/15" />
+                                <button
+                                    type="button"
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleImageZoomChange(-1);
+                                    }}
+                                    disabled={!canZoomProductImage || imageZoomLevel <= PRODUCT_IMAGE_MIN_ZOOM}
+                                    className="flex h-11 w-11 items-center justify-center transition hover:bg-white/15 disabled:cursor-not-allowed disabled:text-white/35"
+                                    aria-label="Zoom out product image"
+                                >
+                                    <Minus size={18} strokeWidth={2.4} />
+                                </button>
+                            </div>
+                            {(imageZoomLevel > PRODUCT_IMAGE_MIN_ZOOM || showImageZoomBadge) && (
+                                <div className="absolute right-[4.35rem] top-4 z-[60] rounded-full border border-white/30 bg-white/90 px-2.5 py-1 text-[11px] font-bold text-slate-900 shadow-lg transition-opacity">
+                                    {Math.round(imageZoomLevel * 100)}%
+                                </div>
+                            )}
                             {/* Tags */}
                             {product.ribbon_tag && (
                                 <div className="absolute top-4 left-4 bg-accent text-primary text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-md">
@@ -1010,7 +1140,7 @@ export default function ProductPage() {
                                     <Share2 size={20} />
                                 </button>
                                 {isShareOpen && (
-                                    <div className="absolute right-0 mt-2 w-56 bg-white border border-gray-100 shadow-xl rounded-xl p-3 z-20">
+                                    <div className="fixed inset-x-4 top-1/2 z-20 w-auto max-w-sm -translate-y-1/2 rounded-xl border border-gray-100 bg-white p-3 shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-56 sm:max-w-none sm:translate-y-0">
                                         <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">Share</p>
                                         <div className="grid grid-cols-2 gap-2">
                                             <a onClick={() => setIsShareOpen(false)} className="text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg py-2 text-center hover:bg-gray-50 flex items-center justify-center gap-1" href={shareLinks.whatsapp} target="_blank" rel="noreferrer">

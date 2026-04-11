@@ -54,6 +54,13 @@ const MY_ORDERS_CACHE_TTL = 5 * 60 * 1000;
 const MY_ORDERS_STORAGE_KEY = 'my_orders_cache_v1';
 const PUBLIC_ATTEMPT_STORAGE_KEY = 'public_checkout_attempts_v1';
 const MAX_FETCH_RANGE_DAYS = 90;
+const PAYMENT_CONFIRMATION_PENDING_STATUSES = new Set([
+    'attempted',
+    'verification_pending',
+    'paid_unverified',
+    'reconciliation_pending',
+    'authorized'
+]);
 let myOrdersCache = {};
 
 const readPublicAttemptCache = () => {
@@ -288,11 +295,17 @@ const matchesAdminStatus = (order, query = {}) => {
         if (status === 'failed') {
             return normalizedOrderStatus === 'failed' || normalizedPaymentStatus === 'failed';
         }
+        if (status === 'attempted') {
+            return PAYMENT_CONFIRMATION_PENDING_STATUSES.has(normalizedPaymentStatus);
+        }
         if (status === 'pending') {
-            return normalizedOrderStatus === 'pending' || isOverdueConfirmed;
+            return normalizedOrderStatus === 'pending'
+                || (isOverdueConfirmed && ['paid', 'captured'].includes(normalizedPaymentStatus));
         }
         if (status === 'confirmed') {
-            return normalizedOrderStatus === 'confirmed' && !isOverdueConfirmed;
+            return ['paid', 'captured'].includes(normalizedPaymentStatus)
+                && normalizedOrderStatus === 'confirmed'
+                && !isOverdueConfirmed;
         }
         return normalizedOrderStatus === status;
     };
@@ -665,11 +678,20 @@ export const orderService = {
         const queryMeta = { page, limit, status, search, startDate, endDate, quickRange, sortBy, sourceChannel };
         const cacheKey = `${page}_${limit}_${status}_${search}_${startDate}_${endDate}_${quickRange}_${sortBy}_${sourceChannel}`;
         const cached = adminOrdersCache[cacheKey];
+        const shouldDebug = typeof window !== 'undefined' && window.location?.search?.includes('debugOrders=1');
         if (cached && Date.now() - cached.ts < ADMIN_CACHE_TTL) {
             const filteredOrders = sortAdminOrders(
                 (Array.isArray(cached?.data?.orders) ? cached.data.orders : []).filter((order) => orderMatchesAdminQuery(order, queryMeta)),
                 queryMeta
             );
+            if (shouldDebug) {
+                console.debug('[admin orders] cache hit', {
+                    query: queryMeta,
+                    totalOrders: cached?.data?.pagination?.totalOrders,
+                    ordersCount: Array.isArray(cached?.data?.orders) ? cached.data.orders.length : 0,
+                    filteredCount: filteredOrders.length
+                });
+            }
             return {
                 ...cached.data,
                 orders: filteredOrders
@@ -682,6 +704,14 @@ export const orderService = {
             (Array.isArray(data?.orders) ? data.orders : []).filter((order) => orderMatchesAdminQuery(order, queryMeta)),
             queryMeta
         );
+        if (shouldDebug) {
+            console.debug('[admin orders] api response', {
+                query: queryMeta,
+                pagination: data?.pagination || null,
+                totalOrders: data?.pagination?.totalOrders,
+                ordersCount: Array.isArray(data?.orders) ? data.orders.length : 0
+            });
+        }
         adminOrdersCache[cacheKey] = {
             ts: Date.now(),
             query: queryMeta,

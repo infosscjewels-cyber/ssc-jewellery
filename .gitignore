@@ -1,0 +1,19 @@
+node_modules
+
+# Local environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Build outputs
+dist/
+client/dist/
+
+# Local tool/cache state
+.cache/
+.codex
+
+# Secrets
+server/service-account.json
+server/*service-account*.json

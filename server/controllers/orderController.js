@@ -599,13 +599,19 @@ const resolveGuestCheckoutAccountByMobile = async ({ mobile = '' } = {}) => {
         throw error;
     }
 
-    const user = matches[0];
+    let user = matches[0];
     if (user?.isActive === false) {
         const error = new Error('This mobile number belongs to an unavailable account. Please contact support.');
         error.statusCode = 409;
         error.code = 'ACCOUNT_UNAVAILABLE';
         error.publicStatus = 'account_unavailable';
         throw error;
+    }
+    if (user?.isArchived) {
+        void User.unarchiveIfArchived(user.id, 'guest_checkout_reactivated').catch((error) => {
+            console.error('Archived guest checkout reactivation failed:', error?.message || error);
+        });
+        user = { ...user, isArchived: false, archivedAt: null, archiveReason: null };
     }
 
     const hasSavedShippingAddress = hasCompleteAddress(user?.address);
@@ -2714,7 +2720,15 @@ const getAdminOrders = async (req, res) => {
         const filters = { status, search, startDate, endDate, quickRange, sortBy, sourceChannel };
         const result = await Order.getPaginated({ page, limit, ...filters });
         const metrics = await Order.getMetrics(filters);
-        res.json({ orders: result.orders, pagination: { currentPage: page, totalPages: result.totalPages, totalOrders: result.total }, metrics });
+        res.json({
+            orders: result.orders,
+            pagination: { currentPage: page, totalPages: result.totalPages, totalOrders: result.total },
+            metrics: {
+                ...metrics,
+                // Keep badge counts aligned with the same orders + payment-attempt union used by the list.
+                totalOrders: result.total
+            }
+        });
     } catch (error) {
         res.status(500).json({ message: 'Failed to load orders' });
     }

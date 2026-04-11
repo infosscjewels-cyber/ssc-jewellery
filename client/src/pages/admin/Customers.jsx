@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
 import {
+    Archive,
+    Ban,
     Calendar,
     Loader2,
     Mail,
@@ -195,7 +197,6 @@ const getMobileCustomerCardTheme = (user = {}) => {
 };
 
 export default function Customers({
-    onOpenLoyalty,
     onCreateOrderForCustomer,
     focusCustomerId = null,
     onFocusCustomerHandled = () => {}
@@ -207,6 +208,7 @@ export default function Customers({
     const [searchTerm, setSearchTerm] = useState('');
     const [tierFilter, setTierFilter] = useState('all');
     const [birthdayOnly, setBirthdayOnly] = useState(false);
+    const [showArchived, setShowArchived] = useState(false);
     const [page, setPage] = useState(1);
     const [isMobileBirthdayModalOpen, setIsMobileBirthdayModalOpen] = useState(false);
     const [isMobileTierModalOpen, setIsMobileTierModalOpen] = useState(false);
@@ -252,6 +254,14 @@ export default function Customers({
         refreshUsers(false);
     }, [refreshUsers]);
 
+    const handleArchivedToggle = useCallback(() => {
+        const nextShowArchived = !showArchived;
+        setShowArchived(nextShowArchived);
+        refreshUsers(true, { archiveMode: nextShowArchived ? 'all' : 'active' }).catch((error) => {
+            toast.error(error?.message || 'Failed to refresh customers');
+        });
+    }, [refreshUsers, showArchived, toast]);
+
     useAdminCrudSync({
         'coupon:changed': async (payload = {}) => {
             await refreshUsers(true);
@@ -286,8 +296,13 @@ export default function Customers({
         [users]
     );
 
+    const archivedCustomerCount = useMemo(
+        () => customersOnly.filter((u) => u.isArchived).length,
+        [customersOnly]
+    );
+
     const filteredCustomers = useMemo(() => {
-        let rows = customersOnly;
+        let rows = customersOnly.filter((u) => showArchived || !u.isArchived);
         const term = String(searchTerm || '').trim().toLowerCase();
         if (term) {
             rows = rows.filter((u) =>
@@ -303,7 +318,7 @@ export default function Customers({
             rows = rows.filter((u) => isBirthdayToday(u.dob));
         }
         return rows;
-    }, [customersOnly, searchTerm, tierFilter, birthdayOnly]);
+    }, [customersOnly, showArchived, searchTerm, tierFilter, birthdayOnly]);
 
     const customerTotalPages = useMemo(
         () => Math.max(1, Math.ceil(filteredCustomers.length / CUSTOMER_PAGE_SIZE)),
@@ -322,7 +337,7 @@ export default function Customers({
 
     useEffect(() => {
         setPage(1);
-    }, [searchTerm, tierFilter, birthdayOnly]);
+    }, [searchTerm, tierFilter, birthdayOnly, showArchived]);
 
     useEffect(() => {
         setPage((prev) => Math.min(Math.max(1, Number(prev || 1)), customerTotalPages));
@@ -372,6 +387,29 @@ export default function Customers({
             toast.success('Customer deactivated successfully');
         } catch (error) {
             toast.error(error?.message || 'Unable to deactivate customer');
+        } finally {
+            setIsActionLoading(false);
+        }
+    };
+
+    const handleArchiveCustomer = async (targetUser) => {
+        if (!targetUser?.id) return;
+        setIsActionLoading(true);
+        try {
+            await adminService.setUserArchiveStatus(targetUser.id, {
+                isArchived: true,
+                reason: 'Archived by admin'
+            });
+            await refreshUsers(true, { archiveMode: showArchived ? 'all' : 'active' });
+            if (selectedUser?.id && String(selectedUser.id) === String(targetUser.id) && !showArchived) {
+                setSelectedUser(null);
+                setIsProfileOpen(false);
+                setIsCartOpen(false);
+            }
+            setCustomerDeleteChoice({ isOpen: false, targetUser: null });
+            toast.success('Customer archived successfully');
+        } catch (error) {
+            toast.error(error?.message || 'Unable to archive customer');
         } finally {
             setIsActionLoading(false);
         }
@@ -613,21 +651,21 @@ export default function Customers({
                 confirmText="Delete Coupon"
             />
             {customerDeleteChoice.isOpen && createPortal(
-                <div className="fixed inset-0 z-[210] flex items-center justify-center p-4">
+                <div className="fixed inset-0 z-[210] flex items-start justify-center overflow-y-auto p-4 sm:items-center">
                     <button
                         type="button"
                         className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]"
                         onClick={() => (isActionLoading ? null : setCustomerDeleteChoice({ isOpen: false, targetUser: null }))}
                     />
-                    <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15">
-                        <div className="h-1.5 w-full bg-primary" />
-                        <div className="border-b border-slate-100 bg-slate-50/80 px-5 py-4">
+                    <div className="relative z-10 my-auto flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15">
+                        <div className="h-1.5 w-full shrink-0 bg-primary" />
+                        <div className="shrink-0 border-b border-slate-100 bg-slate-50/80 px-5 py-4">
                             <div className="flex items-start justify-between gap-3">
                                 <div>
                                     <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Customer Actions</p>
                                     <h3 className="mt-1 text-lg font-semibold text-slate-900">Choose customer action</h3>
                                     <p className="mt-1.5 text-sm text-slate-600">
-                                        Deactivate to block future sign-ins, or permanently delete the customer and linked history.
+                                        Archive to hide inactive customers, deactivate to block future sign-ins, or permanently delete linked history.
                                     </p>
                                 </div>
                                 <button
@@ -641,7 +679,7 @@ export default function Customers({
                                 </button>
                             </div>
                         </div>
-                        <div className="space-y-4 p-5">
+                        <div className="space-y-4 overflow-y-auto p-5">
                             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
                                 <p className="font-semibold text-slate-900">{customerDeleteChoice.targetUser?.name || 'Customer'}</p>
                                 <p className="mt-1 text-slate-600">{customerDeleteChoice.targetUser?.email || customerDeleteChoice.targetUser?.mobile || 'No contact details saved'}</p>
@@ -649,12 +687,27 @@ export default function Customers({
                             <div className="grid gap-3">
                                 <button
                                     type="button"
+                                    disabled={isActionLoading || customerDeleteChoice.targetUser?.isArchived}
+                                    onClick={() => handleArchiveCustomer(customerDeleteChoice.targetUser)}
+                                    className="rounded-2xl border border-slate-200 bg-slate-50/90 px-4 py-4 text-left transition hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    <span className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                                        <Archive size={16} />
+                                        Archive customer
+                                    </span>
+                                    <span className="mt-1 block pl-6 text-xs leading-5 text-slate-700">Hide from the default customers list without blocking login, checkout, or order history.</span>
+                                </button>
+                                <button
+                                    type="button"
                                     disabled={isActionLoading || customerDeleteChoice.targetUser?.isActive === false}
                                     onClick={() => handleDeactivateCustomer(customerDeleteChoice.targetUser)}
                                     className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-4 text-left transition hover:border-amber-300 hover:bg-amber-100/80 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                    <span className="block text-sm font-semibold text-amber-950">Deactivate customer</span>
-                                    <span className="mt-1 block text-xs leading-5 text-amber-900">Keep the profile and order history, but stop future sign-ins.</span>
+                                    <span className="flex items-center gap-2 text-sm font-semibold text-amber-950">
+                                        <Ban size={16} />
+                                        Deactivate customer
+                                    </span>
+                                    <span className="mt-1 block pl-6 text-xs leading-5 text-amber-900">Keep the profile and order history, but stop future sign-ins.</span>
                                 </button>
                                 <button
                                     type="button"
@@ -662,8 +715,11 @@ export default function Customers({
                                     onClick={() => handlePermanentDeleteCustomer(customerDeleteChoice.targetUser)}
                                     className="rounded-2xl border border-rose-200 bg-rose-50/80 px-4 py-4 text-left transition hover:border-rose-300 hover:bg-rose-100/80 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                    <span className="block text-sm font-semibold text-rose-700">Delete customer permanently</span>
-                                    <span className="mt-1 block text-xs leading-5 text-rose-700">Remove the customer and all linked orders, payment attempts, loyalty data, coupons, and cart history. This cannot be undone.</span>
+                                    <span className="flex items-center gap-2 text-sm font-semibold text-rose-700">
+                                        <Trash2 size={16} />
+                                        Delete customer permanently
+                                    </span>
+                                    <span className="mt-1 block pl-6 text-xs leading-5 text-rose-700">Remove the customer and all linked orders, payment attempts, loyalty data, coupons, and cart history. This cannot be undone.</span>
                                 </button>
                             </div>
                             <div className="flex justify-end border-t border-slate-100 pt-1">
@@ -1153,8 +1209,22 @@ export default function Customers({
                         <Search className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
                         <input placeholder="Search customers..." className="w-full pl-10 pr-4 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                     </div>
-                    <button type="button" onClick={() => onOpenLoyalty?.()} className="bg-white hover:bg-gray-50 text-gray-700 font-bold px-4 py-3 rounded-xl shadow-sm border border-gray-200 flex items-center justify-center gap-2 transition-all active:scale-95">
-                        <Sparkles size={18} /><span className="whitespace-nowrap">Loyalty</span>
+                    <button
+                        type="button"
+                        onClick={handleArchivedToggle}
+                        className={`font-bold px-4 py-3 rounded-xl shadow-sm border flex items-center justify-center gap-2 transition-all active:scale-95 ${
+                            showArchived
+                                ? 'border-slate-300 bg-slate-900 text-white shadow-slate-200'
+                                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                        }`}
+                    >
+                        <Archive size={18} />
+                        <span className="whitespace-nowrap">Archived</span>
+                        {archivedCustomerCount > 0 && (
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] ${showArchived ? 'bg-white/15 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                                {archivedCustomerCount}
+                            </span>
+                        )}
                     </button>
                 </div>
                 <div className="flex items-center justify-end gap-2 md:hidden">
@@ -1199,12 +1269,16 @@ export default function Customers({
                     </button>
                     <button
                         type="button"
-                        onClick={() => onOpenLoyalty?.()}
-                        className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-emerald-100 bg-gradient-to-br from-white to-emerald-50/70 text-emerald-700 shadow-sm shadow-emerald-100/50 transition hover:border-accent hover:text-primary"
-                        title="Loyalty"
-                        aria-label="Loyalty"
+                        onClick={handleArchivedToggle}
+                        className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
+                            showArchived
+                                ? 'border-slate-300 bg-slate-900 text-white shadow-slate-200'
+                                : 'border-slate-100 bg-gradient-to-br from-white to-slate-50/70 text-slate-700 shadow-slate-100/50'
+                        }`}
+                        title="Show archived customers"
+                        aria-label="Show archived customers"
                     >
-                        <Sparkles size={18} />
+                        <Archive size={18} />
                     </button>
                 </div>
             </div>
@@ -1238,7 +1312,7 @@ export default function Customers({
                                     const cartLastActivity = getCartLastActivityLabel(user);
                                     const profileImage = getCustomerProfileImage(user);
                                     return (
-                                        <tr key={user.id} onClick={() => openProfile(user)} className={`hover:bg-gray-50/50 transition-colors cursor-pointer ${isBirthdayToday(user.dob) ? 'bg-amber-50/60' : ''}`}>
+                                        <tr key={user.id} onClick={() => openProfile(user)} className={`hover:bg-gray-50/50 transition-colors cursor-pointer ${isBirthdayToday(user.dob) ? 'bg-amber-50/60' : ''} ${user.isArchived ? 'bg-slate-50/70' : ''}`}>
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs bg-primary/10 text-primary overflow-hidden">
@@ -1250,6 +1324,7 @@ export default function Customers({
                                                     </div>
                                                     <div>
                                                         <span className="font-medium text-gray-900">{user.name}</span>
+                                                        {user.isArchived && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">Archived</span>}
                                                         {user.isActive === false && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 text-red-700 border border-red-200">Inactive</span>}
                                                     </div>
                                                 </div>
@@ -1340,7 +1415,7 @@ export default function Customers({
                                             <div
                                                 key={`m-${user.id}`}
                                                 onClick={() => openProfile(user)}
-                                                className={`relative overflow-hidden rounded-2xl border px-3.5 pb-3.5 pt-4 shadow-sm ${theme.shell} ${isBirthdayToday(user.dob) ? 'ring-1 ring-amber-200/80' : ''}`}
+                                                className={`relative overflow-hidden rounded-2xl border px-3.5 pb-3.5 pt-4 shadow-sm ${theme.shell} ${isBirthdayToday(user.dob) ? 'ring-1 ring-amber-200/80' : ''} ${user.isArchived ? 'opacity-85 grayscale-[0.25]' : ''}`}
                                             >
                                                 <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${theme.strip}`} />
                                                 <div className="flex items-start gap-3">
@@ -1364,6 +1439,7 @@ export default function Customers({
                                                                     className="px-2.5 py-1 text-[10px] font-medium"
                                                                     iconSize={11}
                                                                 />
+                                                                {user.isArchived && <span className="inline-flex items-center whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">Archived</span>}
                                                                 {user.isActive === false && <span className="inline-flex items-center whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-800 border border-red-200">Inactive</span>}
                                                             </div>
                                                         </div>
@@ -1383,14 +1459,7 @@ export default function Customers({
                                                         <p className={`min-w-0 text-left text-[11px] leading-5 line-clamp-1 ${user.email ? 'text-gray-700' : 'text-gray-400'}`}>{user.email || '—'}</p>
                                                     </div>
                                                 </div>
-                                                <div className={`mt-2.5 flex items-center justify-between gap-2 border-t pt-2.5 ${theme.divider}`}>
-                                                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                                                        {cartLastActivity && (
-                                                            <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-medium ${theme.cartNote}`}>
-                                                                Cart active: {cartLastActivity}
-                                                            </span>
-                                                        )}
-                                                    </div>
+                                                <div className={`mt-2.5 flex items-center justify-end gap-2 border-t pt-2.5 ${theme.divider}`}>
                                                     <div className="flex shrink-0 items-center justify-end gap-1">
                                                         {callLink && (
                                                             <a href={callLink} onClick={(e) => e.stopPropagation()} className="inline-flex items-center justify-center rounded-lg border border-sky-200 bg-gradient-to-br from-sky-50 to-cyan-50 p-2 text-sky-700 shadow-sm shadow-sky-100/60 transition-all hover:from-sky-100 hover:to-cyan-100" title="Call Customer">
