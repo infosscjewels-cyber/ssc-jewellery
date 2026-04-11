@@ -112,6 +112,7 @@ export default function Navbar() {
     const userMenuRef = useRef(null);
     const megaMenuRef = useRef(null);
     const megaTriggerRef = useRef(null);
+    const navRef = useRef(null);
     const refreshTimerRef = useRef(null);
     const desktopSearchRef = useRef(null);
     const mobileSearchRef = useRef(null);
@@ -164,6 +165,31 @@ export default function Navbar() {
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [isMegaOpen]);
+
+    useEffect(() => {
+        const nav = navRef.current;
+        if (!nav || typeof document === 'undefined') return;
+
+        const updateNavbarHeight = () => {
+            document.documentElement.style.setProperty('--navbar-height', `${Math.ceil(nav.getBoundingClientRect().height)}px`);
+        };
+
+        updateNavbarHeight();
+
+        if (typeof ResizeObserver === 'undefined') {
+            window.addEventListener('resize', updateNavbarHeight);
+            return () => window.removeEventListener('resize', updateNavbarHeight);
+        }
+
+        const observer = new ResizeObserver(updateNavbarHeight);
+        observer.observe(nav);
+        window.addEventListener('resize', updateNavbarHeight);
+
+        return () => {
+            observer.disconnect();
+            window.removeEventListener('resize', updateNavbarHeight);
+        };
+    }, []);
 
     useEffect(() => {
         setIsUserMenuOpen(false);
@@ -550,24 +576,42 @@ export default function Navbar() {
         // [FIX] Dynamic Classes for Animation
         // - 'py-4' -> 'py-2': Shrinks height
         // - 'shadow-none' -> 'shadow-md': Adds depth
-        <nav className={`sticky top-0 w-full z-[80] bg-white/90 backdrop-blur-2xl transition-all duration-300 ease-in-out py-2 md:py-4 shadow-sm border-b border-white/70`}>
+        <nav ref={navRef} className={`sticky top-0 w-full z-[80] bg-white/90 backdrop-blur-2xl transition-all duration-300 ease-in-out py-2 md:py-4 shadow-sm border-b border-white/70`}>
             <div className="container mx-auto px-4 md:px-8">
-                <div className="flex justify-between items-center">
+                <div className="flex items-center justify-between gap-2">
                     
                     
-                    <Link to="/" className="flex items-center gap-1.5 md:gap-2.5 min-w-0 group">
+                    <Link to="/" className="group flex min-w-0 flex-1 items-center gap-1.5 md:hidden">
                         <img 
                             src={BRAND_LOGO_URL} 
                             alt="Logo" 
-                            className="h-12 md:h-10 w-auto shrink-0 object-contain transition-all duration-300"
+                            className="h-12 w-auto shrink-0 object-contain transition-all duration-300"
                             decoding="async"
                             fetchPriority="high"
                         />
                         <span className="flex min-w-0 flex-col items-start justify-center leading-tight">
-                            <span className="font-serif text-[0.85rem] font-bold tracking-[0.03em] text-primary transition-all duration-300 sm:text-[0.95rem] md:text-[1.2rem] md:tracking-[0.08em] whitespace-normal break-words max-w-[140px] sm:max-w-[180px] md:max-w-none">
+                            <span className="max-w-[116px] whitespace-normal break-words font-serif text-[0.83rem] font-bold tracking-[0.02em] text-primary transition-all duration-300 min-[390px]:max-w-[138px] sm:max-w-[180px] sm:text-[0.95rem]">
                                 Sree Sai Collections
                             </span>
-                            <span className="mt-1 inline-flex max-w-[160px] items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[6px] font-semibold uppercase tracking-[0.12em] text-amber-800 whitespace-normal break-words text-left sm:text-[7px] md:mt-1 md:max-w-none md:text-[10px] md:tracking-[0.18em]">
+                            <span className="mt-0.5 inline-flex w-fit max-w-full items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[6px] font-semibold uppercase tracking-[0.1em] text-amber-800 whitespace-nowrap sm:px-2 sm:text-[7px]">
+                                1 gm Imitiation Jewellery
+                            </span>
+                        </span>
+                    </Link>
+
+                    <Link to="/" className="group hidden min-w-0 items-center gap-2.5 md:flex">
+                        <img
+                            src={BRAND_LOGO_URL}
+                            alt="Logo"
+                            className="h-10 w-auto shrink-0 object-contain transition-all duration-300"
+                            decoding="async"
+                            fetchPriority="high"
+                        />
+                        <span className="flex min-w-0 flex-col items-start justify-center leading-tight">
+                            <span className="whitespace-normal break-words font-serif text-[1.2rem] font-bold tracking-[0.08em] text-primary transition-all duration-300">
+                                Sree Sai Collections
+                            </span>
+                            <span className="mt-1 inline-flex max-w-none items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-800 whitespace-nowrap">
                                 1 gm Imitiation Jewellery
                             </span>
                         </span>
@@ -835,7 +879,7 @@ export default function Navbar() {
                     </div>
 
                     {/* Mobile Actions */}
-                    <div className="md:hidden flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2 md:hidden">
                         {showTierBadge && (
                             <TierBadge tier={tier} label={tierLabel} className="px-2 py-0.5 text-[10px] font-bold tracking-widest" iconSize={11} />
                         )}

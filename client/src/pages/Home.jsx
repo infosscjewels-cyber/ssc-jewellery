@@ -18,7 +18,7 @@ import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 // import { io } from 'socket.io-client';
 // --- 1. STATIC HERO COMPONENT (Default) ---
 const StaticHero = () => (
-    <section className="relative min-h-[calc(100svh-74px)] md:min-h-[calc(100vh-74px)] flex items-center justify-center bg-primary overflow-hidden px-4 py-4 md:px-6 md:py-12">
+    <section className="relative -mb-px min-h-[calc(100dvh-var(--navbar-height,74px)+1px)] md:min-h-[calc(100vh-var(--navbar-height,74px)+1px)] flex items-center justify-center bg-primary overflow-hidden px-4 py-4 md:px-6 md:py-12">
         {/* Background Pattern */}
         <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-gray-100 to-transparent"></div>
         
@@ -61,7 +61,7 @@ const CarouselHero = ({ slides }) => {
     const prevSlide = () => setCurrentSlide(prev => (prev === 0 ? slides.length - 1 : prev - 1));
 
     return (
-        <section className="relative h-[85vh] overflow-hidden bg-primary group">
+        <section className="group relative -mb-px h-[calc(100dvh-var(--navbar-height,74px)+1px)] overflow-hidden bg-primary md:h-[calc(100vh-var(--navbar-height,74px)+1px)]">
             {slides.map((slide, index) => (
                 <div 
                     key={slide.id}
