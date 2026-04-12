@@ -26,7 +26,7 @@ import Modal from '../../components/Modal';
 import AddCustomerModal from '../../components/AddCustomerModal';
 import { useCustomers } from '../../context/CustomerContext';
 import { formatAdminDate, formatAdminDateTime } from '../../utils/dateFormat';
-import { formatTierLabel } from '../../utils/tierFormat';
+import { formatTierLabel, TIER_ORDER } from '../../utils/tierFormat';
 import { billingAddressEnabled } from '../../utils/billingAddressConfig';
 import customerIllustration from '../../assets/customer.svg';
 import EmptyState from '../../components/EmptyState';
@@ -35,6 +35,10 @@ import WhatsAppIcon from '../../components/WhatsAppIcon';
 
 const CUSTOMER_PAGE_SIZE = 20;
 const MAX_COUPON_RANGE_DAYS = 90;
+const CUSTOMER_TIER_FILTER_OPTIONS = [
+    { value: 'all', label: 'All Tiers' },
+    ...TIER_ORDER.map((tier) => ({ value: tier, label: formatTierLabel(tier) }))
+];
 const getTodayDateInput = () => {
     const now = new Date();
     const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
@@ -815,11 +819,9 @@ export default function Customers({
                             onChange={(e) => setTierFilter(e.target.value)}
                             className="mt-4 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:border-accent"
                         >
-                            <option value="all">All Tiers</option>
-                            <option value="regular">Basic</option>
-                            <option value="silver">Silver</option>
-                            <option value="gold">Gold</option>
-                            <option value="platinum">Platinum</option>
+                            {CUSTOMER_TIER_FILTER_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
                         </select>
                         <button
                             type="button"
@@ -1011,7 +1013,8 @@ export default function Customers({
 
             {isProfileOpen && selectedUser && createPortal(
                 <div className="fixed inset-0 z-[60] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
-                    <div className="bg-white w-full max-w-xl h-full shadow-2xl p-6 overflow-y-auto">
+                    <div className="bg-white w-full max-w-xl h-full shadow-2xl overflow-hidden">
+                        <div className="h-full overflow-y-auto p-6">
                         {(() => {
                             const drawerTheme = getMobileCustomerCardTheme(selectedUser);
                             const profileImage = getCustomerProfileImage(selectedUser);
@@ -1156,7 +1159,7 @@ export default function Customers({
                                     </button>
                                 </div>
                                 <p className="text-sm text-gray-700 mt-2">{activeCoupons.length} active coupon(s)</p>
-                                <div className="mt-2 space-y-2 max-h-56 overflow-y-auto pr-1">
+                                <div className={`mt-2 space-y-2 ${activeCoupons.length > 3 ? 'max-h-56 overflow-y-auto pr-1' : ''}`}>
                                     {activeCouponsLoading && <p className="text-xs text-gray-400">Loading coupons...</p>}
                                     {!activeCouponsLoading && activeCoupons.map((cp) => (
                                         <div key={cp.id || cp.code} className="rounded-lg border border-gray-200 px-3 py-2 flex items-center justify-between gap-3">
@@ -1196,6 +1199,7 @@ export default function Customers({
                                 </>
                             );
                         })()}
+                        </div>
                     </div>
                 </div>,
                 document.body
@@ -1213,11 +1217,9 @@ export default function Customers({
                         <Sparkles size={16} /> Birthdays Today
                     </button>
                     <select value={tierFilter} onChange={(e) => setTierFilter(e.target.value)} className="px-4 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none">
-                        <option value="all">All Tiers</option>
-                        <option value="regular">Basic</option>
-                        <option value="silver">Silver</option>
-                        <option value="gold">Gold</option>
-                        <option value="platinum">Platinum</option>
+                        {CUSTOMER_TIER_FILTER_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
                     </select>
                     <div className="relative flex-1 md:w-72">
                         <Search className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
