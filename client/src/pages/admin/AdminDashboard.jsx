@@ -75,7 +75,7 @@ export default function AdminDashboard() {
     const [ordersInitialSourceChannel, setOrdersInitialSourceChannel] = useState('');
     const [ordersInitialManualCustomerId, setOrdersInitialManualCustomerId] = useState('');
     const [abandonedInitialStatusFilter, setAbandonedInitialStatusFilter] = useState('');
-    const [abandonedInitialJourneyWindow, setAbandonedInitialJourneyWindow] = useState('');
+    const [abandonedInitialRangeDays, setAbandonedInitialRangeDays] = useState('');
     const [incomingOrders, setIncomingOrders] = useState([]);
     const [activePopupType, setActivePopupType] = useState(null);
     const [activeMurugarImage, setActiveMurugarImage] = useState('');
@@ -195,7 +195,7 @@ export default function AdminDashboard() {
         if (target.tab === 'abandoned') {
             setActiveTab('abandoned');
             setAbandonedInitialStatusFilter(target.status || '');
-            setAbandonedInitialJourneyWindow(target.journeyWindow || '');
+            setAbandonedInitialRangeDays(target.rangeDays || target.journeyWindow || '');
             return;
         }
         if (target.tab) {
@@ -637,8 +637,8 @@ export default function AdminDashboard() {
                             storefrontOpen={storefrontOpen}
                             initialStatusFilter={abandonedInitialStatusFilter}
                             onInitialStatusApplied={() => setAbandonedInitialStatusFilter('')}
-                            initialJourneyWindow={abandonedInitialJourneyWindow}
-                            onInitialJourneyWindowApplied={() => setAbandonedInitialJourneyWindow('')}
+                            initialJourneyWindow={abandonedInitialRangeDays}
+                            onInitialJourneyWindowApplied={() => setAbandonedInitialRangeDays('')}
                         />
                     )}
                     {activeTab === 'loyalty' && <LoyaltySettings onBack={() => setActiveTab('dashboard')} storefrontOpen={storefrontOpen} />}

@@ -124,7 +124,9 @@ const getAbandonedCartJourneyTimeline = async (req, res) => {
 
 const getAbandonedCartInsights = async (req, res) => {
     try {
-        const rangeDays = Math.max(1, Math.min(90, Number(req.query.rangeDays || 30)));
+        const rangeDays = String(req.query.rangeDays || '').toLowerCase() === 'lifetime'
+            ? 'lifetime'
+            : Math.max(1, Math.min(90, Number(req.query.rangeDays || 30)));
         const insights = await AbandonedCart.getInsights({ rangeDays });
         return res.json({ insights });
     } catch (error) {

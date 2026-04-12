@@ -402,10 +402,10 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                             forceRefresh: shouldForceRefresh
                         }),
                         adminService.getCompanyInfo(),
-                        adminService.getAbandonedCartInsights(toRangeDays({ quickRange, startDate, endDate })),
+                        adminService.getAbandonedCartInsights('lifetime'),
                         adminService.getAbandonedCartJourneys({
                             status: 'active',
-                            rangeDays: 30,
+                            rangeDays: 'lifetime',
                             limit: 1,
                             offset: 0
                         })
@@ -637,7 +637,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             label: 'Abandoned Carts',
             value: Number(abandonedActiveJourneyCount || 0).toLocaleString('en-IN'),
             icon: Route,
-            target: { tab: 'abandoned', status: 'active' },
+            target: { tab: 'abandoned', status: 'active', rangeDays: 'lifetime' },
             widgetId: 'kpi_abandoned_carts_active',
             helper: `${Number(abandonedTotals.totalJourneys || 0).toLocaleString('en-IN')} total journeys`,
             theme: 'sky'
@@ -694,7 +694,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             label: 'Abandoned Carts',
             value: Number(abandonedActiveJourneyCount || 0).toLocaleString('en-IN'),
             icon: Route,
-            target: { tab: 'abandoned', status: 'active' },
+            target: { tab: 'abandoned', status: 'active', rangeDays: 'lifetime' },
             widgetId: 'kpi_abandoned_carts_active',
             helper: `${Number(abandonedTotals.totalJourneys || 0).toLocaleString('en-IN')} total journeys`,
             theme: 'sky'

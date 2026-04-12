@@ -19,7 +19,12 @@ const toOrderMetricsKey = (query = {}) => [
     String(query.status || 'all')
 ].join('::');
 
-const toAbandonedInsightsKey = (rangeDays = 30) => String(Number(rangeDays || 30));
+const normalizeAbandonedRangeValue = (rangeDays = 30) => {
+    const raw = String(rangeDays ?? '').trim().toLowerCase();
+    if (raw === 'lifetime') return 'lifetime';
+    return Math.max(1, Math.min(90, Number(rangeDays || 30)));
+};
+const toAbandonedInsightsKey = (rangeDays = 30) => String(normalizeAbandonedRangeValue(rangeDays));
 
 export const AdminKPIProvider = ({ children }) => {
     const { socket } = useSocket();
@@ -46,11 +51,11 @@ export const AdminKPIProvider = ({ children }) => {
 
     const setAbandonedInsightsSnapshot = useCallback((rangeDays, insights) => {
         const key = toAbandonedInsightsKey(rangeDays);
-        registeredAbandonedRangesRef.current[key] = Number(rangeDays || 30);
+        registeredAbandonedRangesRef.current[key] = normalizeAbandonedRangeValue(rangeDays);
         setAbandonedInsightsByKey((prev) => ({
             ...prev,
             [key]: {
-                rangeDays: Number(rangeDays || 30),
+                rangeDays: normalizeAbandonedRangeValue(rangeDays),
                 insights: insights || null,
                 ts: Date.now(),
                 dirty: false
@@ -66,7 +71,7 @@ export const AdminKPIProvider = ({ children }) => {
 
     const registerAbandonedInsightsRange = useCallback((rangeDays = 30) => {
         const key = toAbandonedInsightsKey(rangeDays);
-        registeredAbandonedRangesRef.current[key] = Number(rangeDays || 30);
+        registeredAbandonedRangesRef.current[key] = normalizeAbandonedRangeValue(rangeDays);
         return key;
     }, []);
 

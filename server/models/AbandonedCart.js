@@ -1270,7 +1270,17 @@ class AbandonedCart {
     }
 
     static async getInsights({ rangeDays = 30 } = {}) {
-        const safeDays = Math.max(1, Math.min(90, Number(rangeDays || 30)));
+        const isLifetimeRange = String(rangeDays || '').toLowerCase() === 'lifetime';
+        const safeDays = isLifetimeRange ? null : Math.max(1, Math.min(90, Number(rangeDays || 30)));
+        const summaryParams = [];
+        let summaryWhere = `WHERE LOWER(COALESCE(u.role, 'customer')) = 'customer'
+               AND COALESCE(u.is_active, 0) = 1`;
+        if (!isLifetimeRange) {
+            summaryWhere = `WHERE j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+               AND LOWER(COALESCE(u.role, 'customer')) = 'customer'
+               AND COALESCE(u.is_active, 0) = 1`;
+            summaryParams.push(safeDays);
+        }
         const [summaryRows] = await db.execute(
             `SELECT
                 COUNT(*) as total_journeys,
@@ -1281,11 +1291,15 @@ class AbandonedCart {
                 SUM(CASE WHEN j.status = 'recovered' THEN j.cart_total_subunits ELSE 0 END) as recovered_value_subunits
              FROM abandoned_cart_journeys j
              LEFT JOIN users u ON u.id = j.user_id
-             WHERE j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-               AND LOWER(COALESCE(u.role, 'customer')) = 'customer'
-               AND COALESCE(u.is_active, 0) = 1`,
-            [safeDays]
+             ${summaryWhere}`,
+            summaryParams
         );
+        const attemptParams = [];
+        let attemptsWhere = '';
+        if (!isLifetimeRange) {
+            attemptsWhere = 'WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
+            attemptParams.push(safeDays);
+        }
         const [attemptRows] = await db.execute(
             `SELECT
                 COUNT(*) as total_attempts,
@@ -1293,9 +1307,18 @@ class AbandonedCart {
                 SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_attempts,
                 AVG(NULLIF(discount_percent, 0)) as avg_discount_percent
              FROM abandoned_cart_attempts
-             WHERE created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`,
-            [safeDays]
+             ${attemptsWhere}`,
+            attemptParams
         );
+        const dailyParams = [];
+        let dailyWhere = `WHERE LOWER(COALESCE(u.role, 'customer')) = 'customer'
+               AND COALESCE(u.is_active, 0) = 1`;
+        if (!isLifetimeRange) {
+            dailyWhere = `WHERE j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+               AND LOWER(COALESCE(u.role, 'customer')) = 'customer'
+               AND COALESCE(u.is_active, 0) = 1`;
+            dailyParams.push(safeDays);
+        }
         const [dailyRows] = await db.execute(
             `SELECT
                 DATE(j.created_at) as day,
@@ -1304,12 +1327,10 @@ class AbandonedCart {
                 SUM(CASE WHEN j.status = 'active' THEN 1 ELSE 0 END) as active
              FROM abandoned_cart_journeys j
              LEFT JOIN users u ON u.id = j.user_id
-             WHERE j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-               AND LOWER(COALESCE(u.role, 'customer')) = 'customer'
-               AND COALESCE(u.is_active, 0) = 1
+             ${dailyWhere}
              GROUP BY DATE(created_at)
              ORDER BY DATE(created_at) ASC`,
-            [safeDays]
+            dailyParams
         );
 
         const summary = summaryRows[0] || {};
@@ -1318,7 +1339,7 @@ class AbandonedCart {
         const recoveredJourneys = Number(summary.recovered_journeys || 0);
 
         return {
-            rangeDays: safeDays,
+            rangeDays: isLifetimeRange ? 'lifetime' : safeDays,
             totals: {
                 totalJourneys,
                 activeJourneys: Number(summary.active_journeys || 0),

@@ -273,7 +273,9 @@ export const adminService = {
     },
 
     getAbandonedCartInsights: async (rangeDays = 30) => {
-        const safeRangeDays = Math.max(1, Math.min(90, Number(rangeDays || 30)));
+        const safeRangeDays = String(rangeDays || '').toLowerCase() === 'lifetime'
+            ? 'lifetime'
+            : Math.max(1, Math.min(90, Number(rangeDays || 30)));
         const cacheKey = String(safeRangeDays);
         const cached = abandonedCache.insights[cacheKey];
         if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
