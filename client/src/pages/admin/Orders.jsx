@@ -3019,7 +3019,7 @@ export function Orders({
                             className="w-full overflow-x-auto overscroll-x-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
                             style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
                         >
-                            <div className="inline-flex min-w-max flex-nowrap gap-1.5 pr-1">
+                            <div className="inline-flex min-w-max flex-nowrap gap-2 pr-1">
                                 {mobileStatusChips.map((chip) => {
                                     const active = statusFilter === chip.value;
                                     return (
@@ -3027,7 +3027,7 @@ export function Orders({
                                             key={chip.value}
                                             type="button"
                                             onClick={() => handleStatusFilterChange(chip.value)}
-                                            className={`inline-flex shrink-0 items-center rounded-full border px-2 py-1.5 text-[10px] font-semibold leading-none tracking-normal whitespace-nowrap transition ${
+                                            className={`inline-flex shrink-0 items-center rounded-full border px-3 py-2 text-xs font-semibold leading-none tracking-normal whitespace-nowrap transition ${
                                                 active ? getOrderStatusBadgeClasses(chip.value) : 'border-gray-200 bg-white text-gray-600'
                                             }`}
                                         >

@@ -94,18 +94,6 @@ const BROWN_KPI_PATTERN_STYLE = {
     backgroundImage: `linear-gradient(135deg, rgba(69,26,3,0.32), rgba(245,158,11,0.08)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 100 100'%3E%3Crect x='0' y='0' width='46' height='46' fill-opacity='0.45' fill='%23c77700'/%3E%3C/svg%3E")`,
     backgroundSize: 'cover, 40px 40px'
 };
-const SALES_BAR_PATTERN_STYLES = {
-    green: {
-        backgroundColor: '#113311',
-        backgroundImage: `linear-gradient(135deg, rgba(0,0,0,0.18), rgba(16,185,129,0.1)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='250' height='250' viewBox='0 0 20 20'%3E%3Cg%3E%3Cpolygon fill='%23242' points='20 10 10 0 0 0 20 20'/%3E%3Cpolygon fill='%23242' points='0 10 0 20 10 20'/%3E%3C/g%3E%3C/svg%3E")`,
-        backgroundSize: 'cover, 250px 250px'
-    },
-    red: {
-        backgroundColor: '#7f1d1d',
-        backgroundImage: RED_KPI_PATTERN_STYLE.backgroundImage,
-        backgroundSize: 'cover'
-    }
-};
 const getKpiCardStyle = (theme) => {
     if (theme === 'green') return GREEN_KPI_PATTERN_STYLE;
     if (theme === 'red') return RED_KPI_PATTERN_STYLE;
@@ -115,7 +103,7 @@ const getKpiCardStyle = (theme) => {
 };
 const applyKpiThemeRotation = (cards = []) => cards.map((card, index) => ({
     ...card,
-    theme: KPI_THEME_SEQUENCE[index % KPI_THEME_SEQUENCE.length]
+    theme: card.theme || KPI_THEME_SEQUENCE[index % KPI_THEME_SEQUENCE.length]
 }));
 const toRangeDays = ({ quickRange = 'last_30_days', startDate = '', endDate = '' } = {}) => {
     if (quickRange === 'last_7_days') return 7;
@@ -296,6 +284,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const [advancedAnalyticsEnabled, setAdvancedAnalyticsEnabled] = useState(true);
     const [isAnalyticsModeSaving, setIsAnalyticsModeSaving] = useState(false);
     const [abandonedInsights, setAbandonedInsights] = useState(null);
+    const [abandonedActiveJourneyCount, setAbandonedActiveJourneyCount] = useState(0);
     const forceRefreshRef = useRef(false);
     const hasTrackedFilterChangeRef = useRef(false);
     const goalStartInputRef = useRef(null);
@@ -401,7 +390,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             let lastError = null;
             for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt += 1) {
                 try {
-                    const [response, companyData, abandonedData] = await Promise.all([
+                    const [response, companyData, abandonedData, abandonedActiveJourneyData] = await Promise.all([
                         adminService.getDashboardInsights({
                             quickRange,
                             startDate: quickRange === 'custom' ? startDate : '',
@@ -413,12 +402,19 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                             forceRefresh: shouldForceRefresh
                         }),
                         adminService.getCompanyInfo(),
-                        adminService.getAbandonedCartInsights(toRangeDays({ quickRange, startDate, endDate }))
+                        adminService.getAbandonedCartInsights(toRangeDays({ quickRange, startDate, endDate })),
+                        adminService.getAbandonedCartJourneys({
+                            status: 'active',
+                            rangeDays: 30,
+                            limit: 1,
+                            offset: 0
+                        })
                     ]);
                     if (!cancelled) {
                         setData(response || null);
                         setAdvancedAnalyticsEnabled(companyData?.company?.advancedAnalyticsEnabled !== false);
                         setAbandonedInsights(abandonedData?.insights || null);
+                        setAbandonedActiveJourneyCount(Number(abandonedActiveJourneyData?.total || 0));
                         setLoadError('');
                         setIsLoading(false);
                     }
@@ -587,6 +583,10 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const hasSelectedPeriod = quickRange === 'custom'
         ? Boolean(startDate && endDate)
         : Boolean(data?.filter?.startDate && data?.filter?.endDate);
+    const selectedDurationText = hasSelectedPeriod ? `Duration: ${selectedPeriodLabel}` : '';
+    const selectedCompactDurationText = hasSelectedPeriod
+        ? `Duration: ${formatShortRangeHint(quickRange === 'custom' ? startDate : data?.filter?.startDate)} - ${formatShortRangeHint(quickRange === 'custom' ? endDate : data?.filter?.endDate)}`
+        : '';
     const hasAnyInsight = Boolean(
         Number(overview.totalOrders || 0) > 0
         || Number(overview.netSales || 0) > 0
@@ -601,6 +601,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const navigationKpis = data?.navigationKpis || {};
     const newOrdersNav = navigationKpis?.newOrders || {};
     const pendingOrdersNav = navigationKpis?.pendingOrders || {};
+    const failedOrdersNav = navigationKpis?.failedOrders || {};
     const cards = useMemo(() => ([
         {
             label: 'New Orders',
@@ -618,7 +619,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                 : 'No currently new orders'
         },
         {
-            label: 'Pending Orders',
+            label: 'Pending',
             value: Number(pendingOrdersNav.count || 0).toLocaleString('en-IN'),
             icon: AlertTriangle,
             target: buildLifetimeOrderTarget({
@@ -634,16 +635,73 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         },
         {
             label: 'Abandoned Carts',
-            value: Number(abandonedTotals.totalJourneys || 0).toLocaleString('en-IN'),
+            value: Number(abandonedActiveJourneyCount || 0).toLocaleString('en-IN'),
             icon: Route,
-            target: { tab: 'abandoned' },
-            widgetId: 'kpi_abandoned_carts_period',
-            helper: `${Number(abandonedTotals.activeJourneys || 0).toLocaleString('en-IN')} active recovery journeys`
+            target: { tab: 'abandoned', status: 'active' },
+            widgetId: 'kpi_abandoned_carts_active',
+            helper: `${Number(abandonedTotals.totalJourneys || 0).toLocaleString('en-IN')} total journeys`,
+            theme: 'sky'
         }
-    ]), [abandonedTotals.activeJourneys, abandonedTotals.totalJourneys, newOrdersNav.count, newOrdersNav.endDate, newOrdersNav.oldestDate, pendingOrdersNav.count, pendingOrdersNav.endDate, pendingOrdersNav.oldestDate]);
+    ]), [abandonedActiveJourneyCount, abandonedTotals.totalJourneys, newOrdersNav.count, newOrdersNav.endDate, newOrdersNav.oldestDate, pendingOrdersNav.count, pendingOrdersNav.endDate, pendingOrdersNav.oldestDate]);
     const themedCards = useMemo(() => applyKpiThemeRotation(cards), [cards]);
-    const mobilePrimaryCards = themedCards.slice(0, 2);
-    const mobileAbandonedCard = themedCards[2] || null;
+    const mobileCards = useMemo(() => applyKpiThemeRotation([
+        {
+            label: 'New Orders',
+            value: Number(newOrdersNav.count || 0).toLocaleString('en-IN'),
+            icon: ShoppingBag,
+            target: buildLifetimeOrderTarget({
+                status: 'confirmed',
+                count: newOrdersNav.count,
+                oldestDate: newOrdersNav.oldestDate,
+                endDate: newOrdersNav.endDate
+            }),
+            widgetId: 'kpi_new_orders_lifetime',
+            helper: Number(newOrdersNav.count || 0) > 0 && newOrdersNav.oldestDate
+                ? `Open since ${formatShortRangeHint(newOrdersNav.oldestDate)}`
+                : 'No currently new orders'
+        },
+        {
+            label: 'Pending',
+            value: Number(pendingOrdersNav.count || 0).toLocaleString('en-IN'),
+            icon: AlertTriangle,
+            target: buildLifetimeOrderTarget({
+                status: 'pending',
+                count: pendingOrdersNav.count,
+                oldestDate: pendingOrdersNav.oldestDate,
+                endDate: pendingOrdersNav.endDate
+            }),
+            widgetId: 'kpi_pending_orders_lifetime',
+            helper: Number(pendingOrdersNav.count || 0) > 0 && pendingOrdersNav.oldestDate
+                ? `Open since ${formatShortRangeHint(pendingOrdersNav.oldestDate)}`
+                : 'No pending orders right now'
+        },
+        {
+            label: 'Failed',
+            value: Number(failedOrdersNav.count ?? risk.failedPaymentsCurrent6h ?? 0).toLocaleString('en-IN'),
+            icon: AlertTriangle,
+            target: buildLifetimeOrderTarget({
+                status: 'failed',
+                count: failedOrdersNav.count ?? risk.failedPaymentsCurrent6h,
+                oldestDate: failedOrdersNav.oldestDate,
+                endDate: failedOrdersNav.endDate
+            }),
+            widgetId: 'kpi_failed_orders_lifetime',
+            helper: Number(failedOrdersNav.count ?? risk.failedPaymentsCurrent6h ?? 0) > 0 && failedOrdersNav.oldestDate
+                ? `Since ${formatShortRangeHint(failedOrdersNav.oldestDate)}`
+                : 'No failed orders'
+        },
+        {
+            label: 'Abandoned Carts',
+            value: Number(abandonedActiveJourneyCount || 0).toLocaleString('en-IN'),
+            icon: Route,
+            target: { tab: 'abandoned', status: 'active' },
+            widgetId: 'kpi_abandoned_carts_active',
+            helper: `${Number(abandonedTotals.totalJourneys || 0).toLocaleString('en-IN')} total journeys`,
+            theme: 'sky'
+        }
+    ]), [abandonedActiveJourneyCount, abandonedTotals.totalJourneys, failedOrdersNav.count, failedOrdersNav.endDate, failedOrdersNav.oldestDate, newOrdersNav.count, newOrdersNav.endDate, newOrdersNav.oldestDate, pendingOrdersNav.count, pendingOrdersNav.endDate, pendingOrdersNav.oldestDate, risk.failedPaymentsCurrent6h]);
+    const mobilePrimaryCards = mobileCards.filter((card) => ['New Orders', 'Pending', 'Failed'].includes(card.label));
+    const mobileAbandonedCard = mobileCards.find((card) => card.label === 'Abandoned Carts') || null;
     const MobileAbandonedIcon = mobileAbandonedCard?.icon || Route;
     const refreshGoals = async () => {
         const goalData = await adminService.getDashboardGoals();
@@ -972,8 +1030,6 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                     document.body
                 )
             )}
-            {hasSelectedPeriod && <p className="text-xs text-gray-500 -mt-4">Selected period: {selectedPeriodLabel}</p>}
-
             {isLoading ? (
                 <div className="bg-white rounded-2xl border border-gray-200 shadow-sm py-16 text-center text-gray-400">Loading dashboard insights...</div>
             ) : !hasAnyInsight ? (
@@ -991,24 +1047,24 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             ) : (
                 <>
                     <div className="md:hidden grid grid-cols-2 gap-3">
-                        <div className="grid aspect-square grid-rows-2 gap-3">
+                        <div className="grid aspect-square grid-cols-2 grid-rows-2 gap-2">
                             {mobilePrimaryCards.map((card) => (
                                 <button
                                     key={card.label}
                                     type="button"
                                     onClick={() => handleOpenCard(card)}
-                                    className={`group relative overflow-hidden rounded-2xl border px-3 pb-2.5 pt-2.5 shadow-sm flex h-full min-h-0 flex-col text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
+                                    className={`group relative overflow-hidden rounded-2xl border px-2 pb-2 pt-2 shadow-sm flex h-full min-h-0 flex-col text-left transition-transform hover:-translate-y-0.5 ${card.label === 'New Orders' ? 'col-span-2' : ''} ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
                                     style={getKpiCardStyle(card.theme)}
                                 >
                                     <div className="flex items-start justify-between gap-2">
                                         <p className={`max-w-full break-words text-[7px] leading-3 uppercase tracking-[0.08em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
-                                            {card.label === 'New Orders' ? 'New Orders' : 'Pending Orders'}
+                                            {card.label}
                                         </p>
-                                        <ArrowRight size={14} className={KPI_CARD_THEMES[card.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
+                                        <ArrowRight size={12} className={`shrink-0 ${KPI_CARD_THEMES[card.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent}`} />
                                     </div>
                                     <div className="mt-auto flex items-end justify-between gap-2">
-                                        <p className={`min-w-0 text-[29px] leading-[0.88] font-semibold ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
-                                        <card.icon size={20} className={`mb-3.5 shrink-0 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
+                                        <p className={`min-w-0 text-[22px] leading-[0.9] font-semibold ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
+                                        <card.icon size={16} className={`mb-2 shrink-0 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
                                     </div>
                                 </button>
                             ))}
@@ -1019,24 +1075,18 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                 onClick={() => handleOpenCard(mobileAbandonedCard)}
                                 className={`group relative overflow-hidden rounded-2xl border px-3 pb-2.5 pt-2.5 shadow-sm flex aspect-square flex-col text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
                                 style={getKpiCardStyle(mobileAbandonedCard.theme)}
-                            >
-                                <div className="flex items-start justify-between gap-2">
-                                    <p className={`max-w-full break-words text-[7px] leading-3 uppercase tracking-[0.08em] ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
-                                        Abandoned Carts
-                                    </p>
-                                    <ArrowRight size={14} className={KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
-                                </div>
-                                <p className={`mt-auto inline-flex max-w-full rounded-full px-2 py-1 text-[7px] font-medium leading-3 ${
-                                    mobileAbandonedCard.theme === 'green'
-                                        ? 'bg-black/10 text-black/75'
-                                        : mobileAbandonedCard.theme === 'sky'
-                                            ? 'bg-slate-900/8 text-slate-900/75'
-                                            : ['red', 'brown'].includes(mobileAbandonedCard.theme)
-                                            ? 'bg-white/15 text-white shadow-sm backdrop-blur-[1px]'
-                                            : (KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext)
-                                }`}>
-                                    {mobileAbandonedCard.helper || 'Tap to inspect detailed records'}
-                                </p>
+                                >
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <p className={`max-w-full break-words text-[7px] leading-3 uppercase tracking-[0.08em] ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
+                                                Abandoned Carts
+                                            </p>
+                                            <p className="mt-1 inline-flex max-w-full rounded-full bg-black/10 px-2 py-1 text-[7px] font-medium leading-3 text-black/75">
+                                                {mobileAbandonedCard.helper || 'Tap to inspect detailed records'}
+                                            </p>
+                                        </div>
+                                        <ArrowRight size={14} className={KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
+                                    </div>
                                 <div className="mt-2 flex items-end justify-between gap-2">
                                     <p className={`min-w-0 text-[30px] leading-[0.88] font-semibold ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{mobileAbandonedCard.value}</p>
                                     <MobileAbandonedIcon size={20} className={`mb-3.5 shrink-0 opacity-90 ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
@@ -1057,18 +1107,20 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     <p className={`text-xs uppercase tracking-[0.18em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
                                         {card.label}
                                     </p>
-                                    <p className={`text-3xl font-semibold mt-2 ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
                                     <p className={`mt-2 inline-flex max-w-full rounded-full px-2 py-1 text-xs font-medium leading-4 ${
-                                        card.theme === 'green'
+                                        card.label === 'Abandoned Carts'
                                             ? 'bg-black/10 text-black/75'
-                                            : card.theme === 'sky'
-                                                ? 'bg-slate-900/8 text-slate-900/75'
-                                                : ['red', 'brown'].includes(card.theme)
-                                                ? 'bg-white/15 text-white shadow-sm backdrop-blur-[1px]'
-                                                : (KPI_CARD_THEMES[card.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext)
+                                            : card.theme === 'green'
+                                                ? 'bg-black/10 text-black/75'
+                                                : card.theme === 'sky'
+                                                    ? 'bg-slate-900/8 text-slate-900/75'
+                                                    : ['red', 'brown'].includes(card.theme)
+                                                        ? 'bg-white/15 text-white shadow-sm backdrop-blur-[1px]'
+                                                        : (KPI_CARD_THEMES[card.theme || 'sky']?.subtext || KPI_CARD_THEMES.sky.subtext)
                                     }`}>
                                         {card.helper || 'Tap to inspect detailed records'}
                                     </p>
+                                    <p className={`text-3xl font-semibold mt-3 ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
                                 </div>
                                 <div className="flex flex-col items-end justify-between h-full">
                                     <ArrowRight size={22} className={KPI_CARD_THEMES[card.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
@@ -1080,6 +1132,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                     {isCompareEnabled && comparison && (
                         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
                             <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><BarChart3 size={16} />Period Comparison</h3>
+                            {selectedDurationText && <p className="mt-1 text-xs text-gray-500">{selectedDurationText}</p>}
                             <p className="text-xs text-gray-500 mt-1">
                                 {comparisonMode === 'same_period_last_month' ? 'Current period vs same period last month.' : 'Current period vs immediately previous period.'}
                             </p>
@@ -1143,10 +1196,13 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                     <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
                         <div className="xl:col-span-3 bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative">
                             <div className="flex items-center justify-between gap-2">
-                                <h3 className="min-w-0 whitespace-nowrap text-base font-semibold leading-none text-gray-900 flex items-center gap-2">
-                                    <BarChart3 size={16} className="shrink-0" />
-                                    <span>{trendSalesTitle}</span>
-                                </h3>
+                                <div className="min-w-0">
+                                    <h3 className="whitespace-nowrap text-base font-semibold leading-none text-gray-900 flex items-center gap-2">
+                                        <BarChart3 size={16} className="shrink-0" />
+                                        <span>{trendSalesTitle}</span>
+                                    </h3>
+                                    {selectedCompactDurationText && <p className="mt-1 max-w-[9.5rem] whitespace-nowrap text-[9px] leading-[11px] text-gray-500 sm:max-w-none">{selectedCompactDurationText}</p>}
+                                </div>
                                 <div className="relative flex items-center gap-2">
                                     <button
                                         type="button"
@@ -1230,15 +1286,8 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     const revenue = Number(entry?.revenue || 0);
                                     const width = Math.max(3, Math.round((revenue / maxTrendRevenue) * 100));
                                     const level = revenue / maxTrendRevenue;
-                                    const barColor = level >= 0.67 ? '' : (level >= 0.34 ? 'bg-orange-500' : '');
-                                    const barStyle = {
-                                        width: `${width}%`,
-                                        ...(level >= 0.67
-                                            ? SALES_BAR_PATTERN_STYLES.green
-                                            : level >= 0.34
-                                                ? {}
-                                                : SALES_BAR_PATTERN_STYLES.red)
-                                    };
+                                    const barColor = level >= 0.67 ? 'bg-emerald-600' : (level >= 0.34 ? 'bg-amber-500' : 'bg-rose-500');
+                                    const barStyle = { width: `${width}%` };
                                     return (
                                         <div key={entry.date} className="grid grid-cols-[120px_1fr_100px] items-center gap-3 sm:grid-cols-[140px_1fr_100px]">
                                             <span className="text-[11px] leading-4 text-gray-500">{formatTrendRowLabel(entry, trendGranularity)}</span>
@@ -1285,13 +1334,15 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
 
                         <div className="xl:col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
                             <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><Funnel size={16} />Order Summary</h3>
+                            {selectedDurationText && <p className="mt-1 text-xs text-gray-500">{selectedDurationText}</p>}
                             <div className="mt-4 space-y-2">
                                 {[
-                                    { label: 'Attempted', value: funnel.attempted, target: { tab: 'orders', status: 'failed', quickRange: 'last_30_days' } },
-                                    { label: 'Paid', value: funnel.paid, target: { tab: 'orders', status: 'confirmed', quickRange: 'last_30_days' } },
+                                    { label: 'New', value: newOrdersNav.count, target: { tab: 'orders', status: 'confirmed', quickRange: 'last_30_days' } },
+                                    { label: 'Pending', value: pendingOrdersNav.count, target: { tab: 'orders', status: 'pending', quickRange: 'last_30_days' } },
+                                    { label: 'Attempted', value: funnel.attempted, target: { tab: 'orders', status: 'attempted', quickRange: 'last_30_days' } },
                                     { label: 'Completed', value: funnel.completed, target: { tab: 'orders', status: 'completed', quickRange: 'last_30_days' } },
                                     { label: 'Cancelled', value: funnel.cancelled, target: { tab: 'orders', status: 'cancelled', quickRange: 'last_30_days' } },
-                                    { label: 'Refunded', value: funnel.refunded, target: { tab: 'orders', status: 'cancelled', quickRange: 'last_30_days' } }
+                                    { label: 'Failed', value: failedOrdersNav.count ?? risk.failedPaymentsCurrent6h, target: { tab: 'orders', status: 'failed', quickRange: 'last_30_days' } }
                                 ].map((item) => (
                                     <button key={item.label} type="button" onClick={() => handleOpenAction({ id: `funnel_${item.label.toLowerCase()}`, target: { ...item.target, quickRange, startDate: quickRange === 'custom' ? startDate : '', endDate: quickRange === 'custom' ? endDate : '' } })} className="w-full text-left flex items-center justify-between py-2 border-b last:border-0 border-gray-100 hover:bg-gray-50 rounded-md px-1">
                                         <span className="text-sm text-gray-600">{item.label}</span>
@@ -1313,8 +1364,8 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                             ]).map((card) => (
                                 <div key={card.label} className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${KPI_CARD_THEMES[card.theme].shell}`} style={getKpiCardStyle(card.theme)}>
                                     <p className={`text-xs uppercase tracking-[0.2em] flex items-center gap-1 ${KPI_CARD_THEMES[card.theme].label}`}><card.icon size={12} />{card.label}</p>
-                                    <p className={`text-xl font-semibold mt-2 ${KPI_CARD_THEMES[card.theme].value}`}>{card.value}</p>
                                     <p className={`text-xs mt-2 ${KPI_CARD_THEMES[card.theme].subtext}`}>{card.helper}</p>
+                                    <p className={`text-xl font-semibold mt-3 ${KPI_CARD_THEMES[card.theme].value}`}>{card.value}</p>
                                     <card.icon size={46} className={`absolute right-2 bottom-2 opacity-90 ${KPI_CARD_THEMES[card.theme].icon}`} />
                                 </div>
                             ))}
@@ -1324,6 +1375,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
                             <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><Boxes size={16} />Top sold products</h3>
+                            {selectedDurationText && <p className="mt-1 text-xs text-gray-500">{selectedDurationText}</p>}
                             <div className="mt-4 space-y-2">
                                 {(products.topSellers || []).slice(0, 6).map((item) => (
                                     <button
@@ -1361,6 +1413,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
 
                         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
                             <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><UsersRound size={16} />Top Customers</h3>
+                            {selectedDurationText && <p className="mt-1 text-xs text-gray-500">{selectedDurationText}</p>}
                             <div className="mt-4 space-y-2">
                                 {(customers.topCustomers || []).slice(0, 6).map((item) => (
                                     <button
@@ -1399,6 +1452,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
 
                         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
                             <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><Route size={16} />Channel Revenue</h3>
+                            {selectedDurationText && <p className="mt-1 text-xs text-gray-500">{selectedDurationText}</p>}
                             <div className="mt-4 space-y-2">
                                 {(growth.channelRevenue || []).slice(0, 6).map((item) => (
                                     <button
@@ -1437,6 +1491,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
 
                         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
                             <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><PieChart size={16} />Payment Mode Share</h3>
+                            {selectedDurationText && <p className="mt-1 text-xs text-gray-500">{selectedDurationText}</p>}
                             <div className="mt-4 flex items-center gap-4">
                                 <div
                                     className="w-24 h-24 rounded-full relative flex items-center justify-center text-xs font-semibold text-gray-700"
@@ -1490,7 +1545,10 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
 
                     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
                         <div className="flex items-center justify-between mb-3">
-                            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><Target size={16} />Goal Tracker</h3>
+                            <div>
+                                <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><Target size={16} />Goal Tracker</h3>
+                                {selectedDurationText && <p className="mt-1 text-xs text-gray-500">{selectedDurationText}</p>}
+                            </div>
                             <span className="text-xs text-gray-500">{isGoalsLoading ? 'Loading...' : `${trackerGoals.length} active`}</span>
                         </div>
                         <div className="mt-4 space-y-2">
@@ -1522,7 +1580,10 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
 
                     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
                         <div className="flex items-center justify-between">
-                            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><AlertTriangle size={16} />Action Center</h3>
+                            <div>
+                                <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2"><AlertTriangle size={16} />Action Center</h3>
+                                {selectedDurationText && <p className="mt-1 text-xs text-gray-500">{selectedDurationText}</p>}
+                            </div>
                             <span className="text-xs text-gray-500">Prioritized operational tasks</span>
                         </div>
                         <div className="mt-4 space-y-3">

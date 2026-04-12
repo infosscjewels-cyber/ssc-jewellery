@@ -6,6 +6,7 @@ import {
     Archive,
     Ban,
     Calendar,
+    Download,
     Loader2,
     Mail,
     Phone,
@@ -231,6 +232,7 @@ export default function Customers({
     const [couponSaving, setCouponSaving] = useState(false);
     const [couponDeletingId, setCouponDeletingId] = useState(null);
     const [couponDeleteLoading, setCouponDeleteLoading] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
     const [couponDeleteConfirm, setCouponDeleteConfirm] = useState({
         isOpen: false,
         userId: null,
@@ -257,7 +259,7 @@ export default function Customers({
     const handleArchivedToggle = useCallback(() => {
         const nextShowArchived = !showArchived;
         setShowArchived(nextShowArchived);
-        refreshUsers(true, { archiveMode: nextShowArchived ? 'all' : 'active' }).catch((error) => {
+        refreshUsers(true, { archiveMode: nextShowArchived ? 'archived' : 'active' }).catch((error) => {
             toast.error(error?.message || 'Failed to refresh customers');
         });
     }, [refreshUsers, showArchived, toast]);
@@ -302,7 +304,7 @@ export default function Customers({
     );
 
     const filteredCustomers = useMemo(() => {
-        let rows = customersOnly.filter((u) => showArchived || !u.isArchived);
+        let rows = customersOnly.filter((u) => (showArchived ? u.isArchived : !u.isArchived));
         const term = String(searchTerm || '').trim().toLowerCase();
         if (term) {
             rows = rows.filter((u) =>
@@ -357,6 +359,18 @@ export default function Customers({
         await refreshUsers(true);
         setAddModalRole(null);
         toast.success('Customer added successfully');
+    };
+
+    const handleExportCustomers = async () => {
+        setIsExporting(true);
+        try {
+            await adminService.exportCustomers();
+            toast.success('Customer export started');
+        } catch (error) {
+            toast.error(error?.message || 'Failed to export customers');
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     const openDeleteModal = (user) => {
@@ -1291,9 +1305,20 @@ export default function Customers({
                         <Users size={72} className="bg-emboss-icon absolute right-2 bottom-2 text-gray-100" />
                         <div className="hidden px-6 py-4 border-b border-gray-100 items-center justify-between gap-3 md:flex">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Customers</h3>
-                            <button onClick={() => setAddModalRole('customer')} className="hidden md:inline-flex w-36 bg-primary hover:bg-primary-light text-accent font-bold px-3 py-2 rounded-lg text-xs shadow-lg shadow-primary/20 items-center justify-center gap-2 transition-all active:scale-95">
-                                <Plus size={14} strokeWidth={3} /> Add Customer
-                            </button>
+                            <div className="hidden md:flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleExportCustomers}
+                                    disabled={isExporting || isLoading}
+                                    className="inline-flex min-w-36 bg-white hover:bg-gray-50 text-gray-700 font-bold px-3 py-2 rounded-lg text-xs shadow-sm border border-gray-200 items-center justify-center gap-2 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                    <Download size={14} strokeWidth={2.5} />
+                                    {isExporting ? 'Exporting...' : 'Export Customers'}
+                                </button>
+                                <button onClick={() => setAddModalRole('customer')} className="inline-flex w-36 bg-primary hover:bg-primary-light text-accent font-bold px-3 py-2 rounded-lg text-xs shadow-lg shadow-primary/20 items-center justify-center gap-2 transition-all active:scale-95">
+                                    <Plus size={14} strokeWidth={3} /> Add Customer
+                                </button>
+                            </div>
                         </div>
                         <table className="hidden md:table w-full text-left">
                             <thead className="bg-gray-50 border-b border-gray-200">

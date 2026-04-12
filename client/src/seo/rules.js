@@ -29,6 +29,18 @@ import {
 const robotsIndex = 'index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1';
 const robotsNoindex = 'noindex,nofollow';
 const safeObject = (value) => (value && typeof value === 'object' ? value : {});
+const PRIMARY_NAVIGATION_LINKS = [
+    { name: 'Home', url: '/' },
+    { name: 'Shop', url: '/shop' },
+    { name: 'About', url: '/about' },
+    { name: 'Contact', url: '/contact' },
+    { name: 'FAQs', url: '/faq' },
+    { name: 'Shipping Policy', url: '/shipping' },
+    { name: 'Refund Policy', url: '/refund' },
+    { name: 'Terms and Conditions', url: '/terms' },
+    { name: 'Privacy Policy', url: '/privacy' },
+    { name: 'Sitemap', url: '/sitemap' }
+];
 
 export const isNoindexPath = (pathname = '') => {
     const path = String(pathname || '/').split('?')[0].toLowerCase();
@@ -45,16 +57,19 @@ export const buildDefaultSeo = (pathname = '/') => {
         canonical: buildCanonical(pathname),
         robots: noindex ? robotsNoindex : robotsIndex,
         image: pickSocialImage({ fallbackImage: DEFAULT_SOCIAL_IMAGE }),
-        structuredData: noindex ? [] : [buildOrganizationSchema(), buildLocalBusinessSchema(), buildWebsiteSchema({ includeSearchAction: true })]
+        structuredData: noindex ? [] : [
+            buildOrganizationSchema(),
+            buildLocalBusinessSchema(),
+            buildWebsiteSchema({ includeSearchAction: true }),
+            buildSiteNavigationSchema(PRIMARY_NAVIGATION_LINKS)
+        ]
     };
 };
 
 export const buildHomeSeo = ({
     company = {},
     categories = [],
-    products = [],
-    slides = [],
-    banners = []
+    products = []
 } = {}) => {
     company = safeObject(company);
     const categoryNames = (Array.isArray(categories) ? categories : []).map((entry) => normalizeText(entry?.name)).filter(Boolean);
@@ -83,6 +98,7 @@ export const buildHomeSeo = ({
             buildOrganizationSchema(company),
             buildLocalBusinessSchema(company),
             buildWebsiteSchema({ includeSearchAction: true }),
+            buildSiteNavigationSchema(PRIMARY_NAVIGATION_LINKS),
             buildItemListSchema(products, { name: `${brand} featured products` })
         ]
     };

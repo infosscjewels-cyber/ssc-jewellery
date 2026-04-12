@@ -12,7 +12,7 @@ const DEFAULT_COMPANY = {
 
 const DEVELOPER = {
     name: 'Creativecodz',
-    website: 'https://creativecodz.com/',
+    website: 'https://www.creativecodz.com/',
     instagram: 'https://www.instagram.com/creativecodz'
 };
 
@@ -82,7 +82,7 @@ export default function SiteCredits() {
                                     <Globe size={18} className="text-primary" />
                                     <span className="text-sm font-semibold text-gray-900">Website</span>
                                 </div>
-                                <p className="mt-3 text-sm text-gray-600">{DEVELOPER.website}</p>
+                                <p className="mt-3 text-sm text-gray-600">Visit Creativecodz</p>
                             </a>
 
                             <a

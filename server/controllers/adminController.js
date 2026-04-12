@@ -24,6 +24,17 @@ const { emitToUserAudiences } = require('../utils/socketAudience');
 const { resolveUploadedAssetPath } = require('../utils/uploadsRoot');
 const { queueFullRefresh } = require('../services/seoService');
 const isProductionLike = () => String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+const toCsvCell = (value) => {
+    if (value === null || value === undefined) return '""';
+    const text = String(value).replace(/"/g, '""');
+    return `"${text}"`;
+};
+const flattenAddress = (address = null) => ({
+    line1: address?.line1 || '',
+    city: address?.city || '',
+    state: address?.state || '',
+    zip: address?.zip || ''
+});
 
 const normalizeAddressPayload = (value = null, { fieldLabel = 'Address' } = {}) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -620,7 +631,11 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 SUM(CASE WHEN o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) < 24 THEN 1 ELSE 0 END) AS lifetime_new_orders,
                 MIN(CASE WHEN o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) < 24 THEN DATE(o.created_at) ELSE NULL END) AS oldest_new_order_date,
                 SUM(CASE WHEN o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) >= 24) THEN 1 ELSE 0 END) AS lifetime_pending_orders,
-                MIN(CASE WHEN o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) >= 24) THEN DATE(o.created_at) ELSE NULL END) AS oldest_pending_order_date
+                MIN(CASE WHEN o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) >= 24) THEN DATE(o.created_at) ELSE NULL END) AS oldest_pending_order_date,
+                SUM(CASE WHEN o.status = 'completed' THEN 1 ELSE 0 END) AS lifetime_completed_orders,
+                MIN(CASE WHEN o.status = 'completed' THEN DATE(o.created_at) ELSE NULL END) AS oldest_completed_order_date,
+                SUM(CASE WHEN o.status = 'failed' OR LOWER(COALESCE(o.payment_status, '')) = 'failed' THEN 1 ELSE 0 END) AS lifetime_failed_orders,
+                MIN(CASE WHEN o.status = 'failed' OR LOWER(COALESCE(o.payment_status, '')) = 'failed' THEN DATE(o.created_at) ELSE NULL END) AS oldest_failed_order_date
              FROM orders o`
         )
     ]);
@@ -702,6 +717,16 @@ const getDashboardInsightsPayload = async (query = {}) => {
         pendingOrders: {
             count: Number(lifetimeOrderKpiBase.lifetime_pending_orders || 0),
             oldestDate: normalizeLifetimeDate(lifetimeOrderKpiBase.oldest_pending_order_date),
+            endDate: todayDate
+        },
+        completedOrders: {
+            count: Number(lifetimeOrderKpiBase.lifetime_completed_orders || 0),
+            oldestDate: normalizeLifetimeDate(lifetimeOrderKpiBase.oldest_completed_order_date),
+            endDate: todayDate
+        },
+        failedOrders: {
+            count: Number(lifetimeOrderKpiBase.lifetime_failed_orders || 0),
+            oldestDate: normalizeLifetimeDate(lifetimeOrderKpiBase.oldest_failed_order_date),
             endDate: todayDate
         }
     };
@@ -1600,6 +1625,111 @@ const getUsers = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
+const exportCustomers = async (req, res) => {
+    try {
+        const customers = await User.getCustomerExportRows();
+        const header = [
+            'Customer ID',
+            'Name',
+            'Mobile',
+            'Email',
+            'Loyalty Tier',
+            'Record Status',
+            'Is Active',
+            'Created At',
+            'Deactivated At',
+            'Deactivation Reason',
+            'Date Of Birth',
+            'Address Line 1',
+            'Address City',
+            'Address State',
+            'Address ZIP',
+            'Billing Line 1',
+            'Billing City',
+            'Billing State',
+            'Billing ZIP',
+            'Cart Item Count',
+            'Abandoned Cart Last Activity',
+            'Active Coupon Count',
+            'Lifetime Paid Orders',
+            'Lifetime Net Revenue',
+            'Lifetime Average Order Value',
+            'Last Paid Order At',
+            'Lifetime Total Orders Attempted',
+            'Lifetime Pending Orders',
+            'Lifetime Cancelled Orders',
+            'Lifetime Failed Orders',
+            'Lifetime Refunded Orders',
+            'Lifetime Refunded Amount',
+            'Lifetime COD Orders',
+            'Lifetime COD Cancelled Orders',
+            'Is Archived',
+            'Archived At',
+            'Archive Reason'
+        ].join(',');
+
+        const lines = customers.map((customer) => {
+            const address = flattenAddress(customer.address);
+            const billingAddress = flattenAddress(customer.billingAddress);
+            const recordStatus = customer.isArchived
+                ? 'archived'
+                : customer.isActive === false
+                    ? 'inactive'
+                    : 'active';
+
+            return [
+                toCsvCell(customer.id || ''),
+                toCsvCell(customer.name || ''),
+                toCsvCell(customer.mobile || ''),
+                toCsvCell(customer.email || ''),
+                toCsvCell(customer.loyaltyTier || 'regular'),
+                toCsvCell(recordStatus),
+                toCsvCell(customer.isActive === false ? 'No' : 'Yes'),
+                toCsvCell(customer.created_at || customer.createdAt || ''),
+                toCsvCell(customer.deactivatedAt || ''),
+                toCsvCell(customer.deactivationReason || ''),
+                toCsvCell(customer.dob || ''),
+                toCsvCell(address.line1),
+                toCsvCell(address.city),
+                toCsvCell(address.state),
+                toCsvCell(address.zip),
+                toCsvCell(billingAddress.line1),
+                toCsvCell(billingAddress.city),
+                toCsvCell(billingAddress.state),
+                toCsvCell(billingAddress.zip),
+                toCsvCell(Number(customer.cart_count || 0)),
+                toCsvCell(customer.abandoned_cart_last_activity_at || customer.abandonedCartLastActivityAt || ''),
+                toCsvCell(Number(customer.active_coupon_count || customer.activeCouponCount || 0)),
+                toCsvCell(Number(customer.lifetime_paid_orders || 0)),
+                toCsvCell(Number(customer.lifetime_net_revenue || 0).toFixed(2)),
+                toCsvCell(Number(customer.lifetime_avg_order_value || 0).toFixed(2)),
+                toCsvCell(customer.last_paid_order_at || ''),
+                toCsvCell(Number(customer.lifetime_total_orders_attempted || 0)),
+                toCsvCell(Number(customer.lifetime_pending_orders || 0)),
+                toCsvCell(Number(customer.lifetime_cancelled_orders || 0)),
+                toCsvCell(Number(customer.lifetime_failed_orders || 0)),
+                toCsvCell(Number(customer.lifetime_refunded_orders || 0)),
+                toCsvCell(Number(customer.lifetime_refunded_amount || 0).toFixed(2)),
+                toCsvCell(Number(customer.lifetime_cod_orders || 0)),
+                toCsvCell(Number(customer.lifetime_cod_cancelled_orders || 0)),
+                toCsvCell(customer.isArchived ? 'Yes' : 'No'),
+                toCsvCell(customer.archivedAt || ''),
+                toCsvCell(customer.archiveReason || '')
+            ].join(',');
+        });
+
+        const csv = [header, ...lines].join('\n');
+        const fileName = `customers-export-${new Date().toISOString().slice(0, 10)}.csv`;
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        return res.status(200).send(csv);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: error?.message || 'Failed to export customers' });
     }
 };
 
@@ -2729,6 +2859,7 @@ const getUserActiveCoupons = async (req, res) => {
 
 module.exports = {
     getUsers,
+    exportCustomers,
     createUser,
     deleteUser,
     setUserStatus,

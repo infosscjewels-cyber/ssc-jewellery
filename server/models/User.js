@@ -1,6 +1,10 @@
 const db = require('../config/db'); 
 
 class User {
+    static getAdminPaidOrderCondition(alias = 'o') {
+        return `LOWER(COALESCE(${alias}.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(${alias}.payment_status, '')) NOT IN ('refunded', 'failed') AND LOWER(COALESCE(${alias}.status, '')) NOT IN ('cancelled', 'refunded')`;
+    }
+
     static normalizeRow(row) {
         if (!row) return row;
         const parseJson = (value) => {
@@ -94,6 +98,7 @@ class User {
     static async getPaginated(page = 1, limit = 10, roleFilter = null, search = '', options = {}) {
         const offset = (page - 1) * limit;
         const archiveMode = User.normalizeArchiveMode(options.archiveMode);
+        const paidOrderCondition = User.getAdminPaidOrderCondition('o');
         
         let query = `SELECT u.*,
             COALESCE(ul.tier, 'regular') as loyalty_tier,
@@ -115,10 +120,10 @@ class User {
                 ),
                 '1000-01-01 00:00:00'
             ) as abandoned_cart_last_activity_at,
-            (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.payment_status, '')) NOT IN ('refunded', 'failed') AND LOWER(COALESCE(o.status, '')) NOT IN ('cancelled', 'refunded')) as total_orders,
-            (SELECT COALESCE(SUM(o.total), 0) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.payment_status, '')) NOT IN ('refunded', 'failed') AND LOWER(COALESCE(o.status, '')) NOT IN ('cancelled', 'refunded')) as total_spend,
-            (SELECT COALESCE(AVG(o.total), 0) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.payment_status, '')) NOT IN ('refunded', 'failed') AND LOWER(COALESCE(o.status, '')) NOT IN ('cancelled', 'refunded')) as avg_order_value,
-            (SELECT MAX(o.created_at) FROM orders o WHERE o.user_id = u.id AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured') AND LOWER(COALESCE(o.payment_status, '')) NOT IN ('refunded', 'failed') AND LOWER(COALESCE(o.status, '')) NOT IN ('cancelled', 'refunded')) as last_order_at,
+            (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id AND ${paidOrderCondition}) as total_orders,
+            (SELECT COALESCE(SUM(o.total), 0) FROM orders o WHERE o.user_id = u.id AND ${paidOrderCondition}) as total_spend,
+            (SELECT COALESCE(AVG(o.total), 0) FROM orders o WHERE o.user_id = u.id AND ${paidOrderCondition}) as avg_order_value,
+            (SELECT MAX(o.created_at) FROM orders o WHERE o.user_id = u.id AND ${paidOrderCondition}) as last_order_at,
             (
                 SELECT COUNT(*)
                 FROM coupons c
@@ -184,6 +189,116 @@ class User {
             total: countResult[0].total,
             totalPages: Math.ceil(countResult[0].total / limit)
         };
+    }
+
+    static async getCustomerExportRows() {
+        const paidOrderCondition = User.getAdminPaidOrderCondition('o');
+        const [rows] = await db.execute(
+            `SELECT
+                u.*,
+                COALESCE(ul.tier, 'regular') AS loyalty_tier,
+                COALESCE(cart_counts.cart_count, 0) AS cart_count,
+                cart_activity.abandoned_cart_last_activity_at,
+                COALESCE(coupon_counts.active_coupon_count, 0) AS active_coupon_count,
+                COALESCE(order_stats.lifetime_paid_orders, 0) AS lifetime_paid_orders,
+                COALESCE(order_stats.lifetime_net_revenue, 0) AS lifetime_net_revenue,
+                COALESCE(order_stats.lifetime_avg_order_value, 0) AS lifetime_avg_order_value,
+                order_stats.last_paid_order_at,
+                COALESCE(order_stats.lifetime_total_orders_attempted, 0) AS lifetime_total_orders_attempted,
+                COALESCE(order_stats.lifetime_pending_orders, 0) AS lifetime_pending_orders,
+                COALESCE(order_stats.lifetime_cancelled_orders, 0) AS lifetime_cancelled_orders,
+                COALESCE(order_stats.lifetime_failed_orders, 0) AS lifetime_failed_orders,
+                COALESCE(order_stats.lifetime_refunded_orders, 0) AS lifetime_refunded_orders,
+                COALESCE(order_stats.lifetime_refunded_amount, 0) AS lifetime_refunded_amount,
+                COALESCE(order_stats.lifetime_cod_orders, 0) AS lifetime_cod_orders,
+                COALESCE(order_stats.lifetime_cod_cancelled_orders, 0) AS lifetime_cod_cancelled_orders
+             FROM users u
+             LEFT JOIN user_loyalty ul ON ul.user_id = u.id
+             LEFT JOIN (
+                SELECT ci.user_id, COUNT(*) AS cart_count
+                FROM cart_items ci
+                GROUP BY ci.user_id
+             ) cart_counts ON cart_counts.user_id = u.id
+             LEFT JOIN (
+                SELECT
+                    combined.user_id,
+                    MAX(combined.activity_at) AS abandoned_cart_last_activity_at
+                FROM (
+                    SELECT ac.user_id, ac.last_activity_at AS activity_at
+                    FROM abandoned_cart_candidates ac
+                    WHERE ac.user_id IS NOT NULL
+                    UNION ALL
+                    SELECT aj.user_id, COALESCE(aj.last_activity_at, aj.updated_at, aj.created_at) AS activity_at
+                    FROM abandoned_cart_journeys aj
+                    WHERE aj.user_id IS NOT NULL
+                ) combined
+                GROUP BY combined.user_id
+             ) cart_activity ON cart_activity.user_id = u.id
+             LEFT JOIN (
+                SELECT
+                    scoped.user_id,
+                    COUNT(*) AS active_coupon_count
+                FROM (
+                    SELECT
+                        c.id,
+                        cut.user_id
+                    FROM coupons c
+                    INNER JOIN coupon_user_targets cut
+                        ON cut.coupon_id = c.id
+                    WHERE c.is_active = 1
+                      AND (c.starts_at IS NULL OR c.starts_at <= NOW())
+                      AND (c.expires_at IS NULL OR c.expires_at >= NOW())
+                      AND c.scope_type = 'customer'
+                    UNION ALL
+                    SELECT
+                        c.id,
+                        ul2.user_id
+                    FROM coupons c
+                    INNER JOIN user_loyalty ul2
+                        ON LOWER(COALESCE(c.tier_scope, '')) = LOWER(COALESCE(ul2.tier, 'regular'))
+                    WHERE c.is_active = 1
+                      AND (c.starts_at IS NULL OR c.starts_at <= NOW())
+                      AND (c.expires_at IS NULL OR c.expires_at >= NOW())
+                      AND c.scope_type = 'tier'
+                    UNION ALL
+                    SELECT
+                        c.id,
+                        u2.id AS user_id
+                    FROM coupons c
+                    INNER JOIN users u2 ON LOWER(COALESCE(u2.role, 'customer')) = 'customer'
+                    WHERE c.is_active = 1
+                      AND (c.starts_at IS NULL OR c.starts_at <= NOW())
+                      AND (c.expires_at IS NULL OR c.expires_at >= NOW())
+                      AND c.scope_type = 'generic'
+                ) scoped
+                GROUP BY scoped.user_id
+             ) coupon_counts ON coupon_counts.user_id = u.id
+             LEFT JOIN (
+                SELECT
+                    o.user_id,
+                    SUM(CASE WHEN ${paidOrderCondition} THEN 1 ELSE 0 END) AS lifetime_paid_orders,
+                    SUM(CASE WHEN ${paidOrderCondition} THEN COALESCE(o.total, 0) ELSE 0 END) AS lifetime_net_revenue,
+                    AVG(CASE WHEN ${paidOrderCondition} THEN COALESCE(o.total, 0) ELSE NULL END) AS lifetime_avg_order_value,
+                    MAX(CASE WHEN ${paidOrderCondition} THEN o.created_at ELSE NULL END) AS last_paid_order_at,
+                    COUNT(*) AS lifetime_total_orders_attempted,
+                    SUM(CASE WHEN LOWER(COALESCE(o.status, '')) = 'pending' THEN 1 ELSE 0 END) AS lifetime_pending_orders,
+                    SUM(CASE WHEN LOWER(COALESCE(o.status, '')) = 'cancelled' THEN 1 ELSE 0 END) AS lifetime_cancelled_orders,
+                    SUM(CASE WHEN LOWER(COALESCE(o.status, '')) = 'failed' OR LOWER(COALESCE(o.payment_status, '')) = 'failed' THEN 1 ELSE 0 END) AS lifetime_failed_orders,
+                    SUM(CASE WHEN LOWER(COALESCE(o.payment_status, '')) = 'refunded' OR COALESCE(o.refund_amount, 0) > 0 THEN 1 ELSE 0 END) AS lifetime_refunded_orders,
+                    SUM(CASE WHEN LOWER(COALESCE(o.payment_status, '')) = 'refunded' OR COALESCE(o.refund_amount, 0) > 0 THEN COALESCE(o.refund_amount, 0) ELSE 0 END) AS lifetime_refunded_amount,
+                    SUM(CASE WHEN LOWER(COALESCE(o.payment_gateway, '')) = 'cod' THEN 1 ELSE 0 END) AS lifetime_cod_orders,
+                    SUM(CASE WHEN LOWER(COALESCE(o.payment_gateway, '')) = 'cod' AND LOWER(COALESCE(o.status, '')) = 'cancelled' THEN 1 ELSE 0 END) AS lifetime_cod_cancelled_orders
+                FROM orders o
+                WHERE o.user_id IS NOT NULL
+                GROUP BY o.user_id
+             ) order_stats ON order_stats.user_id = u.id
+             WHERE LOWER(COALESCE(u.role, 'customer')) = 'customer'
+             ORDER BY
+                CASE WHEN COALESCE(u.is_archived, 0) = 1 THEN 1 ELSE 0 END ASC,
+                u.created_at DESC`
+        );
+
+        return rows.map(User.normalizeRow);
     }
 
     // --- 3. FIND HELPERS ---

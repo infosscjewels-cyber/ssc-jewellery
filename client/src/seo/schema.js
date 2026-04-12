@@ -153,13 +153,13 @@ export const buildBreadcrumbSchema = (items = []) => ({
 
 export const buildCreativePartnerSchema = ({
     name = 'Creativecodz',
-    url = 'https://creativecodz.com/',
+    url = 'https://www.creativecodz.com/',
     sameAs = ['https://www.instagram.com/creativecodz']
 } = {}) => ({
     '@context': 'https://schema.org',
     '@type': 'Organization',
     name: normalizeText(name) || 'Creativecodz',
-    url: normalizeText(url) || 'https://creativecodz.com/',
+    url: normalizeText(url) || 'https://www.creativecodz.com/',
     sameAs: (Array.isArray(sameAs) ? sameAs : []).map((value) => normalizeText(value)).filter(Boolean)
 });
 

@@ -430,7 +430,13 @@ const isJourneyReadyForList = (journey, inactivityMinutes) => {
     return (Date.now() - lastActivity.getTime()) >= minutes * 60 * 1000;
 };
 
-export default function AbandonedCarts({ storefrontOpen = true }) {
+export default function AbandonedCarts({
+    storefrontOpen = true,
+    initialStatusFilter = '',
+    initialJourneyWindow = '',
+    onInitialStatusApplied = () => {},
+    onInitialJourneyWindowApplied = () => {}
+}) {
     const toast = useToast();
     const {
         abandonedInsightsByKey,
@@ -599,6 +605,29 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
     useEffect(() => {
         setPage(1);
     }, [status, sortBy, search, journeyWindow]);
+
+    useEffect(() => {
+        const nextStatus = String(initialStatusFilter || '').trim().toLowerCase();
+        if (!nextStatus) return;
+        if (status !== nextStatus) {
+            setStatus(nextStatus);
+        }
+        if (nextStatus === 'active') {
+            setMobileStatusFilter('all');
+        }
+        setPage(1);
+        onInitialStatusApplied();
+    }, [initialStatusFilter, onInitialStatusApplied, status]);
+
+    useEffect(() => {
+        const nextWindow = String(initialJourneyWindow || '').trim().toLowerCase();
+        if (!nextWindow) return;
+        if (journeyWindow !== nextWindow) {
+            setJourneyWindow(nextWindow);
+        }
+        setPage(1);
+        onInitialJourneyWindowApplied();
+    }, [initialJourneyWindow, journeyWindow, onInitialJourneyWindowApplied]);
 
     const cards = useMemo(() => {
         const effectiveInsights = sharedInsights || insights;
@@ -1281,7 +1310,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                             className="w-full overflow-x-auto overscroll-x-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
                             style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
                         >
-                            <div className="inline-flex min-w-max flex-nowrap gap-1.5 pr-1">
+                            <div className="inline-flex min-w-max flex-nowrap gap-2 pr-1">
                                 {mobileJourneyStatusOptions.map((option) => {
                                     const active = mobileStatusFilter === option.value;
                                     return (
@@ -1289,7 +1318,7 @@ export default function AbandonedCarts({ storefrontOpen = true }) {
                                             key={option.value}
                                             type="button"
                                             onClick={() => setMobileStatusFilter(option.value)}
-                                            className={`inline-flex shrink-0 items-center rounded-full border px-2 py-1.5 text-[10px] font-semibold leading-none tracking-normal whitespace-nowrap transition ${getMobileJourneyFilterBadgeClass(option.value, active)}`}
+                                            className={`inline-flex shrink-0 items-center rounded-full border px-3 py-2 text-xs font-semibold leading-none tracking-normal whitespace-nowrap transition ${getMobileJourneyFilterBadgeClass(option.value, active)}`}
                                         >
                                             {option.label} ({mobileJourneyStatusCounts[option.value] || fallbackMobileJourneyStatusCounts[option.value] || 0})
                                         </button>

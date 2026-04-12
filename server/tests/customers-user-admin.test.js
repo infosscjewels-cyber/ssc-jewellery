@@ -52,6 +52,77 @@ test('admin user list strips password hashes from returned users', async () => {
     assert.equal(res.body.users[0].password, undefined);
 });
 
+test('exportCustomers returns csv for active and archived customers without sensitive fields', async () => {
+    const req = {};
+    const res = {
+        statusCode: 200,
+        headers: {},
+        body: '',
+        setHeader(name, value) {
+            this.headers[name] = value;
+            return this;
+        },
+        status(code) {
+            this.statusCode = code;
+            return this;
+        },
+        send(payload) {
+            this.body = payload;
+            return this;
+        },
+        json(payload) {
+            this.body = payload;
+            return this;
+        }
+    };
+
+    await withPatched(User, {
+        getCustomerExportRows: async () => ([
+            {
+                id: 'u_active',
+                name: 'Active Customer',
+                email: 'active@example.com',
+                mobile: '9876543210',
+                loyaltyTier: 'gold',
+                isActive: true,
+                isArchived: false,
+                created_at: '2026-04-01T10:00:00.000Z',
+                address: { line1: '10 Main St', city: 'Salem', state: 'TN', zip: '636001' },
+                billingAddress: { line1: '11 Billing St', city: 'Salem', state: 'TN', zip: '636002' },
+                active_coupon_count: 2,
+                lifetime_paid_orders: 3,
+                lifetime_net_revenue: 2500,
+                lifetime_avg_order_value: 833.33,
+                lifetime_total_orders_attempted: 5,
+                lifetime_cancelled_orders: 1,
+                lifetime_failed_orders: 1
+            },
+            {
+                id: 'u_archived',
+                name: 'Archived Customer',
+                email: 'archived@example.com',
+                mobile: '9123456780',
+                loyaltyTier: 'regular',
+                isActive: false,
+                isArchived: true,
+                archivedAt: '2026-04-10T09:00:00.000Z',
+                archiveReason: 'Archived by admin',
+                password: 'hashed-secret'
+            }
+        ])
+    }, async () => {
+        await adminController.exportCustomers(req, res);
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.match(String(res.headers['Content-Type'] || ''), /text\/csv/i);
+    assert.match(String(res.headers['Content-Disposition'] || ''), /customers-export-/i);
+    assert.match(res.body, /Customer ID,Name,Mobile,Email/);
+    assert.match(res.body, /"u_active","Active Customer","9876543210","active@example.com"/);
+    assert.match(res.body, /"u_archived","Archived Customer","9123456780","archived@example.com"/);
+    assert.doesNotMatch(res.body, /hashed-secret/);
+});
+
 test('createUser rejects invalid roles', async () => {
     const req = {
         user: { id: 'admin_1', role: 'admin' },

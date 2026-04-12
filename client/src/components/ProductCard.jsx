@@ -427,12 +427,12 @@ export default function ProductCard({ product, displayCategory = '' }) {
                 )}
                 
                 {/* Price Section */}
-                <div className="flex items-center gap-2 mt-1.5">
+                <div className="flex flex-col items-start gap-0.5 mt-1.5 sm:flex-row sm:items-center sm:gap-2">
                     <span className="text-lg font-bold text-primary">
                         {label}₹{displayPrice.toLocaleString()}
                     </span>
                     {originalPrice && (
-                        <span className="text-sm text-gray-400 line-through decoration-red-400">
+                        <span className="text-xs text-gray-400 line-through decoration-red-400 sm:text-sm">
                             ₹{originalPrice.toLocaleString()}
                         </span>
                     )}

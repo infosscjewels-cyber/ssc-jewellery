@@ -85,7 +85,9 @@ const listAbandonedCartJourneys = async (req, res) => {
         const sortBy = req.query.sortBy || 'newest';
         const limit = Number(req.query.limit || 50);
         const offset = Number(req.query.offset || 0);
-        const rangeDays = Number(req.query.rangeDays || 90);
+        const rangeDays = String(req.query.rangeDays || '').toLowerCase() === 'lifetime'
+            ? 'lifetime'
+            : Number(req.query.rangeDays || 90);
         if (status !== 'pending') {
             const result = await AbandonedCart.listJourneysAdvanced({ status, search, sortBy, limit, offset, rangeDays });
             return res.json({ journeys: result.journeys, total: result.total });

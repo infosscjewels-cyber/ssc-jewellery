@@ -181,6 +181,7 @@ const buildRobotsTxt = (baseUrlOverride = '') => [
     'Disallow: /payment/failed',
     '',
     `Sitemap: ${absoluteUrl('/sitemap.xml', baseUrlOverride)}`,
+    `# AI crawler guide: ${absoluteUrl('/llms.txt', baseUrlOverride)}`,
     ''
 ].join('\n');
 

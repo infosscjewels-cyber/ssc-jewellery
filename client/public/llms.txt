@@ -1,0 +1,27 @@
+# SSC Jewellery
+
+> Sree Sai Collections / SSC Jewellery is an online imitation and fashion jewellery storefront serving shoppers looking for anklets, chains, rings, offers, best sellers, new arrivals, and category collections.
+
+## Key Pages
+
+- Home: https://www.sscjewels.com/
+- Shop: https://www.sscjewels.com/shop
+- About: https://www.sscjewels.com/about
+- Contact: https://www.sscjewels.com/contact
+- FAQ: https://www.sscjewels.com/faq
+- Shipping Policy: https://www.sscjewels.com/shipping
+- Refund Policy: https://www.sscjewels.com/refund
+- Terms: https://www.sscjewels.com/terms
+- Privacy Policy: https://www.sscjewels.com/privacy
+- Sitemap: https://www.sscjewels.com/sitemap.xml
+
+## AI-Friendly Reference
+
+- Full site summary: https://www.sscjewels.com/llms-full.md
+- Markdown mirrors index: https://www.sscjewels.com/markdown/
+
+## Crawl Guidance
+
+Public storefront pages may be crawled and summarized. Private customer/admin areas such as login, profile, wishlist, orders, cart, checkout, payment result pages, and admin routes should not be crawled or indexed.
+
+Use page titles, descriptions, product/category content, structured data, and policy pages as the primary source of truth. Product availability, prices, offers, and shipping/payment terms can change and should be verified from the live page.

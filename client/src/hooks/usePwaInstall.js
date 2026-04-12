@@ -11,6 +11,11 @@ const isIosSafari = () => {
     return /iphone|ipad|ipod/.test(ua) && ua.includes('safari') && !ua.includes('crios') && !ua.includes('fxios');
 };
 
+const isAndroid = () => {
+    if (typeof navigator === 'undefined') return false;
+    return /android/.test(String(navigator.userAgent || '').toLowerCase());
+};
+
 export function usePwaInstall() {
     const [deferredPrompt, setDeferredPrompt] = useState(null);
     const [isInstalled, setIsInstalled] = useState(isStandaloneMode());
@@ -43,13 +48,26 @@ export function usePwaInstall() {
     const isInstallReady = Boolean(deferredPrompt) || showIosHint;
 
     const install = useCallback(async () => {
-        if (showIosHint && !deferredPrompt) return;
-        if (!deferredPrompt) return false;
+        if (showIosHint && !deferredPrompt) {
+            return { status: 'manual', platform: 'ios' };
+        }
+        if (!deferredPrompt) {
+            return { status: 'unavailable', platform: isAndroid() ? 'android' : 'unknown' };
+        }
         setIsPrompting(true);
         try {
             deferredPrompt.prompt();
-            await deferredPrompt.userChoice;
-            return true;
+            const choice = await deferredPrompt.userChoice;
+            return {
+                status: choice?.outcome === 'accepted' ? 'accepted' : 'dismissed',
+                outcome: choice?.outcome || ''
+            };
+        } catch (error) {
+            return {
+                status: 'error',
+                message: error?.message || 'Install prompt could not be opened',
+                platform: isAndroid() ? 'android' : 'unknown'
+            };
         } finally {
             setDeferredPrompt(null);
             setIsPrompting(false);
@@ -62,6 +80,7 @@ export function usePwaInstall() {
         isInstalled,
         isPrompting,
         showIosHint,
-        isInstallReady
+        isInstallReady,
+        isAndroid: isAndroid()
     };
 }

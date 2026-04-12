@@ -1117,7 +1117,8 @@ class AbandonedCart {
     } = {}) {
         const campaign = await AbandonedCart.getCampaign();
         const inactivityMinutes = Math.max(1, Number(campaign?.inactivityMinutes || DEFAULT_CAMPAIGN.inactivityMinutes));
-        const safeRangeDays = Math.max(1, Math.min(90, Number(rangeDays || 90)));
+        const isLifetimeRange = String(rangeDays || '').toLowerCase() === 'lifetime';
+        const safeRangeDays = isLifetimeRange ? null : Math.max(1, Math.min(90, Number(rangeDays || 90)));
         const params = [];
         let where = "WHERE LOWER(COALESCE(u.role, 'customer')) = 'customer' AND COALESCE(u.is_active, 0) = 1";
         where += ` AND (
@@ -1126,8 +1127,10 @@ class AbandonedCart {
             OR COALESCE(j.last_activity_at, j.updated_at, j.created_at) <= DATE_SUB(NOW(), INTERVAL ? MINUTE)
         )`;
         params.push(inactivityMinutes);
-        where += ' AND j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
-        params.push(safeRangeDays);
+        if (!isLifetimeRange) {
+            where += ' AND j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
+            params.push(safeRangeDays);
+        }
         if (status && status !== 'all') {
             where += ' AND j.status = ?';
             params.push(status);

@@ -13,4 +13,7 @@ Disallow: /checkout
 Disallow: /payment/success
 Disallow: /payment/failed
 
+Sitemap: https://www.sscjewels.com/sitemap.xml
+# AI crawler guide: https://www.sscjewels.com/llms.txt
+
 # Production build replaces this fallback file with generated crawl artifacts.

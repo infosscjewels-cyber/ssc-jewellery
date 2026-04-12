@@ -44,6 +44,25 @@ const handleResponse = async (res) => {
     }
     return parseJsonSafely();
 };
+const handleBlobResponse = async (res) => {
+    if (!res.ok) {
+        const raw = await res.text().catch(() => '');
+        let message = res.statusText || 'Server Error';
+        if (raw) {
+            try {
+                const parsed = JSON.parse(raw);
+                message = parsed.message || message;
+            } catch {
+                message = raw || message;
+            }
+        }
+        if (shouldTreatAsExpiredSession(res.status, message)) {
+            dispatchSessionExpired(message || 'Session expired. Please login again.');
+        }
+        throw new Error(message);
+    }
+    return res.blob();
+};
 
 export const adminService = {
     getUsers: async (page = 1, role = 'all', limit = 10, search = '', options = {}) => {
@@ -198,6 +217,19 @@ export const adminService = {
         } while (page <= totalPages);
         return all;
     },
+    exportCustomers: async () => {
+        const res = await fetch(`${API_URL}/users/export`, {
+            headers: getAuthHeader()
+        });
+        const blob = await handleBlobResponse(res);
+        const downloadUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `customers-export-${new Date().toISOString().slice(0, 10)}.csv`;
+        link.click();
+        URL.revokeObjectURL(downloadUrl);
+        return true;
+    },
 
     getAbandonedCartCampaign: async () => {
         const cached = abandonedCache.campaign;
@@ -258,7 +290,9 @@ export const adminService = {
     },
 
     getAbandonedCartJourneys: async ({ status = 'all', search = '', sortBy = 'newest', rangeDays = 30, limit = 50, offset = 0 } = {}) => {
-        const safeRangeDays = Math.max(1, Math.min(90, Number(rangeDays || 30)));
+        const safeRangeDays = String(rangeDays || '').toLowerCase() === 'lifetime'
+            ? 'lifetime'
+            : Math.max(1, Math.min(90, Number(rangeDays || 30)));
         const cacheKey = `${status}::${search}::${sortBy}::${safeRangeDays}::${limit}::${offset}`;
         const cached = abandonedCache.journeys[cacheKey];
         if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {

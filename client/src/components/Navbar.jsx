@@ -94,11 +94,17 @@ export default function Navbar() {
     const { user, logout } = useAuth();
     const { itemCount, openCart } = useCart();
     const { companyInfo } = usePublicCompanyInfo();
-    const { canInstall, install, isPrompting, showIosHint } = usePwaInstall();
+    const { install, isInstalled, isPrompting, showIosHint, isAndroid } = usePwaInstall();
     const installAppLabel = showIosHint ? 'Add to Home Screen' : 'Install app';
     const [shakeCart, setShakeCart] = useState(false);
     const [popBadge, setPopBadge] = useState(false);
     const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
+    const [installModalContent, setInstallModalContent] = useState({
+        title: 'Install SSC Jewellery',
+        message: 'To install SSC Jewellery on iPhone, tap Share in Safari, then choose Add to Home Screen.',
+        confirmText: 'OK',
+        showSettingsAction: false
+    });
     const prevCountRef = useRef(itemCount);
     const navigate = useNavigate();
     const location = useLocation();
@@ -566,11 +572,33 @@ export default function Navbar() {
     };
     const handleInstallApp = useCallback(async () => {
         if (showIosHint) {
+            setInstallModalContent({
+                title: 'Install SSC Jewellery',
+                message: 'To install SSC Jewellery on iPhone, tap Share in Safari, then choose Add to Home Screen.',
+                confirmText: 'OK',
+                showSettingsAction: false
+            });
             setIsInstallModalOpen(true);
             return;
         }
-        await install();
-    }, [install, showIosHint]);
+        const result = await install();
+        if (result?.status === 'dismissed' || result?.status === 'accepted') return;
+        setInstallModalContent({
+            title: result?.platform === 'android' || isAndroid ? 'Allow app installation' : 'Install SSC Jewellery',
+            message: result?.platform === 'android' || isAndroid
+                ? 'If your phone blocks installation, open Android settings and allow installs from this browser, then return here and tap Install app again.'
+                : 'The install prompt is not available right now. Use your browser menu and choose Install app or Add to Home screen.',
+            confirmText: result?.platform === 'android' || isAndroid ? 'Open Settings' : 'OK',
+            showSettingsAction: result?.platform === 'android' || isAndroid
+        });
+        setIsInstallModalOpen(true);
+    }, [install, isAndroid, showIosHint]);
+
+    const handleOpenInstallSettings = useCallback(() => {
+        setIsInstallModalOpen(false);
+        if (typeof window === 'undefined') return;
+        window.location.href = 'intent:#Intent;action=android.settings.MANAGE_UNKNOWN_APP_SOURCES;end';
+    }, []);
 
     return (
         // [FIX] Dynamic Classes for Animation
@@ -1225,7 +1253,7 @@ export default function Navbar() {
                             <ChevronRight size={18} className="text-primary/60" />
                         </Link>
                     )}
-                    {canInstall && (
+                    {!isInstalled && (
                         <button
                             type="button"
                             onClick={async () => {
@@ -1257,11 +1285,11 @@ export default function Navbar() {
         <Modal
             isOpen={isInstallModalOpen}
             onClose={() => setIsInstallModalOpen(false)}
-            title="Install SSC Jewellery"
-            message="To install SSC Jewellery on iPhone, tap Share in Safari, then choose Add to Home Screen."
+            title={installModalContent.title}
+            message={installModalContent.message}
             type="default"
-            confirmText="OK"
-            onConfirm={() => setIsInstallModalOpen(false)}
+            confirmText={installModalContent.confirmText}
+            onConfirm={installModalContent.showSettingsAction ? handleOpenInstallSettings : () => setIsInstallModalOpen(false)}
         />
     </nav>
   );
