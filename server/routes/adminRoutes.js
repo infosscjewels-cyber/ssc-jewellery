@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middleware/authMiddleware');
-const { getUsers, exportCustomers, createUser, deleteUser, setUserStatus, setUserArchiveStatus, resetUserPassword, getUserCart, addUserCartItem, updateUserCartItem, removeUserCartItem, clearUserCart, getUserCartSummary, getUserAvailableCoupons, verifyEmailChannel, sendTestEmail, sendTestWhatsapp, getCompanyInfo, updateCompanyInfo, listTaxConfigs, createTaxConfig, updateTaxConfig, deleteTaxConfig, getLoyaltyConfig, updateLoyaltyConfig, getLoyaltyPopupConfig, updateLoyaltyPopupConfig, listLoyaltyPopupTemplates, createLoyaltyPopupTemplate, updateLoyaltyPopupTemplate, deleteLoyaltyPopupTemplate, listCoupons, createCoupon, deleteCoupon, deleteUserCoupon, issueCouponToUser, getUserActiveCoupons, getDashboardInsights, getDashboardOverview, getDashboardTrends, getDashboardFunnel, getDashboardProducts, getDashboardCustomers, getDashboardActions, listDashboardGoals, upsertDashboardGoal, deleteDashboardGoal, getDashboardAlertSettings, updateDashboardAlertSettings, runDashboardAlerts, trackDashboardEvent } = require('../controllers/adminController');
+const { getUsers, exportCustomers, createUser, deleteUser, setUserStatus, setUserArchiveStatus, resetUserPassword, getUserCart, addUserCartItem, updateUserCartItem, removeUserCartItem, clearUserCart, getUserCartSummary, getUserAvailableCoupons, verifyEmailChannel, sendTestEmail, sendTestWhatsapp, getCompanyInfo, updateCompanyInfo, listTaxConfigs, createTaxConfig, updateTaxConfig, deleteTaxConfig, getLoyaltyConfig, updateLoyaltyConfig, getLoyaltyPopupConfig, updateLoyaltyPopupConfig, listLoyaltyPopupTemplates, createLoyaltyPopupTemplate, updateLoyaltyPopupTemplate, deleteLoyaltyPopupTemplate, listCoupons, createCoupon, deleteCoupon, deleteUserCoupon, issueCouponToUser, getUserActiveCoupons, getDashboardInsights, getDashboardOverview, getDashboardTrends, getDashboardFunnel, getDashboardProducts, getDashboardProductPurchases, getDashboardCustomers, getDashboardActions, listDashboardGoals, upsertDashboardGoal, deleteDashboardGoal, getDashboardAlertSettings, updateDashboardAlertSettings, runDashboardAlerts, trackDashboardEvent } = require('../controllers/adminController');
 const { getZones, createZone, updateZone, deleteZone } = require('../controllers/shippingController');
 const {
     getAbandonedCartCampaign,
@@ -24,6 +24,7 @@ router.get('/dashboard/overview', getDashboardOverview);
 router.get('/dashboard/trends', getDashboardTrends);
 router.get('/dashboard/funnel', getDashboardFunnel);
 router.get('/dashboard/products', getDashboardProducts);
+router.get('/dashboard/products/:productId/purchases', getDashboardProductPurchases);
 router.get('/dashboard/customers', getDashboardCustomers);
 router.get('/dashboard/actions', getDashboardActions);
 router.get('/dashboard/goals', listDashboardGoals);

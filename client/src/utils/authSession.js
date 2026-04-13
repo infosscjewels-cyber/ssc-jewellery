@@ -1,6 +1,22 @@
 const AUTH_SESSION_EXPIRED_EVENT = 'auth:session-expired';
+const GUEST_PREVIEW_MODE_KEY = 'storefront_guest_preview_mode_v1';
+const PREVIEW_TOKEN_KEY = 'storefront_preview_token_v1';
+const PREVIEW_USER_KEY = 'storefront_preview_user_v1';
 
 const isInvalidTokenValue = (token) => !token || token === 'undefined' || token === 'null';
+const hasWindow = () => typeof window !== 'undefined';
+const hasLocalStorage = () => typeof localStorage !== 'undefined';
+const hasSessionStorage = () => typeof sessionStorage !== 'undefined';
+const getLocationSearch = () => (hasWindow() ? String(window.location?.search || '') : '');
+
+const hasGuestPreviewQuery = (search = getLocationSearch()) => {
+    try {
+        const params = new URLSearchParams(String(search || ''));
+        return String(params.get('preview') || '').trim().toLowerCase() === 'guest';
+    } catch {
+        return false;
+    }
+};
 
 const decodeBase64Url = (value = '') => {
     const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
@@ -13,6 +29,43 @@ const decodeBase64Url = (value = '') => {
         return globalThis.Buffer.from(padded, 'base64').toString('utf8');
     }
     throw new Error('No base64 decoder available');
+};
+
+export const isGuestPreviewMode = () => {
+    if (hasGuestPreviewQuery()) return true;
+    if (!hasSessionStorage()) return false;
+    return sessionStorage.getItem(GUEST_PREVIEW_MODE_KEY) === 'guest';
+};
+
+export const syncGuestPreviewModeFromLocation = () => {
+    if (!hasSessionStorage()) return false;
+    if (hasGuestPreviewQuery()) {
+        sessionStorage.setItem(GUEST_PREVIEW_MODE_KEY, 'guest');
+        return true;
+    }
+    return isGuestPreviewMode();
+};
+
+export const clearGuestPreviewMode = () => {
+    if (!hasSessionStorage()) return;
+    sessionStorage.removeItem(GUEST_PREVIEW_MODE_KEY);
+    sessionStorage.removeItem(PREVIEW_TOKEN_KEY);
+    sessionStorage.removeItem(PREVIEW_USER_KEY);
+};
+
+const getActiveStorage = () => {
+    if (isGuestPreviewMode() && hasSessionStorage()) {
+        return {
+            storage: sessionStorage,
+            tokenKey: PREVIEW_TOKEN_KEY,
+            userKey: PREVIEW_USER_KEY
+        };
+    }
+    return {
+        storage: hasLocalStorage() ? localStorage : null,
+        tokenKey: 'token',
+        userKey: 'user'
+    };
 };
 
 export const isTokenExpired = (token) => {
@@ -28,15 +81,48 @@ export const isTokenExpired = (token) => {
 };
 
 export const getStoredToken = () => {
-    if (typeof localStorage === 'undefined') return null;
-    const token = localStorage.getItem('token');
+    const { storage, tokenKey, userKey } = getActiveStorage();
+    if (!storage) return null;
+    const token = storage.getItem(tokenKey);
     if (isInvalidTokenValue(token)) return null;
     if (isTokenExpired(token)) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        storage.removeItem(tokenKey);
+        storage.removeItem(userKey);
         return null;
     }
     return token;
+};
+
+export const getStoredUser = () => {
+    const { storage, userKey } = getActiveStorage();
+    if (!storage) return null;
+    const raw = storage.getItem(userKey);
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+};
+
+export const setStoredSession = (token, userData) => {
+    const { storage, tokenKey, userKey } = getActiveStorage();
+    if (!storage) return;
+    if (token) storage.setItem(tokenKey, token);
+    storage.setItem(userKey, JSON.stringify(userData));
+};
+
+export const setStoredUser = (userData) => {
+    const { storage, userKey } = getActiveStorage();
+    if (!storage) return;
+    storage.setItem(userKey, JSON.stringify(userData));
+};
+
+export const clearStoredSession = () => {
+    const { storage, tokenKey, userKey } = getActiveStorage();
+    if (!storage) return;
+    storage.removeItem(tokenKey);
+    storage.removeItem(userKey);
 };
 
 export const getAuthHeaders = ({ includeJsonContentType = true } = {}) => {

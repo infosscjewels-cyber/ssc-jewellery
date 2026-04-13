@@ -92,6 +92,7 @@ class User {
         const normalized = String(mode || 'active').trim().toLowerCase();
         if (['all', 'include', 'include_archived'].includes(normalized)) return 'all';
         if (['archived', 'archived_only', 'only_archived'].includes(normalized)) return 'archived';
+        if (['new', 'new_this_month', 'current_month'].includes(normalized)) return 'new';
         return 'active';
     }
 
@@ -154,6 +155,10 @@ class User {
             whereParts.push('COALESCE(u.is_archived, 0) = 1');
         } else if (archiveMode === 'active') {
             whereParts.push('COALESCE(u.is_archived, 0) = 0');
+        } else if (archiveMode === 'new') {
+            whereParts.push('COALESCE(u.is_archived, 0) = 0');
+            whereParts.push('YEAR(COALESCE(u.created_at, UTC_TIMESTAMP())) = YEAR(UTC_TIMESTAMP())');
+            whereParts.push('MONTH(COALESCE(u.created_at, UTC_TIMESTAMP())) = MONTH(UTC_TIMESTAMP())');
         }
         const normalizedSearch = String(search || '').trim();
         if (normalizedSearch) {

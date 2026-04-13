@@ -12,6 +12,7 @@ import { burstConfetti } from '../../utils/celebration';
 import EmptyState from '../../components/EmptyState';
 import Modal from '../../components/Modal';
 import TierBadge from '../../components/TierBadge';
+import { formatAdminDateTime } from '../../utils/dateFormat';
 
 const QUICK_RANGES = [
     { value: 'latest_10', label: 'Latest Orders (10)' },
@@ -22,6 +23,7 @@ const QUICK_RANGES = [
 ];
 const DAILY_TREND_PAGE_SIZE = 6;
 const DASHBOARD_CUSTOM_RANGE_MAX_DAYS = 90;
+const DASHBOARD_TREND_GRANULARITY_STORAGE_KEY = 'dashboard_trend_granularity_v1';
 const KPI_THEME_SEQUENCE = ['green', 'red', 'sky', 'brown', 'pink'];
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
@@ -40,6 +42,14 @@ const KPI_CARD_THEMES = {
         icon: 'text-slate-900/70',
         accent: 'text-slate-900/85',
         subtext: 'text-slate-900/70'
+    },
+    amber: {
+        shell: 'bg-gradient-to-br from-amber-100 via-orange-200 to-orange-300 border-orange-500/70',
+        label: 'text-stone-900/85',
+        value: 'text-stone-950',
+        icon: 'text-stone-900/65',
+        accent: 'text-stone-900/80',
+        subtext: 'text-stone-900/70'
     },
     green: {
         shell: 'bg-gradient-to-br from-lime-200 via-emerald-300 to-green-500 border-emerald-700/80',
@@ -84,6 +94,11 @@ const RED_KPI_PATTERN_STYLE = {
     backgroundImage: 'linear-gradient(135deg, rgba(15,23,42,0.36), rgba(127,29,29,0.2)), linear-gradient(135deg, rgba(254,202,202,0.12) 25%, transparent 25%), linear-gradient(225deg, rgba(244,63,94,0.2) 25%, transparent 25%), linear-gradient(45deg, rgba(190,18,60,0.22) 25%, transparent 25%)',
     backgroundSize: 'cover, 90px 90px, 90px 90px, 90px 90px'
 };
+const AMBER_KPI_PATTERN_STYLE = {
+    backgroundColor: '#fdba74',
+    backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.24), rgba(120,53,15,0.06)), linear-gradient(135deg, rgba(255,237,213,0.7) 25%, transparent 25%), linear-gradient(225deg, rgba(251,191,36,0.18) 25%, transparent 25%), linear-gradient(45deg, rgba(249,115,22,0.14) 25%, transparent 25%)',
+    backgroundSize: 'cover, 90px 90px, 90px 90px, 90px 90px'
+};
 const SKY_KPI_PATTERN_STYLE = {
     backgroundColor: '#ffffff',
     backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.28), rgba(30,64,175,0.04)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 200 200'%3E%3Cpolygon fill='%23DCEFFA' points='100 0 0 100 100 100 100 200 200 100 200 0'/%3E%3C/svg%3E")`,
@@ -96,6 +111,7 @@ const BROWN_KPI_PATTERN_STYLE = {
 };
 const getKpiCardStyle = (theme) => {
     if (theme === 'green') return GREEN_KPI_PATTERN_STYLE;
+    if (theme === 'amber') return AMBER_KPI_PATTERN_STYLE;
     if (theme === 'red') return RED_KPI_PATTERN_STYLE;
     if (theme === 'sky') return SKY_KPI_PATTERN_STYLE;
     if (theme === 'brown') return BROWN_KPI_PATTERN_STYLE;
@@ -166,6 +182,22 @@ const formatCompactPrettyDate = (value) => {
     const date = value instanceof Date ? value : new Date(`${value}T00:00:00`);
     if (Number.isNaN(date.getTime())) return '';
     return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+};
+const formatDashboardStatusLabel = (status = '') => {
+    const normalized = String(status || '').trim().toLowerCase();
+    if (!normalized) return 'Unknown';
+    if (normalized === 'confirmed') return 'New';
+    if (normalized === 'attempted') return 'Attempted';
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1).replace(/_/g, ' ');
+};
+const getDashboardStatusBadgeClasses = (status = '') => {
+    const normalized = String(status || '').trim().toLowerCase();
+    if (normalized === 'completed' || normalized === 'shipped') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    if (normalized === 'pending' || normalized === 'attempted') return 'border-amber-200 bg-amber-50 text-amber-700';
+    if (normalized === 'failed') return 'border-rose-200 bg-rose-50 text-rose-700';
+    if (normalized === 'cancelled') return 'border-slate-200 bg-slate-100 text-slate-600';
+    if (normalized === 'confirmed') return 'border-sky-200 bg-sky-50 text-sky-700';
+    return 'border-slate-200 bg-slate-50 text-slate-700';
 };
 const formatTrendRowLabel = (entry, granularity) => {
     if (!entry?.date) return '';
@@ -269,7 +301,12 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const [isSavingAlerts, setIsSavingAlerts] = useState(false);
     const [isRunningAlerts, setIsRunningAlerts] = useState(false);
     const [resolvedActionIds, setResolvedActionIds] = useState(() => new Set());
-    const [trendGranularity, setTrendGranularity] = useState('daily');
+    const [trendGranularity, setTrendGranularity] = useState(() => {
+        if (typeof window === 'undefined') return 'daily';
+        const saved = String(window.localStorage.getItem(DASHBOARD_TREND_GRANULARITY_STORAGE_KEY) || '').trim().toLowerCase();
+        if (saved === 'weekly' || saved === 'monthly' || saved === 'daily') return saved;
+        return 'daily';
+    });
     const [trendPageIndex, setTrendPageIndex] = useState(0);
     const [isGoalSettingsOpen, setIsGoalSettingsOpen] = useState(false);
     const [isAlertSettingsOpen, setIsAlertSettingsOpen] = useState(false);
@@ -285,8 +322,12 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const [isAnalyticsModeSaving, setIsAnalyticsModeSaving] = useState(false);
     const [abandonedInsights, setAbandonedInsights] = useState(null);
     const [abandonedActiveJourneyCount, setAbandonedActiveJourneyCount] = useState(0);
+    const [selectedTopProduct, setSelectedTopProduct] = useState(null);
+    const [productPurchases, setProductPurchases] = useState(null);
+    const [isProductPurchasesLoading, setIsProductPurchasesLoading] = useState(false);
     const forceRefreshRef = useRef(false);
     const hasTrackedFilterChangeRef = useRef(false);
+    const hasInitializedTrendPageRef = useRef(false);
     const goalStartInputRef = useRef(null);
     const goalEndInputRef = useRef(null);
 
@@ -343,6 +384,11 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         const timer = setTimeout(() => setGoalCelebration({ active: false, title: '' }), 5000);
         return () => clearTimeout(timer);
     }, [goalCelebration.active]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        window.localStorage.setItem(DASHBOARD_TREND_GRANULARITY_STORAGE_KEY, trendGranularity);
+    }, [trendGranularity]);
 
     const queueForcedRefresh = () => {
         forceRefreshRef.current = true;
@@ -537,20 +583,22 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     }, [trendGranularity, trendSeries]);
     useEffect(() => {
         if (trendGranularity !== 'daily') {
+            hasInitializedTrendPageRef.current = false;
             setTrendPageIndex(0);
             return;
         }
         if (!trendDailyPages.length) {
+            hasInitializedTrendPageRef.current = false;
             setTrendPageIndex(0);
             return;
         }
-        const todayKey = new Date().toISOString().slice(0, 10);
-        const todayPageIndex = trendDailyPages.findIndex((page) =>
-            (page.rows || []).some((entry) => String(entry?.date || '') === todayKey)
-        );
         setTrendPageIndex((prev) => {
-            if (todayPageIndex >= 0) return todayPageIndex;
-            return Math.min(Math.max(0, prev), trendDailyPages.length - 1);
+            if (!hasInitializedTrendPageRef.current) {
+                hasInitializedTrendPageRef.current = true;
+                return trendDailyPages.length - 1;
+            }
+            if (!Number.isFinite(prev) || prev < 0) return trendDailyPages.length - 1;
+            return Math.min(prev, trendDailyPages.length - 1);
         });
     }, [trendDailyPages, trendGranularity]);
     const trendVisibleSeries = trendGranularity === 'daily'
@@ -566,6 +614,36 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         () => (goals || []).filter((goal) => Number(goal?.progressPct || 0) < 100),
         [goals]
     );
+    useEffect(() => {
+        if (!selectedTopProduct?.productId) return;
+        let cancelled = false;
+        const loadProductPurchases = async () => {
+            setIsProductPurchasesLoading(true);
+            try {
+                const response = await adminService.getDashboardProductPurchases({
+                    productId: selectedTopProduct.productId,
+                    variantId: selectedTopProduct.variantId || '',
+                    quickRange,
+                    startDate: quickRange === 'custom' ? startDate : '',
+                    endDate: quickRange === 'custom' ? endDate : ''
+                });
+                if (!cancelled) {
+                    setProductPurchases(response || null);
+                }
+            } catch (error) {
+                if (!cancelled) {
+                    setProductPurchases(null);
+                    toastRef.current.error(error?.message || 'Failed to load product purchases');
+                }
+            } finally {
+                if (!cancelled) setIsProductPurchasesLoading(false);
+            }
+        };
+        loadProductPurchases();
+        return () => {
+            cancelled = true;
+        };
+    }, [endDate, quickRange, selectedTopProduct?.productId, selectedTopProduct?.variantId, startDate]);
     const progressBarClass = (pct) => {
         const value = Number(pct || 0);
         if (value >= 80) return 'bg-emerald-500';
@@ -602,6 +680,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const newOrdersNav = navigationKpis?.newOrders || {};
     const pendingOrdersNav = navigationKpis?.pendingOrders || {};
     const failedOrdersNav = navigationKpis?.failedOrders || {};
+    const orderSummary = data?.orderSummary || {};
     const cards = useMemo(() => ([
         {
             label: 'New Orders',
@@ -631,12 +710,13 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             widgetId: 'kpi_pending_orders_lifetime',
             helper: Number(pendingOrdersNav.count || 0) > 0 && pendingOrdersNav.oldestDate
                 ? `Open since ${formatShortRangeHint(pendingOrdersNav.oldestDate)}`
-                : 'No pending orders right now'
+                : 'No pending orders right now',
+            theme: 'amber'
         },
         {
             label: 'Abandoned Carts',
             value: Number(abandonedActiveJourneyCount || 0).toLocaleString('en-IN'),
-            icon: Route,
+            icon: UsersRound,
             target: { tab: 'abandoned', status: 'active', rangeDays: 'lifetime' },
             widgetId: 'kpi_abandoned_carts_active',
             helper: `${Number(abandonedTotals.totalJourneys || 0).toLocaleString('en-IN')} total journeys`,
@@ -673,7 +753,8 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             widgetId: 'kpi_pending_orders_lifetime',
             helper: Number(pendingOrdersNav.count || 0) > 0 && pendingOrdersNav.oldestDate
                 ? `Open since ${formatShortRangeHint(pendingOrdersNav.oldestDate)}`
-                : 'No pending orders right now'
+                : 'No pending orders right now',
+            theme: 'amber'
         },
         {
             label: 'Failed',
@@ -688,12 +769,13 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
             widgetId: 'kpi_failed_orders_lifetime',
             helper: Number(failedOrdersNav.count ?? risk.failedPaymentsCurrent6h ?? 0) > 0 && failedOrdersNav.oldestDate
                 ? `Since ${formatShortRangeHint(failedOrdersNav.oldestDate)}`
-                : 'No failed orders'
+                : 'No failed orders',
+            theme: 'red'
         },
         {
             label: 'Abandoned Carts',
             value: Number(abandonedActiveJourneyCount || 0).toLocaleString('en-IN'),
-            icon: Route,
+            icon: UsersRound,
             target: { tab: 'abandoned', status: 'active', rangeDays: 'lifetime' },
             widgetId: 'kpi_abandoned_carts_active',
             helper: `${Number(abandonedTotals.totalJourneys || 0).toLocaleString('en-IN')} total journeys`,
@@ -702,7 +784,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     ]), [abandonedActiveJourneyCount, abandonedTotals.totalJourneys, failedOrdersNav.count, failedOrdersNav.endDate, failedOrdersNav.oldestDate, newOrdersNav.count, newOrdersNav.endDate, newOrdersNav.oldestDate, pendingOrdersNav.count, pendingOrdersNav.endDate, pendingOrdersNav.oldestDate, risk.failedPaymentsCurrent6h]);
     const mobilePrimaryCards = mobileCards.filter((card) => ['New Orders', 'Pending', 'Failed'].includes(card.label));
     const mobileAbandonedCard = mobileCards.find((card) => card.label === 'Abandoned Carts') || null;
-    const MobileAbandonedIcon = mobileAbandonedCard?.icon || Route;
+    const MobileAbandonedIcon = mobileAbandonedCard?.icon || UsersRound;
     const refreshGoals = async () => {
         const goalData = await adminService.getDashboardGoals();
         const rows = Array.isArray(goalData?.goals) ? goalData.goals : [];
@@ -851,6 +933,25 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         });
         trackEvent('action_opened', { actionId: action?.id || '', widgetId: 'action_center', meta: { priority: action?.priority || 'low' } });
     };
+    const handleOpenTopProduct = (item) => {
+        setProductPurchases(null);
+        setSelectedTopProduct({
+            productId: item?.productId || '',
+            variantId: item?.variantId || '',
+            title: item?.title || 'Untitled Product',
+            variantTitle: item?.variantTitle || '',
+            thumbnail: item?.thumbnail || '',
+            ordersCount: Number(item?.ordersCount || 0),
+            unitsSold: Number(item?.unitsSold || 0),
+            revenue: Number(item?.revenue || 0)
+        });
+        trackEvent('action_opened', { actionId: `top_product_${item?.productId || ''}`, widgetId: 'top_products', meta: { quickRange } });
+    };
+    const closeTopProductDrawer = () => {
+        setSelectedTopProduct(null);
+        setProductPurchases(null);
+        setIsProductPurchasesLoading(false);
+    };
     const handleResolveAction = (action) => {
         const actionId = String(action?.id || '').trim();
         if (!actionId) return;
@@ -931,6 +1032,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         if (key === 'manual') return 'Manual';
         return key ? key.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase()) : 'Unknown';
     };
+    const topProductDetail = productPurchases?.summary || selectedTopProduct || null;
     useEffect(() => {
         if (!isSalesRangeOpen) return;
         setDraftQuickRange(quickRange);
@@ -1112,6 +1214,8 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                             ? 'bg-black/10 text-black/75'
                                             : card.theme === 'green'
                                                 ? 'bg-black/10 text-black/75'
+                                                : card.theme === 'amber'
+                                                    ? 'bg-stone-950/8 text-stone-900/75'
                                                 : card.theme === 'sky'
                                                     ? 'bg-slate-900/8 text-slate-900/75'
                                                     : ['red', 'brown'].includes(card.theme)
@@ -1337,12 +1441,12 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                             {selectedDurationText && <p className="mt-1 text-xs text-gray-500">{selectedDurationText}</p>}
                             <div className="mt-4 space-y-2">
                                 {[
-                                    { label: 'New', value: newOrdersNav.count, target: { tab: 'orders', status: 'confirmed', quickRange: 'last_30_days' } },
-                                    { label: 'Pending', value: pendingOrdersNav.count, target: { tab: 'orders', status: 'pending', quickRange: 'last_30_days' } },
-                                    { label: 'Attempted', value: funnel.attempted, target: { tab: 'orders', status: 'attempted', quickRange: 'last_30_days' } },
-                                    { label: 'Completed', value: funnel.completed, target: { tab: 'orders', status: 'completed', quickRange: 'last_30_days' } },
-                                    { label: 'Cancelled', value: funnel.cancelled, target: { tab: 'orders', status: 'cancelled', quickRange: 'last_30_days' } },
-                                    { label: 'Failed', value: failedOrdersNav.count ?? risk.failedPaymentsCurrent6h, target: { tab: 'orders', status: 'failed', quickRange: 'last_30_days' } }
+                                    { label: 'New', value: orderSummary.confirmed, target: { tab: 'orders', status: 'confirmed' } },
+                                    { label: 'Pending', value: orderSummary.pending, target: { tab: 'orders', status: 'pending' } },
+                                    { label: 'Attempted', value: orderSummary.attempted, target: { tab: 'orders', status: 'attempted' } },
+                                    { label: 'Completed', value: orderSummary.completed, target: { tab: 'orders', status: 'completed' } },
+                                    { label: 'Cancelled', value: orderSummary.cancelled, target: { tab: 'orders', status: 'cancelled' } },
+                                    { label: 'Failed', value: orderSummary.failed, target: { tab: 'orders', status: 'failed' } }
                                 ].map((item) => (
                                     <button key={item.label} type="button" onClick={() => handleOpenAction({ id: `funnel_${item.label.toLowerCase()}`, target: { ...item.target, quickRange, startDate: quickRange === 'custom' ? startDate : '', endDate: quickRange === 'custom' ? endDate : '' } })} className="w-full text-left flex items-center justify-between py-2 border-b last:border-0 border-gray-100 hover:bg-gray-50 rounded-md px-1">
                                         <span className="text-sm text-gray-600">{item.label}</span>
@@ -1381,7 +1485,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     <button
                                         key={`${String(item.productId)}:${String(item.variantId || '')}`}
                                         type="button"
-                                        onClick={() => handleOpenAction({ id: `top_product_${item.productId}`, target: { tab: 'products', productId: item.productId } })}
+                                        onClick={() => handleOpenTopProduct(item)}
                                         className="w-full text-left flex items-center justify-between py-2 border-b border-gray-100 last:border-0 hover:bg-gray-50 rounded-lg px-2 -mx-2"
                                     >
                                         <div className="flex items-center gap-3 min-w-0">
@@ -1391,7 +1495,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                             <div className="min-w-0">
                                                 <p className="text-sm font-medium text-gray-800 truncate">{item.title}</p>
                                                 <p className="text-xs text-gray-500">
-                                                    {item.variantTitle ? `${item.variantTitle} • ` : ''}{Number(item.unitsSold || 0)} units
+                                                    {item.variantTitle ? `${item.variantTitle} • ` : ''}{Number(item.ordersCount || 0)} orders
                                                 </p>
                                             </div>
                                         </div>
@@ -1455,6 +1559,12 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                             {selectedDurationText && <p className="mt-1 text-xs text-gray-500">{selectedDurationText}</p>}
                             <div className="mt-4 space-y-2">
                                 {(growth.channelRevenue || []).slice(0, 6).map((item) => (
+                                    (() => {
+                                        const rawChannel = String(item.channel || 'unknown').toLowerCase();
+                                        const channelLabel = rawChannel === 'checkout_webhook_recovery' || rawChannel === 'direct'
+                                            ? 'Direct website'
+                                            : String(item.channel || 'unknown').replace(/_/g, ' ');
+                                        return (
                                     <button
                                         key={String(item.channel)}
                                         type="button"
@@ -1470,11 +1580,13 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                         className="w-full text-left flex items-center justify-between py-2 border-b border-gray-100 last:border-0 hover:bg-gray-50 rounded-lg px-2 -mx-2"
                                     >
                                         <div>
-                                            <p className="text-sm font-medium text-gray-800">{String(item.channel || 'unknown').replace(/_/g, ' ')}</p>
+                                            <p className="text-sm font-medium text-gray-800">{channelLabel}</p>
                                             <p className="text-xs text-gray-500">{Number(item.orders || 0)} orders</p>
                                         </div>
                                         <p className="text-sm font-semibold text-gray-900">{formatCurrency(item.revenue)}</p>
                                     </button>
+                                        );
+                                    })()
                                 ))}
                                 {!(growth.channelRevenue || []).length && (
                                     <EmptyState
@@ -1904,6 +2016,163 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                         confirmText="OK"
                         onConfirm={() => setIsInstallModalOpen(false)}
                     />
+                    {selectedTopProduct && createPortal(
+                        <div className="fixed inset-0 z-[220]">
+                            <button type="button" aria-label="Close product purchases" className="absolute inset-0 bg-slate-950/45 backdrop-blur-sm" onClick={closeTopProductDrawer} />
+                            <div className="absolute inset-y-0 right-0 flex w-full justify-end">
+                                <div className="relative h-full w-full max-w-2xl overflow-y-auto border-l border-gray-200 bg-white shadow-2xl">
+                                    <div className="sticky top-0 z-10 border-b border-gray-200 bg-white/95 px-5 py-4 backdrop-blur">
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">Product purchase insights</p>
+                                                <h3 className="mt-1 truncate text-lg font-semibold text-gray-900">{topProductDetail?.title || 'Untitled Product'}</h3>
+                                                <p className="mt-1 text-sm text-gray-500">{topProductDetail?.variantTitle || 'Customers and orders for this product'}</p>
+                                                {selectedDurationText && <p className="mt-2 text-xs text-gray-500">{selectedDurationText}</p>}
+                                            </div>
+                                            <button type="button" onClick={closeTopProductDrawer} className="rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50">
+                                                Close
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-5 p-5">
+                                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                            <div className="rounded-2xl border border-sky-100 bg-sky-50 p-4">
+                                                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700">Orders</p>
+                                                <p className="mt-3 text-2xl font-semibold text-slate-950">{Number(topProductDetail?.ordersCount || 0).toLocaleString('en-IN')}</p>
+                                            </div>
+                                            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                                                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Revenue</p>
+                                                <p className="mt-3 text-2xl font-semibold text-slate-950">{formatCurrency(topProductDetail?.revenue || 0)}</p>
+                                            </div>
+                                            <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                                                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-700">Units</p>
+                                                <p className="mt-3 text-2xl font-semibold text-slate-950">{Number(topProductDetail?.unitsSold || 0).toLocaleString('en-IN')}</p>
+                                            </div>
+                                        </div>
+
+                                        {isProductPurchasesLoading ? (
+                                            <div className="rounded-2xl border border-gray-200 bg-white p-5 text-sm text-gray-500">Loading customers and orders for this product...</div>
+                                        ) : (
+                                            <>
+                                                <div className="rounded-2xl border border-gray-200 bg-white p-5">
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <div>
+                                                            <h4 className="text-base font-semibold text-gray-900">Customers</h4>
+                                                            <p className="mt-1 text-xs text-gray-500">People who bought this product in the selected period.</p>
+                                                        </div>
+                                                        <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+                                                            {Number(productPurchases?.customers?.length || 0).toLocaleString('en-IN')} listed
+                                                        </span>
+                                                    </div>
+                                                    <div className="mt-4 space-y-2">
+                                                        {(productPurchases?.customers || []).map((customer) => (
+                                                            <button
+                                                                key={`${String(customer.userId || 'guest')}::${String(customer.name || '')}`}
+                                                                type="button"
+                                                                disabled={!customer.userId}
+                                                                onClick={() => {
+                                                                    closeTopProductDrawer();
+                                                                    onRunAction({ id: `product_customer_${customer.userId}`, target: { tab: 'customers', userId: customer.userId } });
+                                                                }}
+                                                                className="flex w-full items-start justify-between gap-3 rounded-xl border border-gray-100 px-3 py-3 text-left transition hover:bg-gray-50 disabled:cursor-default disabled:hover:bg-white"
+                                                            >
+                                                                <div className="min-w-0">
+                                                                    <p className="truncate text-sm font-semibold text-gray-900">{customer.name || 'Guest'}</p>
+                                                                    <p className="mt-1 truncate text-xs text-gray-500">
+                                                                        {customer.mobile || 'No mobile'}{customer.email ? ` • ${customer.email}` : ''}
+                                                                    </p>
+                                                                    <p className="mt-2 text-[11px] text-gray-500">
+                                                                        {Number(customer.ordersCount || 0).toLocaleString('en-IN')} orders • {Number(customer.unitsSold || 0).toLocaleString('en-IN')} units
+                                                                    </p>
+                                                                </div>
+                                                                <div className="shrink-0 text-right">
+                                                                    <p className="text-sm font-semibold text-gray-900">{formatCurrency(customer.revenue || 0)}</p>
+                                                                    <p className="mt-1 text-[11px] text-gray-500">{customer.lastOrderedAt ? formatAdminDateTime(customer.lastOrderedAt) : '—'}</p>
+                                                                </div>
+                                                            </button>
+                                                        ))}
+                                                        {!(productPurchases?.customers || []).length && (
+                                                            <EmptyState
+                                                                image={dashboardIllustration}
+                                                                alt="No customers found"
+                                                                title="No customers found"
+                                                                description="No matched customers were found for this product in the selected period."
+                                                                compact
+                                                            />
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div className="rounded-2xl border border-gray-200 bg-white p-5">
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <div>
+                                                            <h4 className="text-base font-semibold text-gray-900">Orders</h4>
+                                                            <p className="mt-1 text-xs text-gray-500">Orders that included this product.</p>
+                                                        </div>
+                                                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                                                            {Number(productPurchases?.orders?.length || 0).toLocaleString('en-IN')} listed
+                                                        </span>
+                                                    </div>
+                                                    <div className="mt-4 space-y-2">
+                                                        {(productPurchases?.orders || []).map((order) => (
+                                                            <button
+                                                                key={String(order.orderId)}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    closeTopProductDrawer();
+                                                                    onRunAction({
+                                                                        id: `product_order_${order.orderId}`,
+                                                                        target: {
+                                                                            tab: 'orders',
+                                                                            orderId: order.orderId,
+                                                                            quickRange,
+                                                                            startDate: quickRange === 'custom' ? startDate : '',
+                                                                            endDate: quickRange === 'custom' ? endDate : ''
+                                                                        }
+                                                                    });
+                                                                }}
+                                                                className="flex w-full items-start justify-between gap-3 rounded-xl border border-gray-100 px-3 py-3 text-left transition hover:bg-gray-50"
+                                                            >
+                                                                <div className="min-w-0">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <p className="text-sm font-semibold text-gray-900">#{order.orderRef || order.orderId}</p>
+                                                                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getDashboardStatusBadgeClasses(order.status)}`}>
+                                                                            {formatDashboardStatusLabel(order.status)}
+                                                                        </span>
+                                                                    </div>
+                                                                    <p className="mt-1 truncate text-xs text-gray-500">
+                                                                        {order.customerName || 'Guest'}{order.customerMobile ? ` • ${order.customerMobile}` : ''}
+                                                                    </p>
+                                                                    <p className="mt-2 text-[11px] text-gray-500">
+                                                                        Qty {Number(order.quantity || 0).toLocaleString('en-IN')} • {formatAdminDateTime(order.createdAt)}
+                                                                    </p>
+                                                                </div>
+                                                                <div className="shrink-0 text-right">
+                                                                    <p className="text-sm font-semibold text-gray-900">{formatCurrency(order.lineTotal || 0)}</p>
+                                                                    <p className="mt-1 text-[11px] text-gray-500">{formatDashboardStatusLabel(order.paymentStatus || order.status)}</p>
+                                                                </div>
+                                                            </button>
+                                                        ))}
+                                                        {!(productPurchases?.orders || []).length && (
+                                                            <EmptyState
+                                                                image={dashboardIllustration}
+                                                                alt="No orders found"
+                                                                title="No orders found"
+                                                                description="No matching orders were found for this product in the selected period."
+                                                                compact
+                                                            />
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>,
+                        document.body
+                    )}
                 </>
             )}
         </div>

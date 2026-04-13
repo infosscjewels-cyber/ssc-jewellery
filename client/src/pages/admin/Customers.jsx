@@ -35,6 +35,7 @@ import WhatsAppIcon from '../../components/WhatsAppIcon';
 
 const CUSTOMER_PAGE_SIZE = 20;
 const MAX_COUPON_RANGE_DAYS = 90;
+const CUSTOMER_ARCHIVE_MODE_STORAGE_KEY = 'admin_customers_archive_mode';
 const CUSTOMER_TIER_FILTER_OPTIONS = [
     { value: 'all', label: 'All Tiers' },
     ...TIER_ORDER.map((tier) => ({ value: tier, label: formatTierLabel(tier) }))
@@ -139,6 +140,23 @@ const getCartLastActivityLabel = (user = {}) => {
     const formatted = formatAdminDateTime(raw);
     return formatted === '—' ? '' : formatted;
 };
+const getMemberSinceLabel = (user = {}) => {
+    const raw = user?.created_at || user?.createdAt || '';
+    if (!raw) return '';
+    const formatted = formatAdminDate(raw);
+    return formatted === '—' ? '' : formatted;
+};
+const getCompactCustomerContact = (user = {}) => {
+    const mobile = String(user?.mobile || '').trim();
+    const email = String(user?.email || '').trim();
+    if (mobile && email) return `${mobile} • ${email}`;
+    return mobile || email || 'No contact details';
+};
+const getStoredCustomerArchiveMode = () => {
+    if (typeof window === 'undefined') return 'active';
+    const stored = String(window.localStorage.getItem(CUSTOMER_ARCHIVE_MODE_STORAGE_KEY) || '').trim().toLowerCase();
+    return ['active', 'new', 'archived'].includes(stored) ? stored : 'active';
+};
 const MOBILE_CARD_THEMES = [
     {
         shell: 'border-sky-200 bg-gradient-to-br from-white via-sky-50/60 to-cyan-50/70 shadow-sky-100/70',
@@ -213,11 +231,12 @@ export default function Customers({
     const [searchTerm, setSearchTerm] = useState('');
     const [tierFilter, setTierFilter] = useState('all');
     const [birthdayOnly, setBirthdayOnly] = useState(false);
-    const [showArchived, setShowArchived] = useState(false);
+    const [archiveMode, setArchiveMode] = useState(() => getStoredCustomerArchiveMode());
     const [page, setPage] = useState(1);
     const [isMobileBirthdayModalOpen, setIsMobileBirthdayModalOpen] = useState(false);
     const [isMobileTierModalOpen, setIsMobileTierModalOpen] = useState(false);
     const [isMobileSearchModalOpen, setIsMobileSearchModalOpen] = useState(false);
+    const [isMobileArchiveModalOpen, setIsMobileArchiveModalOpen] = useState(false);
 
     const [modalConfig, setModalConfig] = useState({ isOpen: false, type: 'default', title: '', message: '', targetUser: null });
     const [customerDeleteChoice, setCustomerDeleteChoice] = useState({ isOpen: false, targetUser: null });
@@ -256,17 +275,25 @@ export default function Customers({
     });
     const [cartCountOverrides, setCartCountOverrides] = useState({});
 
-    useEffect(() => {
-        refreshUsers(false);
-    }, [refreshUsers]);
+    const applyArchiveMode = useCallback((nextMode) => {
+        setArchiveMode(nextMode);
+        if (typeof window !== 'undefined') {
+            window.localStorage.setItem(CUSTOMER_ARCHIVE_MODE_STORAGE_KEY, nextMode);
+        }
+    }, []);
 
-    const handleArchivedToggle = useCallback(() => {
-        const nextShowArchived = !showArchived;
-        setShowArchived(nextShowArchived);
-        refreshUsers(true, { archiveMode: nextShowArchived ? 'archived' : 'active' }).catch((error) => {
-            toast.error(error?.message || 'Failed to refresh customers');
-        });
-    }, [refreshUsers, showArchived, toast]);
+    useEffect(() => {
+        refreshUsers(false, { archiveMode });
+    }, [archiveMode, refreshUsers]);
+
+    const handleArchiveModeToggle = useCallback(() => {
+        const nextMode = archiveMode === 'active'
+            ? 'new'
+            : archiveMode === 'new'
+                ? 'archived'
+                : 'active';
+        applyArchiveMode(nextMode);
+    }, [applyArchiveMode, archiveMode]);
 
     useAdminCrudSync({
         'coupon:changed': async (payload = {}) => {
@@ -306,9 +333,29 @@ export default function Customers({
         () => customersOnly.filter((u) => u.isArchived).length,
         [customersOnly]
     );
+    const newCustomerCount = useMemo(
+        () => customersOnly.filter((u) => {
+            if (u.isArchived) return false;
+            const created = new Date(u.created_at || u.createdAt || 0);
+            if (Number.isNaN(created.getTime())) return false;
+            const now = new Date();
+            return created.getFullYear() === now.getFullYear() && created.getMonth() === now.getMonth();
+        }).length,
+        [customersOnly]
+    );
 
     const filteredCustomers = useMemo(() => {
-        let rows = customersOnly.filter((u) => (showArchived ? u.isArchived : !u.isArchived));
+        let rows = customersOnly.filter((u) => {
+            if (archiveMode === 'archived') return Boolean(u.isArchived);
+            if (archiveMode === 'new') {
+                if (u.isArchived) return false;
+                const created = new Date(u.created_at || u.createdAt || 0);
+                if (Number.isNaN(created.getTime())) return false;
+                const now = new Date();
+                return created.getFullYear() === now.getFullYear() && created.getMonth() === now.getMonth();
+            }
+            return !u.isArchived;
+        });
         const term = String(searchTerm || '').trim().toLowerCase();
         if (term) {
             rows = rows.filter((u) =>
@@ -324,7 +371,7 @@ export default function Customers({
             rows = rows.filter((u) => isBirthdayToday(u.dob));
         }
         return rows;
-    }, [customersOnly, showArchived, searchTerm, tierFilter, birthdayOnly]);
+    }, [archiveMode, birthdayOnly, customersOnly, searchTerm, tierFilter]);
 
     const customerTotalPages = useMemo(
         () => Math.max(1, Math.ceil(filteredCustomers.length / CUSTOMER_PAGE_SIZE)),
@@ -343,7 +390,7 @@ export default function Customers({
 
     useEffect(() => {
         setPage(1);
-    }, [searchTerm, tierFilter, birthdayOnly, showArchived]);
+    }, [searchTerm, tierFilter, birthdayOnly, archiveMode]);
 
     useEffect(() => {
         setPage((prev) => Math.min(Math.max(1, Number(prev || 1)), customerTotalPages));
@@ -418,8 +465,8 @@ export default function Customers({
                 isArchived: true,
                 reason: 'Archived by admin'
             });
-            await refreshUsers(true, { archiveMode: showArchived ? 'all' : 'active' });
-            if (selectedUser?.id && String(selectedUser.id) === String(targetUser.id) && !showArchived) {
+            await refreshUsers(true, { archiveMode });
+            if (selectedUser?.id && String(selectedUser.id) === String(targetUser.id) && archiveMode !== 'archived') {
                 setSelectedUser(null);
                 setIsProfileOpen(false);
                 setIsCartOpen(false);
@@ -869,6 +916,78 @@ export default function Customers({
                 document.body
             )}
 
+            {isMobileArchiveModalOpen && createPortal(
+                <div className="fixed inset-0 z-[120] flex items-end md:hidden">
+                    <button
+                        type="button"
+                        className="absolute inset-0 bg-black/45 backdrop-blur-sm"
+                        onClick={() => setIsMobileArchiveModalOpen(false)}
+                        aria-label="Close customer mode"
+                    />
+                    <div className="relative w-full rounded-t-3xl bg-white px-5 pb-6 pt-5 shadow-2xl max-h-[82vh] overflow-y-auto">
+                        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-200" />
+                        <h3 className="text-lg font-bold text-gray-900">Customer Mode</h3>
+                        <p className="mt-1 text-sm text-gray-500">Choose which customers to show in the list.</p>
+                        <div className="mt-4 grid gap-3">
+                            {[
+                                {
+                                    value: 'active',
+                                    label: 'Active',
+                                    description: 'Show the regular active customer base.',
+                                    selectedClass: 'border-slate-300 bg-slate-900 text-white'
+                                },
+                                {
+                                    value: 'new',
+                                    label: 'New',
+                                    description: 'Show customers created in the current month.',
+                                    selectedClass: 'border-sky-300 bg-sky-50 text-sky-800'
+                                },
+                                {
+                                    value: 'archived',
+                                    label: 'Archived',
+                                    description: 'Show archived customer records.',
+                                    selectedClass: 'border-slate-300 bg-slate-100 text-slate-800'
+                                }
+                            ].map((option) => (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    onClick={() => {
+                                        applyArchiveMode(option.value);
+                                        setIsMobileArchiveModalOpen(false);
+                                    }}
+                                    className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                                        archiveMode === option.value
+                                            ? option.selectedClass
+                                            : 'border-gray-200 bg-white text-gray-700'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-sm font-semibold">{option.label}</span>
+                                        {archiveMode === option.value && (
+                                            <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold">
+                                                Selected
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className={`mt-1 text-xs leading-5 ${archiveMode === option.value ? 'text-current/80' : 'text-gray-500'}`}>
+                                        {option.description}
+                                    </p>
+                                </button>
+                            ))}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setIsMobileArchiveModalOpen(false)}
+                            className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>,
+                document.body
+            )}
+
             {couponModalUser && createPortal(
                 <div className="fixed inset-0 z-[80] flex items-start sm:items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
                     <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl p-6 space-y-4 max-h-[calc(100vh-2rem)] overflow-y-auto my-auto">
@@ -974,8 +1093,8 @@ export default function Customers({
                             <div>
                                 <h3 className="text-lg font-bold text-gray-800">{selectedUser.name}'s Cart</h3>
                                 {getCartLastActivityLabel(selectedUser) && (
-                                    <p className="mt-1 text-xs text-amber-700">
-                                        Last cart activity: {getCartLastActivityLabel(selectedUser)}
+                                    <p className="mt-1 text-xs text-sky-700">
+                                        Last cart activity {getCartLastActivityLabel(selectedUser)}
                                     </p>
                                 )}
                             </div>
@@ -1205,12 +1324,67 @@ export default function Customers({
                 document.body
             )}
 
-            <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
+            <div className="mb-3 md:mb-6 flex flex-col gap-2 md:gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="w-full">
                     <div className="flex items-center justify-between gap-3 md:block">
                         <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Customers</h1>
+                        <div className="flex items-center justify-end gap-1.5 md:hidden">
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileBirthdayModalOpen(true)}
+                                className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border shadow-sm transition ${
+                                    birthdayOnly
+                                        ? 'border-amber-200 bg-amber-50 text-amber-700 shadow-amber-100/70'
+                                        : 'border-amber-100 bg-gradient-to-br from-white to-amber-50/70 text-amber-700 shadow-amber-100/50'
+                                }`}
+                                title="Birthdays Today"
+                                aria-label="Birthdays Today"
+                            >
+                                <Sparkles size={16} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileTierModalOpen(true)}
+                                className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border shadow-sm transition ${
+                                    tierFilter !== 'all'
+                                        ? 'border-sky-200 bg-sky-50 text-sky-700 shadow-sky-100/70'
+                                        : 'border-sky-100 bg-gradient-to-br from-white to-sky-50/70 text-sky-700 shadow-sky-100/50'
+                                }`}
+                                title="Filter by Tier"
+                                aria-label="Filter by Tier"
+                            >
+                                <SlidersHorizontal size={16} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileSearchModalOpen(true)}
+                                className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border shadow-sm transition ${
+                                    searchTerm
+                                        ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 shadow-fuchsia-100/70'
+                                        : 'border-fuchsia-100 bg-gradient-to-br from-white to-fuchsia-50/70 text-fuchsia-700 shadow-fuchsia-100/50'
+                                }`}
+                                title="Search Customers"
+                                aria-label="Search Customers"
+                            >
+                                <Search size={16} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileArchiveModalOpen(true)}
+                                className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border shadow-sm transition ${
+                                    archiveMode === 'archived'
+                                        ? 'border-slate-300 bg-slate-900 text-white shadow-slate-200'
+                                        : archiveMode === 'new'
+                                            ? 'border-sky-300 bg-sky-50 text-sky-700 shadow-sky-100/70'
+                                        : 'border-slate-100 bg-gradient-to-br from-white to-slate-50/70 text-slate-700 shadow-slate-100/50'
+                                }`}
+                                title={`Customer mode: ${archiveMode === 'active' ? 'Active' : archiveMode === 'new' ? 'New this month' : 'Archived'}`}
+                                aria-label={`Customer mode: ${archiveMode === 'active' ? 'Active' : archiveMode === 'new' ? 'New this month' : 'Archived'}`}
+                            >
+                                <Archive size={16} />
+                            </button>
+                        </div>
                     </div>
-                    <p className="text-gray-500 text-sm mt-1">Manage customers</p>
                 </div>
                 <div className="hidden md:flex flex-col md:flex-row gap-2 w-full md:w-auto">
                     <button type="button" onClick={() => setBirthdayOnly((prev) => !prev)} className={`flex items-center gap-2 px-4 py-3 rounded-xl border shadow-sm text-sm font-semibold transition-all ${birthdayOnly ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-white border-gray-200 text-gray-600 hover:border-accent'}`}>
@@ -1227,74 +1401,28 @@ export default function Customers({
                     </div>
                     <button
                         type="button"
-                        onClick={handleArchivedToggle}
+                        onClick={handleArchiveModeToggle}
                         className={`font-bold px-4 py-3 rounded-xl shadow-sm border flex items-center justify-center gap-2 transition-all active:scale-95 ${
-                            showArchived
+                            archiveMode === 'archived'
                                 ? 'border-slate-300 bg-slate-900 text-white shadow-slate-200'
+                                : archiveMode === 'new'
+                                    ? 'border-sky-300 bg-sky-50 text-sky-900 shadow-sky-100/70'
                                 : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
                         }`}
                     >
                         <Archive size={18} />
-                        <span className="whitespace-nowrap">Archived</span>
-                        {archivedCustomerCount > 0 && (
-                            <span className={`rounded-full px-2 py-0.5 text-[10px] ${showArchived ? 'bg-white/15 text-white' : 'bg-gray-100 text-gray-600'}`}>
-                                {archivedCustomerCount}
+                        <span className="whitespace-nowrap">{archiveMode === 'active' ? 'Active' : archiveMode === 'new' ? 'New' : 'Archived'}</span>
+                        {(archiveMode === 'active' ? customersOnly.filter((u) => !u.isArchived).length : archiveMode === 'new' ? newCustomerCount : archivedCustomerCount) > 0 && (
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] ${
+                                archiveMode === 'archived'
+                                    ? 'bg-white/15 text-white'
+                                    : archiveMode === 'new'
+                                        ? 'bg-sky-100 text-sky-700'
+                                        : 'bg-gray-100 text-gray-600'
+                            }`}>
+                                {archiveMode === 'active' ? customersOnly.filter((u) => !u.isArchived).length : archiveMode === 'new' ? newCustomerCount : archivedCustomerCount}
                             </span>
                         )}
-                    </button>
-                </div>
-                <div className="flex items-center justify-end gap-2 md:hidden">
-                    <button
-                        type="button"
-                        onClick={() => setIsMobileBirthdayModalOpen(true)}
-                        className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
-                            birthdayOnly
-                                ? 'border-amber-200 bg-amber-50 text-amber-700 shadow-amber-100/70'
-                                : 'border-amber-100 bg-gradient-to-br from-white to-amber-50/70 text-amber-700 shadow-amber-100/50'
-                        }`}
-                        title="Birthdays Today"
-                        aria-label="Birthdays Today"
-                    >
-                        <Sparkles size={18} />
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setIsMobileTierModalOpen(true)}
-                        className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
-                            tierFilter !== 'all'
-                                ? 'border-sky-200 bg-sky-50 text-sky-700 shadow-sky-100/70'
-                                : 'border-sky-100 bg-gradient-to-br from-white to-sky-50/70 text-sky-700 shadow-sky-100/50'
-                        }`}
-                        title="Filter by Tier"
-                        aria-label="Filter by Tier"
-                    >
-                        <SlidersHorizontal size={18} />
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setIsMobileSearchModalOpen(true)}
-                        className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
-                            searchTerm
-                                ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 shadow-fuchsia-100/70'
-                                : 'border-fuchsia-100 bg-gradient-to-br from-white to-fuchsia-50/70 text-fuchsia-700 shadow-fuchsia-100/50'
-                        }`}
-                        title="Search Customers"
-                        aria-label="Search Customers"
-                    >
-                        <Search size={18} />
-                    </button>
-                    <button
-                        type="button"
-                        onClick={handleArchivedToggle}
-                        className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
-                            showArchived
-                                ? 'border-slate-300 bg-slate-900 text-white shadow-slate-200'
-                                : 'border-slate-100 bg-gradient-to-br from-white to-slate-50/70 text-slate-700 shadow-slate-100/50'
-                        }`}
-                        title="Show archived customers"
-                        aria-label="Show archived customers"
-                    >
-                        <Archive size={18} />
                     </button>
                 </div>
             </div>
@@ -1303,7 +1431,7 @@ export default function Customers({
                 <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent w-10 h-10" /></div>
             ) : (
                 <>
-                    <div className="emboss-card relative bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="relative md:emboss-card md:bg-white md:rounded-2xl md:shadow-sm md:border md:border-gray-200 md:overflow-hidden">
                         <Users size={72} className="bg-emboss-icon absolute right-2 bottom-2 text-gray-100" />
                         <div className="hidden px-6 py-4 border-b border-gray-100 items-center justify-between gap-3 md:flex">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Customers</h3>
@@ -1336,7 +1464,7 @@ export default function Customers({
                                     const waLink = getWhatsappLink(user.mobile);
                                     const callLink = getCallLink(user.mobile);
                                     const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
-                                    const cartLastActivity = getCartLastActivityLabel(user);
+                                    const memberSince = getMemberSinceLabel(user);
                                     const profileImage = getCustomerProfileImage(user);
                                     return (
                                         <tr key={user.id} onClick={() => openProfile(user)} className={`hover:bg-gray-50/50 transition-colors cursor-pointer ${isBirthdayToday(user.dob) ? 'bg-amber-50/60' : ''} ${user.isArchived ? 'bg-slate-50/70' : ''}`}>
@@ -1392,9 +1520,9 @@ export default function Customers({
                                                     <ShoppingCart size={16} />
                                                     {cartCount > 0 && <span className="absolute -top-1 -right-1 text-[10px] font-bold bg-green-600 text-white rounded-full px-1.5 py-0.5">{cartCount}</span>}
                                                 </button>
-                                                {cartLastActivity && (
-                                                    <span className="hidden xl:inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-800" title={`Last cart activity: ${cartLastActivity}`}>
-                                                        {cartLastActivity}
+                                                {memberSince && (
+                                                    <span className="hidden xl:inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-medium text-sky-800" title={`Member since ${memberSince}`}>
+                                                        Member since {memberSince}
                                                     </span>
                                                 )}
                                                 {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className="p-2 rounded-lg text-gray-400 transition-all hover:bg-red-50 hover:text-red-600" title="Customer actions"><Trash2 size={18} /></button>}
@@ -1416,7 +1544,7 @@ export default function Customers({
                             </tbody>
                         </table>
 
-                        <div className="md:hidden p-4">
+                        <div className="md:hidden p-2.5">
                             {paginatedCustomersOnly.length === 0 && (
                                 <div className="py-10">
                                     <div className="flex flex-col items-center justify-center text-center">
@@ -1427,13 +1555,14 @@ export default function Customers({
                                 </div>
                             )}
                             {paginatedCustomersOnly.length > 0 && (
-                                <div className="grid grid-cols-1 gap-3">
+                                <div className="grid grid-cols-1 gap-2">
                                     {paginatedCustomersOnly.map((user) => {
                                         const waLink = getWhatsappLink(user.mobile);
                                         const callLink = getCallLink(user.mobile);
                                         const cartCount = Number(cartCountOverrides[user.id] ?? user.cart_count ?? 0);
-                                        const cartLastActivity = getCartLastActivityLabel(user);
+                                        const memberSince = getMemberSinceLabel(user);
                                         const profileImage = getCustomerProfileImage(user);
+                                        const compactContact = getCompactCustomerContact(user);
                                         const theme = getMobileCustomerCardTheme({
                                             ...user,
                                             cart_count: cartCount
@@ -1442,11 +1571,11 @@ export default function Customers({
                                             <div
                                                 key={`m-${user.id}`}
                                                 onClick={() => openProfile(user)}
-                                                className={`relative overflow-hidden rounded-2xl border px-3.5 pb-3.5 pt-4 shadow-sm ${theme.shell} ${isBirthdayToday(user.dob) ? 'ring-1 ring-amber-200/80' : ''} ${user.isArchived ? 'opacity-85 grayscale-[0.25]' : ''}`}
+                                                className={`relative overflow-hidden rounded-xl border px-2.5 pb-2 pt-2 shadow-sm ${theme.shell} ${isBirthdayToday(user.dob) ? 'ring-1 ring-amber-200/80' : ''} ${user.isArchived ? 'opacity-85 grayscale-[0.25]' : ''}`}
                                             >
-                                                <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${theme.strip}`} />
-                                                <div className="flex items-start gap-3">
-                                                    <div className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-sm ring-1 ${theme.avatar}`}>
+                                                <div className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${theme.strip}`} />
+                                                <div className="flex items-start gap-2">
+                                                    <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full font-bold text-xs ring-1 ${theme.avatar}`}>
                                                         {profileImage ? (
                                                             <img src={profileImage} alt={user.name || 'Customer'} className="w-full h-full object-cover" />
                                                         ) : (
@@ -1454,58 +1583,51 @@ export default function Customers({
                                                         )}
                                                     </div>
                                                     <div className="min-w-0 flex-1">
-                                                        <div className="flex items-start justify-between gap-3">
+                                                        <div className="flex items-start justify-between gap-2">
                                                             <div className="min-w-0">
-                                                                <p className="text-sm font-semibold text-gray-900 line-clamp-1">{user.name}</p>
-                                                                <p className="mt-0.5 text-[10px] text-gray-500">Customer profile</p>
+                                                                <p className="text-[12px] font-semibold leading-tight text-gray-900 line-clamp-1">{user.name}</p>
+                                                                <p className={`mt-0.5 min-w-0 max-w-full truncate text-[9px] leading-tight ${compactContact === 'No contact details' ? 'text-gray-400' : 'text-gray-600'}`}>{compactContact}</p>
                                                             </div>
-                                                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                                                            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
                                                                 <TierBadge
                                                                     tier={user.loyaltyTier || 'regular'}
                                                                     label={tierLabel(user.loyaltyTier || 'regular')}
-                                                                    className="px-2.5 py-1 text-[10px] font-medium"
-                                                                    iconSize={11}
+                                                                    className="px-2 py-0.5 text-[9px] font-medium"
+                                                                    iconSize={10}
                                                                 />
-                                                                {user.isArchived && <span className="inline-flex items-center whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">Archived</span>}
-                                                                {user.isActive === false && <span className="inline-flex items-center whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-800 border border-red-200">Inactive</span>}
+                                                                {user.isArchived && <span className="inline-flex items-center whitespace-nowrap px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">Archived</span>}
+                                                                {user.isActive === false && <span className="inline-flex items-center whitespace-nowrap px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-red-100 text-red-800 border border-red-200">Inactive</span>}
                                                             </div>
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div className={`mt-2.5 space-y-1.5 rounded-xl border px-3 py-2.5 ${theme.section}`}>
-                                                    <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-x-2">
-                                                        <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full ${theme.contactIcon}`}>
-                                                            <Phone size={12} />
-                                                        </span>
-                                                        <p className={`min-w-0 text-left text-[11px] leading-5 line-clamp-1 ${user.mobile ? 'text-gray-700' : 'text-gray-400'}`}>{user.mobile || '—'}</p>
+                                                <div className={`mt-1.5 flex items-center justify-end gap-1 border-t pt-1.5 ${theme.divider}`}>
+                                                    <div className="mr-auto flex min-w-0 items-center gap-1">
+                                                        {memberSince && (
+                                                            <span className="inline-flex max-w-full items-center truncate rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[8px] font-medium text-sky-800" title={`Member since ${memberSince}`}>
+                                                                Member since {memberSince}
+                                                            </span>
+                                                        )}
                                                     </div>
-                                                    <div className="grid grid-cols-[28px_minmax(0,1fr)] items-center gap-x-2">
-                                                        <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full ${theme.emailIcon}`}>
-                                                            <Mail size={12} />
-                                                        </span>
-                                                        <p className={`min-w-0 text-left text-[11px] leading-5 line-clamp-1 ${user.email ? 'text-gray-700' : 'text-gray-400'}`}>{user.email || '—'}</p>
-                                                    </div>
-                                                </div>
-                                                <div className={`mt-2.5 flex items-center justify-end gap-2 border-t pt-2.5 ${theme.divider}`}>
                                                     <div className="flex shrink-0 items-center justify-end gap-1">
                                                         {callLink && (
-                                                            <a href={callLink} onClick={(e) => e.stopPropagation()} className="inline-flex items-center justify-center rounded-lg border border-sky-200 bg-gradient-to-br from-sky-50 to-cyan-50 p-2 text-sky-700 shadow-sm shadow-sky-100/60 transition-all hover:from-sky-100 hover:to-cyan-100" title="Call Customer">
-                                                                <Phone size={16} />
+                                                            <a href={callLink} onClick={(e) => e.stopPropagation()} className="inline-flex items-center justify-center rounded-md border border-sky-200 bg-gradient-to-br from-sky-50 to-cyan-50 p-1.5 text-sky-700 shadow-sm shadow-sky-100/60 transition-all hover:from-sky-100 hover:to-cyan-100" title="Call Customer">
+                                                                <Phone size={13} />
                                                             </a>
                                                         )}
                                                         {waLink && (
-                                                            <a href={waLink} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center justify-center rounded-lg border border-emerald-200 bg-gradient-to-br from-emerald-50 to-lime-50 p-2 text-emerald-700 shadow-sm shadow-emerald-100/60 transition-all hover:from-emerald-100 hover:to-lime-100" title="Open WhatsApp">
-                                                                <WhatsAppIcon size={16} />
+                                                            <a href={waLink} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-gradient-to-br from-emerald-50 to-lime-50 p-1.5 text-emerald-700 shadow-sm shadow-emerald-100/60 transition-all hover:from-emerald-100 hover:to-lime-100" title="Open WhatsApp">
+                                                                <WhatsAppIcon size={13} />
                                                             </a>
                                                         )}
-                                                        <button onClick={(e) => { e.stopPropagation(); openIssueCouponModal(user); }} className="inline-flex items-center justify-center rounded-lg border border-violet-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 p-2 text-violet-700 shadow-sm shadow-violet-100/60 transition-all hover:from-violet-100 hover:to-fuchsia-100" title="Issue Coupon">
-                                                            <TicketPercent size={16} />
+                                                        <button onClick={(e) => { e.stopPropagation(); openIssueCouponModal(user); }} className="inline-flex items-center justify-center rounded-md border border-violet-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 p-1.5 text-violet-700 shadow-sm shadow-violet-100/60 transition-all hover:from-violet-100 hover:to-fuchsia-100" title="Issue Coupon">
+                                                            <TicketPercent size={13} />
                                                         </button>
-                                                        <button onClick={(e) => { e.stopPropagation(); openCart(user); }} className={`relative rounded-lg border p-2 shadow-sm transition-colors ${cartCount > 0 ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-green-50 text-emerald-700 shadow-emerald-100/60 hover:from-emerald-100 hover:to-green-100' : 'border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 text-amber-700 shadow-amber-100/60 hover:from-amber-100 hover:to-orange-100'}`} title="View Cart">
-                                                            <ShoppingCart size={14} />
+                                                        <button onClick={(e) => { e.stopPropagation(); openCart(user); }} className={`relative rounded-md border p-1.5 shadow-sm transition-colors ${cartCount > 0 ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-green-50 text-emerald-700 shadow-emerald-100/60 hover:from-emerald-100 hover:to-green-100' : 'border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 text-amber-700 shadow-amber-100/60 hover:from-amber-100 hover:to-orange-100'}`} title="View Cart">
+                                                            <ShoppingCart size={12} />
                                                             {cartCount > 0 && <span className="absolute -top-1 -right-1 text-[9px] font-bold bg-green-600 text-white rounded-full px-1 py-0.5">{cartCount}</span>}
                                                         </button>
-                                                        {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-gradient-to-br from-rose-50 to-red-50 p-2 text-rose-600 shadow-sm shadow-rose-100/60 transition-all hover:from-rose-100 hover:to-red-100" title="Customer actions"><Trash2 size={16} /></button>}
+                                                        {canDeleteUser(user) && <button onClick={(e) => { e.stopPropagation(); openDeleteModal(user); }} className="inline-flex items-center justify-center rounded-md border border-rose-200 bg-gradient-to-br from-rose-50 to-red-50 p-1.5 text-rose-600 shadow-sm shadow-rose-100/60 transition-all hover:from-rose-100 hover:to-red-100" title="Customer actions"><Trash2 size={13} /></button>}
                                                     </div>
                                                 </div>
                                             </div>

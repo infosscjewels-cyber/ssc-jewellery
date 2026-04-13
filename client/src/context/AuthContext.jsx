@@ -4,7 +4,16 @@ import { authService } from '../services/authService';
 import { productService } from '../services/productService';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase';
-import { getSessionExpiredEventName, getStoredToken, shouldTreatAsExpiredSession } from '../utils/authSession';
+import {
+    clearStoredSession,
+    getSessionExpiredEventName,
+    getStoredToken,
+    getStoredUser,
+    setStoredSession,
+    setStoredUser,
+    shouldTreatAsExpiredSession,
+    syncGuestPreviewModeFromLocation
+} from '../utils/authSession';
 
 const AuthContext = createContext(null);
 
@@ -34,8 +43,7 @@ export const AuthProvider = ({ children }) => {
     const performLogout = useCallback(async () => {
         if (logoutInFlightRef.current) return;
         logoutInFlightRef.current = true;
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        clearStoredSession();
         try { await signOut(auth); } catch (e) { console.error(e); }
         setUser(null); // Updates Navbar instantly!
         productService.clearCache();
@@ -46,14 +54,9 @@ export const AuthProvider = ({ children }) => {
     useEffect(() => {
         let cancelled = false;
         const initAuth = async () => {
+            syncGuestPreviewModeFromLocation();
             const token = getStoredToken();
-            const storedUser = localStorage.getItem('user');
-            let parsedStoredUser = null;
-            try {
-                parsedStoredUser = storedUser ? JSON.parse(storedUser) : null;
-            } catch {
-                parsedStoredUser = null;
-            }
+            const parsedStoredUser = getStoredUser();
 
             // [FIX] Strict check to ensure token is not the string "undefined" or "null"
             if (token && token !== "undefined" && token !== "null") {
@@ -85,7 +88,7 @@ export const AuthProvider = ({ children }) => {
 
                         if (profileUser) {
                             const mergedUser = mergeUserWithLoyalty(profileUser, loyaltyStatus);
-                            localStorage.setItem('user', JSON.stringify(mergedUser));
+                            setStoredUser(mergedUser);
                             setUser(mergedUser);
                         } else if (!parsedStoredUser) {
                             await performLogout();
@@ -98,7 +101,7 @@ export const AuthProvider = ({ children }) => {
                     await performLogout();
                 }
             } else {
-                if (token || storedUser) {
+                if (token || parsedStoredUser) {
                     await performLogout();
                 }
             }
@@ -135,7 +138,7 @@ export const AuthProvider = ({ children }) => {
                 }
 
                 const mergedUser = mergeUserWithLoyalty(profileUser, loyaltyStatus);
-                localStorage.setItem('user', JSON.stringify(mergedUser));
+                setStoredUser(mergedUser);
                 setUser(mergedUser);
             } catch (error) {
                 console.error('Current user sync failed:', error);
@@ -188,8 +191,7 @@ export const AuthProvider = ({ children }) => {
     // 2. Centralized Login Function
     const login = (token, userData) => {
         if (!token) return; // [NEW] Stop if token is missing
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(userData));
+        setStoredSession(token, userData);
         setUser(userData);
         productService.clearCache(); // Avoid stale data after login
     };
@@ -198,7 +200,7 @@ export const AuthProvider = ({ children }) => {
         setUser((prev) => {
             if (!prev) return prev;
             const next = { ...prev, ...updates };
-            localStorage.setItem('user', JSON.stringify(next));
+            setStoredUser(next);
             return next;
         });
     };
@@ -218,7 +220,7 @@ export const AuthProvider = ({ children }) => {
             ? loyaltyResult.value?.status || null
             : null;
         const mergedUser = mergeUserWithLoyalty(profileUser, loyaltyStatus);
-        localStorage.setItem('user', JSON.stringify(mergedUser));
+        setStoredUser(mergedUser);
         setUser(mergedUser);
         return mergedUser;
     }, [mergeUserWithLoyalty]);

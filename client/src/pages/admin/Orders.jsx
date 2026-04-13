@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, ArrowLeft, ArrowRight, ArrowUpDown, Download, RefreshCw, Trash2, Plus, Send, Printer, Phone, RotateCw, Smartphone, CreditCard, Landmark, Wallet, AlertCircle, X } from 'lucide-react';
+import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, ArrowLeft, ArrowRight, ArrowUpDown, Download, RefreshCw, Trash2, Plus, Send, Printer, Phone, RotateCw, Smartphone, CreditCard, Landmark, Wallet, AlertCircle, X, BarChart3 } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { adminService } from '../../services/adminService';
 import { productService } from '../../services/productService';
@@ -46,6 +46,13 @@ const KPI_CARD_THEMES = {
         iconChip: 'text-slate-900 bg-slate-900/8 border-slate-900/10',
         iconGhost: 'text-slate-900/20'
     },
+    amber: {
+        shell: 'bg-gradient-to-br from-amber-100 via-orange-200 to-orange-300 border-orange-500/70',
+        label: 'text-stone-900/85',
+        value: 'text-stone-950',
+        iconChip: 'text-stone-900 bg-stone-950/8 border-stone-900/10',
+        iconGhost: 'text-stone-900/20'
+    },
     green: {
         shell: 'bg-gradient-to-br from-lime-200 via-emerald-300 to-green-500 border-emerald-700/80',
         label: 'text-black/85',
@@ -85,6 +92,11 @@ const KPI_PATTERN_STYLES = {
         backgroundColor: '#ddffaa',
         backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.16), rgba(34,68,17,0.06)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cpolygon fill='%23AE9' points='120 120 60 120 90 90 120 60 120 0 120 0 60 60 0 0 0 60 30 90 60 120 120 120'/%3E%3C/svg%3E")`,
         backgroundSize: 'cover, 120px 120px'
+    },
+    amber: {
+        backgroundColor: '#fdba74',
+        backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.24), rgba(120,53,15,0.06)), linear-gradient(135deg, rgba(255,237,213,0.7) 25%, transparent 25%), linear-gradient(225deg, rgba(251,191,36,0.18) 25%, transparent 25%), linear-gradient(45deg, rgba(249,115,22,0.14) 25%, transparent 25%)',
+        backgroundSize: 'cover, 90px 90px, 90px 90px, 90px 90px'
     },
     red: {
         backgroundColor: '#7f1d1d',
@@ -159,7 +171,7 @@ const getOrderHeaderTheme = (status) => {
             rowLabel: 'text-red-100/75'
         };
     }
-    if (normalized === 'pending') {
+    if (normalized === 'pending' || normalized === 'attempted') {
         return {
             shell: 'bg-gradient-to-br from-amber-600 via-amber-700 to-orange-950',
             accent: 'bg-amber-50/20 text-amber-50 border border-amber-100/35',
@@ -180,6 +192,7 @@ const getOrderHeaderBadgeClasses = (status) => {
     const normalized = normalizeOrderStatus(status);
     if (normalized === 'failed') return 'bg-rose-200 text-rose-950 border border-rose-300';
     if (normalized === 'cancelled') return 'bg-red-200 text-red-950 border border-red-300';
+    if (normalized === 'attempted') return 'bg-orange-200 text-orange-950 border border-orange-300';
     if (normalized === 'pending') return 'bg-amber-200 text-amber-950 border border-amber-300';
     return 'bg-lime-200 text-emerald-950 border border-lime-300';
 };
@@ -203,7 +216,7 @@ const getOrderDrawerSectionTheme = (status) => {
             title: 'text-rose-800'
         };
     }
-    if (normalized === 'pending') {
+    if (normalized === 'pending' || normalized === 'attempted') {
         return {
             shell: 'border-amber-200 bg-gradient-to-br from-white via-amber-50/60 to-orange-50/75',
             header: 'bg-amber-50 text-amber-800 border-amber-100',
@@ -255,6 +268,14 @@ const PAYMENT_SESSION_PENDING_STATUSES = new Set([
     'created',
     'checkout_opened'
 ]);
+const getEffectiveOrderDisplayStatus = (order = {}) => {
+    const normalizedStatus = normalizeOrderStatus(order?.status || 'confirmed');
+    const paymentStatus = String(order?.payment_status || order?.paymentStatus || '').trim().toLowerCase();
+    if (normalizedStatus === 'confirmed' && PAYMENT_CONFIRMATION_PENDING_STATUSES.has(paymentStatus)) {
+        return 'attempted';
+    }
+    return normalizedStatus;
+};
 const orderMatchesStatusFilter = (order, filterValue = 'all') => {
     const filter = String(filterValue || 'all').trim().toLowerCase();
     if (!filter || filter === 'all') return true;
@@ -862,6 +883,9 @@ export function Orders({
     const [labelPrintModalOrder, setLabelPrintModalOrder] = useState(null);
     const [isPrinterConnecting, setIsPrinterConnecting] = useState(false);
     const [selectedStatusCount, setSelectedStatusCount] = useState(null);
+    const [selectedStatusCountKey, setSelectedStatusCountKey] = useState('confirmed');
+    const [statusCountCache, setStatusCountCache] = useState({});
+    const [isAnalyticsPanelOpen, setIsAnalyticsPanelOpen] = useState(false);
     const [zoomedItemPreview, setZoomedItemPreview] = useState(null);
     const detailsDrawerScrollRef = useRef(null);
     const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 4), [page, totalPages]);
@@ -979,6 +1003,7 @@ export function Orders({
         return `INV-${ref}`;
     };
     const getPaymentStatusLabel = (order) => {
+        if (getEffectiveOrderDisplayStatus(order) === 'attempted') return 'Attempted';
         const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
         if (!status) return '—';
         return `${status.charAt(0).toUpperCase()}${status.slice(1)}`;
@@ -1377,6 +1402,10 @@ export function Orders({
             setOrders(sortOrdersForView(listData.orders || [], sortBy));
             const totalOrdersValue = Number(listData?.pagination?.totalOrders);
             setSelectedStatusCount(Number.isFinite(totalOrdersValue) ? totalOrdersValue : 0);
+            setSelectedStatusCountKey(requestedStatusFilter);
+            if (Number.isFinite(totalOrdersValue)) {
+                setStatusCountCache((prev) => ({ ...prev, [requestedStatusFilter]: totalOrdersValue }));
+            }
             const resolvedMetrics = listData?.metrics || null;
             setMetrics(resolvedMetrics);
             if (resolvedMetrics) {
@@ -1564,7 +1593,11 @@ export function Orders({
 
     const handleStatusFilterChange = (nextStatus) => {
         const normalizedStatus = normalizeStatusSelection(nextStatus);
+        const nextDisplayedCount = Number(mobileStatusChipCounts[normalizedStatus] || 0);
         setDraftStatusFilter(normalizedStatus);
+        setSelectedStatusCount(nextDisplayedCount);
+        setSelectedStatusCountKey(normalizedStatus);
+        setStatusCountCache((prev) => ({ ...prev, [normalizedStatus]: nextDisplayedCount }));
         if (shouldResetDashboardRangeOnNextStatusChangeRef.current && quickRange === 'custom') {
             setDraftQuickRange('last_30_days');
             setDraftStartDate('');
@@ -2586,44 +2619,75 @@ export function Orders({
     };
 
     const effectiveMetrics = sharedMetrics || metrics;
-    const dynamicStatusLabel = useMemo(() => {
-        const value = String(statusFilter || '').trim().toLowerCase();
-        if (!value || value === 'all' || value === 'confirmed') return 'New';
-        if (value === 'pending') return 'Pending';
-        return `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
-    }, [statusFilter]);
-    const dynamicStatusValue = useMemo(() => {
-        const value = String(statusFilter || '').trim().toLowerCase();
-        if (!value || value === 'all' || value === 'confirmed') {
-            return effectiveMetrics?.confirmedOrders || 0;
+    const allOrdersMetricsQuery = useMemo(() => ({
+        search,
+        startDate,
+        endDate,
+        quickRange,
+        sourceChannel,
+        status: 'all'
+    }), [endDate, quickRange, search, sourceChannel, startDate]);
+    const pendingOrdersMetricsQuery = useMemo(() => ({
+        search,
+        startDate,
+        endDate,
+        quickRange,
+        sourceChannel,
+        status: 'pending'
+    }), [endDate, quickRange, search, sourceChannel, startDate]);
+    const completedOrdersMetricsQuery = useMemo(() => ({
+        search,
+        startDate,
+        endDate,
+        quickRange,
+        sourceChannel,
+        status: 'completed'
+    }), [endDate, quickRange, search, sourceChannel, startDate]);
+    const allOrdersMetrics = orderMetricsByKey[toOrderMetricsKey(allOrdersMetricsQuery)]?.metrics
+        || (statusFilter === 'all' ? effectiveMetrics : null);
+    const pendingOrdersMetrics = orderMetricsByKey[toOrderMetricsKey(pendingOrdersMetricsQuery)]?.metrics
+        || (statusFilter === 'pending' ? effectiveMetrics : null);
+    const completedOrdersMetrics = orderMetricsByKey[toOrderMetricsKey(completedOrdersMetricsQuery)]?.metrics
+        || (statusFilter === 'completed' ? effectiveMetrics : null);
+    const cards = useMemo(() => {
+        const baseCards = [
+            {
+                label: 'Total Orders',
+                value: allOrdersMetrics?.totalOrders || 0,
+                icon: Package
+            },
+            {
+                label: 'Total Revenue',
+                value: `₹${Number(allOrdersMetrics?.totalRevenue || 0).toLocaleString()}`,
+                icon: IndianRupee
+            },
+            {
+                label: 'Pending Orders',
+                value: pendingOrdersMetrics?.totalOrders || 0,
+                icon: Clock3
+            },
+            {
+                label: 'Completed Orders',
+                value: completedOrdersMetrics?.totalOrders || 0,
+                icon: CheckCircle2
+            }
+        ];
+        let normalizedCards = baseCards;
+        if (statusFilter === 'pending') {
+            normalizedCards = [
+                baseCards.find((card) => card.label === 'Total Orders'),
+                baseCards.find((card) => card.label === 'Total Revenue'),
+                baseCards.find((card) => card.label === 'Completed Orders'),
+                baseCards.find((card) => card.label === 'Pending Orders')
+            ].filter(Boolean);
         }
-        if (value === 'pending') return effectiveMetrics?.pendingOrders || 0;
-        return selectedStatusCount;
-    }, [effectiveMetrics?.confirmedOrders, effectiveMetrics?.pendingOrders, selectedStatusCount, statusFilter]);
-    const cards = useMemo(() => applyKpiThemeRotation([
-        {
-            label: 'Total Orders',
-            value: effectiveMetrics?.totalOrders || 0,
-            icon: Package
-        },
-        {
-            label: 'Total Revenue',
-            value: `₹${Number(effectiveMetrics?.totalRevenue || 0).toLocaleString()}`,
-            icon: IndianRupee
-        },
-        {
-            label: 'Pending',
-            value: effectiveMetrics?.pendingOrders || 0,
-            icon: Clock3
-        },
-        {
-            label: dynamicStatusLabel,
-            value: dynamicStatusValue,
-            icon: CheckCircle2
-        }
-    ]).map((card) => (
-        card.label === 'Pending' ? { ...card, theme: 'red' } : card
-    )), [dynamicStatusLabel, dynamicStatusValue, effectiveMetrics]);
+        return applyKpiThemeRotation(normalizedCards).map((card) => {
+        if (card.label === 'Pending Orders') return { ...card, theme: 'amber' };
+        if (card.label === 'Completed Orders') return { ...card, theme: 'green' };
+        if (card.label === 'Total Revenue') return { ...card, theme: 'brown' };
+        return card;
+        });
+    }, [allOrdersMetrics?.totalOrders, allOrdersMetrics?.totalRevenue, completedOrdersMetrics?.totalOrders, pendingOrdersMetrics?.totalOrders, statusFilter]);
     const activeLabelOrder = labelPrintModalOrder;
     const activeLabelOrderId = activeLabelOrder?.order_id || activeLabelOrder?.id || '';
     const activeFromValidation = activeLabelOrder ? getFromLabelValidation(activeLabelOrder) : { ok: false, missing: [] };
@@ -2650,10 +2714,13 @@ export function Orders({
     const mobileStatusMetricCounts = useMemo(() => (
         mobileStatusMetricQueries.reduce((acc, query) => {
             const key = toOrderMetricsKey(query);
-            acc[query.status] = Number(orderMetricsByKey[key]?.metrics?.totalOrders || 0);
+            const nextValue = orderMetricsByKey[key]?.metrics?.totalOrders;
+            acc[query.status] = Number.isFinite(Number(nextValue))
+                ? Number(nextValue)
+                : Number(statusCountCache[query.status] || 0);
             return acc;
         }, {})
-    ), [mobileStatusMetricQueries, orderMetricsByKey, toOrderMetricsKey]);
+    ), [mobileStatusMetricQueries, orderMetricsByKey, statusCountCache, toOrderMetricsKey]);
     const mobileStatusChipCounts = useMemo(() => {
         const rows = Array.isArray(orders) ? orders : [];
         const counts = {
@@ -2678,11 +2745,13 @@ export function Orders({
             counts.all = rows.length;
         }
 
-        if (selectedStatusCount !== null) {
+        if (selectedStatusCount !== null && selectedStatusCountKey === statusFilter) {
             counts[statusFilter] = selectedStatusCount;
+        } else if (statusCountCache[statusFilter] !== undefined) {
+            counts[statusFilter] = Number(statusCountCache[statusFilter] || 0);
         }
         return counts;
-    }, [mobileStatusMetricCounts, orders, selectedStatusCount, statusFilter]);
+    }, [mobileStatusMetricCounts, orders, selectedStatusCount, selectedStatusCountKey, statusCountCache, statusFilter]);
     const selectedPeriodText = useMemo(() => {
         if (quickRange === 'custom' && startDate && endDate) {
             return `${formatRangeDate(startDate)} - ${formatRangeDate(endDate)}`;
@@ -2731,15 +2800,40 @@ export function Orders({
 
     return (
         <div className="animate-fade-in overflow-x-hidden md:overflow-x-visible">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4 mb-3 md:mb-6">
                 <div className="flex items-start justify-between gap-3">
                     <div className="w-full">
-                        <div className="flex items-center justify-between gap-3 md:block">
-                            <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Orders</h1>
+                        <div className="flex items-start justify-between gap-2 md:block">
+                            <div className="flex min-w-0 items-start gap-2">
+                                <h1 className="shrink-0 text-2xl md:text-3xl font-serif text-primary font-bold leading-none">Orders</h1>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsAnalyticsPanelOpen((prev) => !prev)}
+                                    aria-pressed={isAnalyticsPanelOpen}
+                                    aria-label={isAnalyticsPanelOpen ? 'Hide order analytics' : 'Show order analytics'}
+                                    className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition md:hidden ${
+                                        isAnalyticsPanelOpen
+                                            ? 'border-primary bg-primary text-accent shadow-md shadow-primary/20'
+                                            : 'border-gray-200 bg-white text-gray-600'
+                                    }`}
+                                >
+                                    <BarChart3 size={15} />
+                                </button>
+                            </div>
+                            <div className="flex min-w-0 items-center gap-2 md:hidden">
+                                {selectedPeriodText && (
+                                    <p
+                                        className="min-w-0 text-right text-[10px] text-gray-400 leading-tight whitespace-nowrap overflow-hidden text-ellipsis"
+                                        style={{ fontSize: 'clamp(8px, 2.6vw, 10px)' }}
+                                    >
+                                        {selectedPeriodText}
+                                    </p>
+                                )}
+                            </div>
                         </div>
-                        <p className="text-gray-500 text-sm mt-1">Track sales, payments, and order status.</p>
+                        <p className="hidden md:block text-gray-500 text-sm mt-1">Track sales, payments, and order status.</p>
                         {selectedPeriodText && (
-                            <p className="mt-1 text-xs text-gray-400">Selected period: {selectedPeriodText}</p>
+                            <p className="hidden md:block mt-0.5 md:mt-1 text-[11px] md:text-xs text-gray-400 leading-tight">Selected period: {selectedPeriodText}</p>
                         )}
                     </div>
                 </div>
@@ -2808,6 +2902,20 @@ export function Orders({
                     >
                         <Download size={16} />
                         {isExporting ? 'Exporting...' : 'Export Report'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setIsAnalyticsPanelOpen((prev) => !prev)}
+                        aria-pressed={isAnalyticsPanelOpen}
+                        aria-label={isAnalyticsPanelOpen ? 'Hide order analytics' : 'Show order analytics'}
+                        className={`hidden md:inline-flex w-full md:w-auto items-center justify-center gap-2 px-4 py-3 rounded-xl border text-sm font-semibold order-3 md:order-3 ${
+                            isAnalyticsPanelOpen
+                                ? 'border-primary bg-primary text-accent shadow-lg shadow-primary/20'
+                                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                        }`}
+                    >
+                        <BarChart3 size={16} />
+                        {isAnalyticsPanelOpen ? 'Hide Analytics' : 'Show Analytics'}
                     </button>
                     <div className="relative w-full md:w-auto order-4 md:order-4">
                         <button
@@ -2974,33 +3082,39 @@ export function Orders({
                 document.body
             )}
 
-            <div className="hidden md:grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-                {cards.map((card, index) => (
-                    <div key={`${card.label}-${index}`} className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm p-5 flex items-center gap-4 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`} style={getKpiCardStyle(card.theme)}>
-                        <card.icon size={56} className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || 'sky'].iconGhost}`} />
-                        <div>
-                            <p className={`text-xs uppercase tracking-widest font-semibold ${KPI_CARD_THEMES[card.theme || 'sky'].label}`}>{card.label}</p>
-                            <p className={`text-lg font-bold ${KPI_CARD_THEMES[card.theme || 'sky'].value}`}>{card.value}</p>
+            {isAnalyticsPanelOpen && (
+                <div className="grid grid-cols-2 gap-3 mb-4 md:mb-6">
+                    {cards.map((card, index) => (
+                        <div
+                            key={`${card.label}-${index}`}
+                            className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm px-3 py-3 md:p-5 flex items-center gap-3 md:gap-4 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`}
+                            style={getKpiCardStyle(card.theme)}
+                        >
+                            <card.icon size={isMobileViewport ? 32 : 56} className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || 'sky'].iconGhost}`} />
+                            <div className="min-w-0">
+                                <p className={`text-[10px] md:text-xs uppercase tracking-[0.18em] md:tracking-widest font-semibold ${KPI_CARD_THEMES[card.theme || 'sky'].label}`}>{card.label}</p>
+                                <p className={`mt-1 text-sm md:text-lg font-bold ${KPI_CARD_THEMES[card.theme || 'sky'].value}`}>{card.value}</p>
+                            </div>
                         </div>
-                    </div>
-                ))}
-            </div>
+                    ))}
+                </div>
+            )}
 
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-x-hidden overflow-y-visible">
-                <div className="md:hidden px-4 pt-4 pb-3 border-b border-gray-100 space-y-3">
+                <div className="md:hidden px-3 pt-2 pb-2 border-b border-gray-100 space-y-2">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex min-w-0 flex-1 items-center gap-2">
                             <button
                                 type="button"
                                 onClick={() => setIsMobileSortOpen(true)}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-amber-100 bg-gradient-to-br from-white to-amber-50/80 text-amber-700 shadow-sm shadow-amber-100/50"
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-amber-100 bg-gradient-to-br from-white to-amber-50/80 text-amber-700 shadow-sm shadow-amber-100/50"
                                 aria-label="Sort orders"
                             >
-                                <ArrowUpDown size={17} />
+                                <ArrowUpDown size={15} />
                             </button>
                             <input
                                 placeholder="Search order / customer"
-                                className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm focus:border-accent outline-none"
+                                className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px] leading-tight focus:border-accent outline-none"
                                 value={searchInput}
                                 onChange={(e) => setSearchInput(e.target.value)}
                             />
@@ -3008,10 +3122,10 @@ export function Orders({
                         <button
                             type="button"
                             onClick={() => setIsFilterModalOpen(true)}
-                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-sky-100 bg-gradient-to-br from-white to-sky-50/80 text-sky-700 shadow-sm shadow-sky-100/50"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sky-100 bg-gradient-to-br from-white to-sky-50/80 text-sky-700 shadow-sm shadow-sky-100/50"
                             aria-label="Open order filters"
                         >
-                            <Filter size={17} />
+                            <Filter size={15} />
                         </button>
                     </div>
                     <div className="w-full max-w-full overflow-hidden">
@@ -3027,7 +3141,7 @@ export function Orders({
                                             key={chip.value}
                                             type="button"
                                             onClick={() => handleStatusFilterChange(chip.value)}
-                                            className={`inline-flex shrink-0 items-center rounded-full border px-3 py-2 text-xs font-semibold leading-none tracking-normal whitespace-nowrap transition ${
+                                            className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1.5 text-[11px] font-semibold leading-none tracking-normal whitespace-nowrap transition ${
                                                 active ? getOrderStatusBadgeClasses(chip.value) : 'border-gray-200 bg-white text-gray-600'
                                             }`}
                                         >
@@ -3120,7 +3234,8 @@ export function Orders({
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {orders.map((order) => {
-                                        const pendingDurationLabel = order.status === 'pending'
+                                        const displayStatus = getEffectiveOrderDisplayStatus(order);
+                                        const pendingDurationLabel = displayStatus === 'pending'
                                             ? getPendingDurationLabel(order.created_at)
                                             : '';
                                         return (
@@ -3155,8 +3270,8 @@ export function Orders({
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-2">
-                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getOrderStatusBadgeClasses(order.status)}`}>
-                                                        {formatStatusLabel(order.status || 'pending')}
+                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getOrderStatusBadgeClasses(displayStatus)}`}>
+                                                        {formatStatusLabel(displayStatus)}
                                                     </span>
                                                     {!!pendingDurationLabel && (
                                                         <span className="text-[10px] uppercase tracking-widest font-bold text-amber-100 bg-amber-950 border border-amber-700 px-2 py-0.5 rounded-full">
@@ -3256,49 +3371,52 @@ export function Orders({
                             {mobileOrdersWithDateBadges.map((entry) => {
                                 if (entry.type === 'date_badge') {
                                     return (
-                                        <div key={entry.key} className="sticky top-0 z-[2] flex justify-center bg-white/90 py-2 backdrop-blur-sm">
-                                            <span className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
+                                        <div key={entry.key} className="sticky top-0 z-[2] flex justify-center bg-white/90 py-1 backdrop-blur-sm">
+                                            <span className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50 px-2 py-0.5 text-[9px] font-semibold text-slate-700 shadow-sm">
                                                 {entry.label}
                                             </span>
                                         </div>
                                     );
                                 }
                                 const order = entry.order;
-                                const pendingDurationLabel = order.status === 'pending'
+                                const displayStatus = getEffectiveOrderDisplayStatus(order);
+                                const pendingDurationLabel = displayStatus === 'pending'
                                     ? getPendingDurationLabel(order.created_at)
                                     : '';
-                                const theme = getMobileOrderCardTheme(order.status);
+                                const theme = getMobileOrderCardTheme(displayStatus);
                                 const isQuickCompleting = quickCompletingOrderId === (order.order_id || order.id);
                                 return (
                                 <div
                                     key={entry.key}
                                     onClick={() => openDetails(order)}
-                                    className="w-full text-left p-4 transition-colors hover:bg-slate-50/70"
+                                    className="w-full text-left px-2 py-1 transition-colors hover:bg-slate-50/70"
                                 >
-                                    <div className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${theme.shell}`}>
-                                        <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${theme.strip}`} />
-                                        <div className="flex items-start justify-between gap-3">
+                                    <div className={`relative overflow-hidden rounded-lg border px-2.5 pb-1.5 pt-1.5 shadow-sm ${theme.shell}`}>
+                                        <div className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${theme.strip}`} />
+                                        <div className="flex items-start justify-between gap-2">
                                             <div className="min-w-0">
-                                                <p className="font-mono text-[15px] font-bold leading-tight tracking-tight text-slate-900 break-words">#{order.order_ref}</p>
-                                                <p className="mt-1 text-sm font-semibold text-slate-800">{order.customer_name || 'Guest'}</p>
-                                                {order.customer_mobile && (
-                                                    <p className="mt-1 text-xs text-slate-600">{order.customer_mobile}</p>
-                                                )}
+                                                <p className="font-mono text-[11px] font-bold leading-tight tracking-tight text-slate-900 break-words">#{order.order_ref}</p>
+                                                <div className="mt-0 flex min-w-0 items-baseline gap-1.5">
+                                                    <p className="min-w-0 truncate text-[11px] font-semibold leading-tight text-slate-800">{order.customer_name || 'Guest'}</p>
+                                                    {order.customer_mobile && (
+                                                        <p className="shrink-0 text-[9px] leading-tight text-slate-600">{order.customer_mobile}</p>
+                                                    )}
+                                                </div>
                                             </div>
-                                            <div className="flex shrink-0 flex-col items-end gap-1.5">
-                                                <div className="flex items-center justify-end gap-1.5">
-                                                    <span className={`inline-flex min-w-[74px] items-center justify-center px-2 py-0.5 rounded-full text-[11px] font-semibold ${getOrderStatusBadgeClasses(order.status)}`}>
-                                                        {formatStatusLabel(order.status || 'pending')}
+                                            <div className="flex shrink-0 flex-col items-end gap-1">
+                                                <div className="flex items-center justify-end gap-1">
+                                                    <span className={`inline-flex min-w-[62px] items-center justify-center px-2 py-0.5 rounded-full text-[9px] font-semibold ${getOrderStatusBadgeClasses(displayStatus)}`}>
+                                                        {formatStatusLabel(displayStatus)}
                                                     </span>
-                                                    {!isAttemptEntry(order) && !['completed', 'cancelled'].includes(normalizeOrderStatus(order.status)) && (
+                                                    {!isAttemptEntry(order) && !['completed', 'cancelled'].includes(displayStatus) && (
                                                         <button
                                                             type="button"
                                                             onClick={(e) => handleQuickComplete(order, e)}
                                                             disabled={isQuickCompleting}
-                                                            className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-gradient-to-r from-emerald-50 via-lime-50 to-emerald-100 px-2.5 py-1 text-[10px] font-semibold text-emerald-800 shadow-sm shadow-emerald-100/70 transition-all hover:from-emerald-100 hover:via-lime-100 hover:to-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                                            className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-gradient-to-r from-emerald-50 via-lime-50 to-emerald-100 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-800 shadow-sm shadow-emerald-100/70 transition-all hover:from-emerald-100 hover:via-lime-100 hover:to-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
                                                             title="Mark order as completed"
                                                         >
-                                                            <CheckCircle2 size={12} className={isQuickCompleting ? 'animate-pulse' : ''} />
+                                                            <CheckCircle2 size={10} className={isQuickCompleting ? 'animate-pulse' : ''} />
                                                             {isQuickCompleting ? 'Completing...' : 'Complete'}
                                                         </button>
                                                     )}
@@ -3306,46 +3424,44 @@ export function Orders({
                                             </div>
                                         </div>
 
-                                        <div className={`mt-4 grid grid-cols-2 gap-3 rounded-2xl border px-3 py-3 ${theme.meta}`}>
+                                        <div className={`mt-1 grid grid-cols-[1fr_auto] items-start gap-2 border-t px-0 pt-1 ${theme.divider}`}>
                                             <div>
-                                                <p className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">Placed</p>
-                                                <p className="mt-1 text-sm text-slate-700">{formatAdminDateTime(order.created_at)}</p>
+                                                <p className="text-[10px] leading-tight text-slate-700">{formatAdminDateTime(order.created_at)}</p>
                                             </div>
                                             <div className="text-right">
-                                                <p className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">Amount</p>
-                                                <p className={`mt-1 text-lg font-semibold ${theme.amount}`}>₹{Number(order.total || 0).toLocaleString()}</p>
+                                                <p className={`text-[13px] font-semibold leading-tight ${theme.amount}`}>₹{Number(order.total || 0).toLocaleString()}</p>
                                             </div>
                                         </div>
 
-                                        <div className={`mt-3 flex flex-wrap items-center gap-2 border-t pt-3 ${theme.divider}`}>
-                                            <span className={`inline-flex min-w-[88px] items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getPaymentStatusBadgeClasses(order.payment_status)}`}>
+                                        <div className={`mt-1 flex flex-wrap items-center gap-1 ${theme.divider}`}>
+                                            <span className={`inline-flex min-w-[64px] items-center justify-center px-1.5 py-0.5 rounded-full text-[8px] font-semibold ${getPaymentStatusBadgeClasses(order.payment_status)}`}>
                                                 {getPaymentStatusLabel(order)}
                                             </span>
                                             <TierBadge
                                                 tier={order?.loyalty_tier || order?.loyaltyTier || 'regular'}
                                                 label={getTierLabel(order)}
-                                                className="min-w-[88px] justify-center px-2 py-0.5 text-[10px]"
-                                                iconSize={11}
+                                                className="min-w-[64px] justify-center px-1.5 py-0.5 text-[7px]"
+                                                iconSize={8}
                                             />
                                             {!!pendingDurationLabel && (
-                                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-widest text-amber-100 bg-amber-950 border border-amber-700">
+                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[7px] font-semibold uppercase tracking-[0.12em] text-amber-100 bg-amber-950 border border-amber-700">
                                                     {pendingDurationLabel}
                                                 </span>
                                             )}
-                                            <span className="ml-auto inline-flex items-center justify-center w-6 h-6 rounded-full border border-slate-200 bg-white text-slate-500 cursor-pointer transition-colors transition-transform hover:bg-primary/10 hover:text-primary hover:border-primary/30 active:scale-95">
-                                                <ArrowRight size={13} />
+                                            <span className="ml-auto inline-flex items-center justify-center w-4.5 h-4.5 rounded-full border border-slate-200 bg-white text-slate-500 cursor-pointer transition-colors transition-transform hover:bg-primary/10 hover:text-primary hover:border-primary/30 active:scale-95">
+                                                <ArrowRight size={10} />
                                             </span>
                                         </div>
 
-                                        <div className={`mt-4 flex items-center justify-end gap-2 flex-wrap border-t pt-3 ${theme.divider}`}>
+                                        <div className={`mt-1 flex items-center justify-end gap-1 flex-nowrap overflow-hidden border-t pt-1 ${theme.divider}`}>
                                         {getCallLink(order.customer_mobile) && (
                                             <a
                                                 href={getCallLink(order.customer_mobile)}
                                                 onClick={(e) => e.stopPropagation()}
-                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm ${theme.actionInfo}`}
+                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm ${theme.actionInfo}`}
                                                 title="Call customer"
                                             >
-                                                <Phone size={14} />
+                                                <Phone size={11} />
                                             </a>
                                         )}
                                         {getWhatsappLink(order.customer_mobile) && (
@@ -3354,32 +3470,32 @@ export function Orders({
                                                 target="_blank"
                                                 rel="noreferrer"
                                                 onClick={(e) => e.stopPropagation()}
-                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm ${theme.actionSuccess}`}
+                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm ${theme.actionSuccess}`}
                                                 title="Contact customer on WhatsApp"
                                             >
-                                                <WhatsAppIcon size={14} />
+                                                <WhatsAppIcon size={11} />
                                             </a>
                                         )}
                                             <button
                                                 type="button"
                                                 onClick={(e) => handleOpenPrintLabelModal(order, e)}
                                                 disabled={printingLabelId === (order.order_id || order.id) || (!canOpenShippingLabelModal(order) && printerSupport.supported)}
-                                            className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm disabled:opacity-60 ${theme.actionAccent}`}
+                                            className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionAccent}`}
                                             title={canOpenShippingLabelModal(order)
                                                 ? 'Open label print options'
                                                 : 'Label printing requires at least sender or receiver address details'}
                                         >
-                                            <Printer size={14} />
+                                            <Printer size={11} />
                                         </button>
                                         {canDownloadInvoice(order) && (
                                             <button
                                                 type="button"
                                                 onClick={(e) => handleDownloadInvoice(order, e)}
                                                 disabled={downloadingInvoiceId === (order.order_id || order.id)}
-                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm disabled:opacity-60 ${theme.actionSuccess}`}
+                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionSuccess}`}
                                                 title="Download invoice"
                                             >
-                                                <Download size={14} />
+                                                <Download size={11} />
                                             </button>
                                         )}
                                         {canDownloadInvoice(order) && (
@@ -3387,10 +3503,10 @@ export function Orders({
                                                 type="button"
                                                 onClick={(e) => handleSendInvoiceCommunication(order, e)}
                                                 disabled={sendingInvoiceId === (order.order_id || order.id)}
-                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm disabled:opacity-60 ${theme.actionInfo}`}
+                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionInfo}`}
                                                 title="Send invoice to email + WhatsApp"
                                             >
-                                                <Send size={14} />
+                                                <Send size={11} />
                                             </button>
                                         )}
                                         {canReconcileAttempt(order) && (
@@ -3398,10 +3514,10 @@ export function Orders({
                                                 type="button"
                                                 onClick={(e) => handleReconcileAttempt(order, e)}
                                                 disabled={reconcilingAttemptId === (order.attempt_id || order.id)}
-                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm disabled:opacity-60 ${theme.actionAccent}`}
+                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionAccent}`}
                                                 title="Reconcile payment attempt"
                                             >
-                                                <RotateCw size={14} className={reconcilingAttemptId === (order.attempt_id || order.id) ? 'animate-spin' : ''} />
+                                                <RotateCw size={11} className={reconcilingAttemptId === (order.attempt_id || order.id) ? 'animate-spin' : ''} />
                                             </button>
                                         )}
                                         {canDeleteRow(order) && (
@@ -3409,10 +3525,10 @@ export function Orders({
                                                 type="button"
                                                 onClick={(e) => handleDeleteOrder(e, order)}
                                                 disabled={deletingOrderId === (isAttemptEntry(order) ? (order.attempt_id || order.id) : (order.order_id || order.id))}
-                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border shadow-sm disabled:opacity-60 ${theme.actionDanger}`}
+                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionDanger}`}
                                                 title="Delete order"
                                             >
-                                                <Trash2 size={14} />
+                                                <Trash2 size={11} />
                                             </button>
                                         )}
                                     </div>
@@ -3490,8 +3606,9 @@ export function Orders({
                                     </div>
                                 )}
                                 {(() => {
-                                    const headerTheme = getOrderHeaderTheme(selectedOrder.status);
-                                    const drawerTheme = getOrderDrawerSectionTheme(selectedOrder.status);
+                                    const displayStatus = getEffectiveOrderDisplayStatus(selectedOrder);
+                                    const headerTheme = getOrderHeaderTheme(displayStatus);
+                                    const drawerTheme = getOrderDrawerSectionTheme(displayStatus);
                                     const shippingAddress = typeof selectedOrder.shipping_address === 'string'
                                         ? JSON.parse(selectedOrder.shipping_address || '{}')
                                         : (selectedOrder.shipping_address || {});
@@ -3533,8 +3650,8 @@ export function Orders({
                                                             </p>
                                                         )}
                                                     </div>
-                                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getOrderHeaderBadgeClasses(selectedOrder.status)}`}>
-                                                        {formatStatusLabel(selectedOrder.status || 'confirmed')}
+                                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getOrderHeaderBadgeClasses(displayStatus)}`}>
+                                                        {formatStatusLabel(displayStatus)}
                                                     </span>
                                                 </div>
                                                 <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -3547,8 +3664,8 @@ export function Orders({
                                                         className="px-3 py-1 text-xs"
                                                         iconSize={12}
                                                     />
-                                                    {normalizeOrderStatus(selectedOrder.status) === 'pending' && (
-                                                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getOrderHeaderBadgeClasses(selectedOrder.status)}`}>
+                                                    {displayStatus === 'pending' && (
+                                                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getOrderHeaderBadgeClasses(displayStatus)}`}>
                                                             {getPendingDurationLabel(selectedOrder.created_at)}
                                                         </span>
                                                     )}
@@ -4029,7 +4146,7 @@ export function Orders({
                                                         disabled={isUpdatingStatus}
                                                         className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
                                                     >
-                                                        <option value="">{formatStatusLabel(selectedOrder.status || 'confirmed')}</option>
+                                                        <option value="">{formatStatusLabel(getEffectiveOrderDisplayStatus(selectedOrder))}</option>
                                                         {getAvailableStatusOptions(selectedOrder.status).map((option) => (
                                                             <option key={option.value} value={option.value}>{option.label}</option>
                                                         ))}

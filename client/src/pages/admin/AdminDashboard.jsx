@@ -5,7 +5,7 @@ import { useProducts } from '../../context/ProductContext';
 import Customers from './Customers';
 import Products from './Products';
 import Categories from './Categories';
-import { Users, ShoppingBag, LayoutDashboard, LogOut, Package, Truck, ShoppingCart, Settings, Sparkles, X } from 'lucide-react';
+import { Users, ShoppingBag, LayoutDashboard, LogOut, Package, Truck, ShoppingCart, Settings, Sparkles, X, Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Images } from 'lucide-react'; // Add 'Images' icon
 import HeroCMS from './HeroCMS'; // Import the new component
@@ -32,6 +32,7 @@ import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications
 
 const ADMIN_LAST_SEEN_ORDER_TS_KEY = 'admin_last_seen_order_ts_v1';
 const ADMIN_MURUGAR_POPUP_DATE_KEY = 'admin_murugar_popup_date_v1';
+const ADMIN_ACTIVE_TAB_STORAGE_KEY = 'admin_active_tab_v1';
 const SHIPPING_POPUP_COOLDOWN_MS = 90 * 1000;
 const MURUGAR_IMAGES = Object.values(
     import.meta.glob('../../assets/murugar/*', { eager: true, import: 'default' })
@@ -43,6 +44,25 @@ const getLocalDateKey = () => {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const day = String(now.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+};
+
+const ADMIN_PERSISTABLE_TABS = new Set([
+    'dashboard',
+    'products',
+    'categories',
+    'customers',
+    'orders',
+    'abandoned',
+    'shipping',
+    'cms',
+    'loyalty',
+    'companyInfo'
+]);
+
+const getInitialAdminTab = () => {
+    if (typeof window === 'undefined') return 'dashboard';
+    const saved = String(window.localStorage.getItem(ADMIN_ACTIVE_TAB_STORAGE_KEY) || '').trim();
+    return ADMIN_PERSISTABLE_TABS.has(saved) ? saved : 'dashboard';
 };
 
 const formatAddressPreview = (value) => {
@@ -62,7 +82,7 @@ const formatAddressPreview = (value) => {
 };
 
 export default function AdminDashboard() {
-    const [activeTab, setActiveTab] = useState('dashboard');
+    const [activeTab, setActiveTab] = useState(getInitialAdminTab);
     const [expandedMenu, setExpandedMenu] = useState('');
     const [focusOrderId, setFocusOrderId] = useState(null);
     const [focusProductId, setFocusProductId] = useState(null);
@@ -106,6 +126,12 @@ export default function AdminDashboard() {
         loadStorefrontState();
     }, [loadStorefrontState]);
 
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (!ADMIN_PERSISTABLE_TABS.has(activeTab)) return;
+        window.localStorage.setItem(ADMIN_ACTIVE_TAB_STORAGE_KEY, activeTab);
+    }, [activeTab]);
+
     useAdminCrudSync({
         'company:info_update': ({ company } = {}) => {
             if (company && typeof company === 'object' && Object.prototype.hasOwnProperty.call(company, 'storefrontOpen')) {
@@ -134,6 +160,17 @@ export default function AdminDashboard() {
         await logout(); // [FIX] Uses AuthContext to clear session & Firebase
         navigate('/admin/login');
     };
+
+    const handleViewSiteAsGuest = useCallback(() => {
+        if (typeof window === 'undefined') return;
+        const previewUrl = `${window.location.origin}/?preview=guest`;
+        const nextTab = window.open(previewUrl, '_blank');
+        if (!nextTab) {
+            window.location.href = previewUrl;
+            return;
+        }
+        nextTab.opener = null;
+    }, []);
    
 
     const NavItem = ({ icon: Icon, label, id, disabled = false }) => (
@@ -518,9 +555,9 @@ export default function AdminDashboard() {
             {/* --- MAIN CONTENT AREA --- */}
             <main className="flex-1 md:ml-64 min-h-screen transition-all flex flex-col overflow-x-hidden">
                 {/* Mobile Header */}
-                <div className="md:hidden bg-white p-4 flex items-center justify-between shadow-sm sticky top-0 z-40">
+                <div className="md:hidden bg-white p-4 flex items-center justify-between shadow-sm sticky top-0 z-40 relative">
                     <img src={BRAND_LOGO_URL} className="w-10 h-auto" alt="Logo" />
-                    <div className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                    <div className={`absolute left-1/2 top-1/2 inline-flex -translate-x-1/2 -translate-y-1/2 shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
                         storefrontOpen
                             ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
                             : 'border-gray-300 bg-gray-100 text-gray-800'
@@ -528,7 +565,9 @@ export default function AdminDashboard() {
                         <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
                         {storefrontOpen ? 'Store Open' : 'Store Closed'}
                     </div>
-                    <button onClick={handleLogout} className="text-gray-400"><LogOut size={20}/></button>
+                    <div className="flex items-center gap-2">
+                        <button onClick={handleLogout} className="text-gray-400"><LogOut size={20}/></button>
+                    </div>
                 </div>
 
                 {isDownloading && (
@@ -547,13 +586,23 @@ export default function AdminDashboard() {
 
                 <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full overflow-x-hidden">
                     <div className="mb-6 hidden items-center justify-end md:flex">
-                        <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                            storefrontOpen
-                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                                : 'border-gray-300 bg-gray-100 text-gray-800'
-                        }`}>
-                            <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
-                            {storefrontOpen ? 'Store Open' : 'Store Closed'}
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={handleViewSiteAsGuest}
+                                className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100"
+                            >
+                                <Eye size={14} />
+                                View Site as Customer
+                            </button>
+                            <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                                storefrontOpen
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                    : 'border-gray-300 bg-gray-100 text-gray-800'
+                            }`}>
+                                <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                                {storefrontOpen ? 'Store Open' : 'Store Closed'}
+                            </div>
                         </div>
                     </div>
                     {activeTab === 'companyInfo' && (
@@ -608,7 +657,21 @@ export default function AdminDashboard() {
                     )}
                     {activeTab === 'shipping' && <ShippingSettings />}
                     {activeTab === 'cms' && <HeroCMS />}
-                    {activeTab === 'dashboard' && <DashboardInsights onRunAction={handleDashboardAction} />}
+                    {activeTab === 'dashboard' && (
+                        <>
+                            <div className="md:hidden mb-3">
+                                <button
+                                    type="button"
+                                    onClick={handleViewSiteAsGuest}
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 shadow-sm"
+                                >
+                                    <Eye size={16} />
+                                    View Site as Customer
+                                </button>
+                            </div>
+                            <DashboardInsights onRunAction={handleDashboardAction} />
+                        </>
+                    )}
                     {activeTab === 'orders' && (
                         <OrdersPage
                             storefrontOpen={storefrontOpen}

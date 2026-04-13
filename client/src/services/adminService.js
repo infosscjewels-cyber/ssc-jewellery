@@ -595,6 +595,18 @@ export const adminService = {
         products: data?.products || {},
         lastUpdatedAt: data?.lastUpdatedAt || null
     })),
+    getDashboardProductPurchases: async ({
+        productId,
+        variantId = '',
+        quickRange = 'last_30_days',
+        startDate = '',
+        endDate = ''
+    } = {}) => {
+        const safeProductId = encodeURIComponent(String(productId || '').trim());
+        const query = `?variantId=${encodeURIComponent(String(variantId || '').trim())}&quickRange=${encodeURIComponent(quickRange)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
+        const res = await getWithRetry(`${API_URL}/dashboard/products/${safeProductId}/purchases${query}`, { headers: getAuthHeader() });
+        return handleResponse(res);
+    },
     getDashboardCustomers: async (params = {}) => adminService.getDashboardInsights(params).then((data) => ({
         filter: data?.filter || {},
         customers: data?.customers || {},

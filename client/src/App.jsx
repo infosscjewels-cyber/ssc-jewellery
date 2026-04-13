@@ -26,6 +26,8 @@ import { usePublicCompanyInfo } from './hooks/usePublicSiteShell';
 import ComingSoon from './pages/ComingSoon';
 import { canAccessAdminDashboard, shouldRedirectAdminToDashboard } from './utils/authRoutePolicy';
 import { BRAND_APPLE_TOUCH_ICON_URL, BRAND_FAVICON_URL, buildBrandAssetUrl } from './utils/branding.js';
+import { clearGuestPreviewMode, isGuestPreviewMode } from './utils/authSession';
+import { ArrowLeft, Eye } from 'lucide-react';
 
 const Shop = lazy(() => import('./pages/Shop'));
 const CategoryStore = lazy(() => import('./pages/CategoryStore'));
@@ -75,7 +77,10 @@ const AdminRoute = ({ children }) => {
 
 const RedirectAdminToDashboard = ({ children }) => {
   const { user } = useAuth();
-  return shouldRedirectAdminToDashboard(user) ? <Navigate to="/admin/dashboard" replace /> : children;
+  const location = useLocation();
+  return shouldRedirectAdminToDashboard(user) && !isGuestPreviewMode() && !String(location.search || '').includes('preview=guest')
+    ? <Navigate to="/admin/dashboard" replace />
+    : children;
 };
 
 const ClientRoute = ({ children, redirectTo = '/track-order' }) => {
@@ -103,9 +108,11 @@ const LegacyStoreCategoryRedirect = () => {
 // This perfectly matches the initial height of the Navbar (72px + border)
 const PublicLayout = () => {
   const { user } = useAuth();
+  const location = useLocation();
   const { companyInfo } = usePublicCompanyInfo();
   const tier = String(user?.loyaltyTier || 'regular').toLowerCase();
   const storefrontOpen = companyInfo?.storefrontOpen !== false;
+  const guestPreview = isGuestPreviewMode() || String(location.search || '').includes('preview=guest');
 
   useEffect(() => {
     const tiers = ['regular', 'bronze', 'silver', 'gold', 'platinum'];
@@ -141,6 +148,27 @@ const PublicLayout = () => {
     <>
       <Navbar />
       <main className="min-h-screen bg-secondary pb-32 md:pb-0 tier-surface"> 
+        {guestPreview && (
+          <div className="border-b border-sky-200 bg-sky-50 px-4 text-sm text-sky-900">
+            <div className="mx-auto flex max-w-7xl flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="inline-flex items-center gap-2 font-medium">
+                <Eye size={16} />
+                Previewing the storefront as a guest. Your admin session stays available in the other tab.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  clearGuestPreviewMode();
+                  window.location.href = '/admin/dashboard';
+                }}
+                className="inline-flex items-center gap-2 self-start rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-900 hover:bg-sky-100"
+              >
+                <ArrowLeft size={14} />
+                Return to Admin
+              </button>
+            </div>
+          </div>
+        )}
         {!storefrontOpen && (
           <div className="border-b border-amber-200 bg-amber-50/95 px-4 text-sm text-amber-900">
             <div className="mx-auto flex min-h-[64px] max-w-7xl items-center justify-center py-4 text-center">

@@ -473,6 +473,7 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 COALESCE(NULLIF(oi.title, ''), p.title, 'Untitled Product') AS title,
                 COALESCE(NULLIF(oi.variant_title, ''), '') AS variant_title,
                 MAX(NULLIF(oi.image_url, '')) AS thumbnail,
+                COUNT(DISTINCT scoped.id) AS orders_count,
                 SUM(COALESCE(oi.quantity, 0)) AS units_sold,
                 SUM(COALESCE(oi.line_total, 0)) AS revenue
              FROM ${ordersScopeSql} scoped
@@ -480,7 +481,7 @@ const getDashboardInsightsPayload = async (query = {}) => {
              LEFT JOIN products p ON p.id = oi.product_id
              WHERE scoped.status <> 'cancelled'
              GROUP BY oi.product_id, COALESCE(NULLIF(oi.variant_id, ''), ''), COALESCE(NULLIF(oi.title, ''), p.title, 'Untitled Product'), COALESCE(NULLIF(oi.variant_title, ''), '')
-             ORDER BY units_sold DESC, revenue DESC
+             ORDER BY orders_count DESC, revenue DESC, units_sold DESC
              LIMIT 8`,
             ordersScopeParams
         ),
@@ -730,6 +731,30 @@ const getDashboardInsightsPayload = async (query = {}) => {
             endDate: todayDate
         }
     };
+    const orderSummaryRange = {
+        search: String(query.search || ''),
+        quickRange: scope.quickRange,
+        startDate: scope.quickRange === 'custom' ? scope.seriesStartDate : '',
+        endDate: scope.quickRange === 'custom' ? scope.seriesEndDate : '',
+        sourceChannel: scope.filters.sourceChannel,
+        sortBy: 'newest'
+    };
+    const [newSummary, pendingSummary, attemptedSummary, completedSummary, cancelledSummary, failedSummary] = await Promise.all([
+        Order.getPaginated({ page: 1, limit: 1, status: 'confirmed', ...orderSummaryRange }),
+        Order.getPaginated({ page: 1, limit: 1, status: 'pending', ...orderSummaryRange }),
+        Order.getPaginated({ page: 1, limit: 1, status: 'attempted', ...orderSummaryRange }),
+        Order.getPaginated({ page: 1, limit: 1, status: 'completed', ...orderSummaryRange }),
+        Order.getPaginated({ page: 1, limit: 1, status: 'cancelled', ...orderSummaryRange }),
+        Order.getPaginated({ page: 1, limit: 1, status: 'failed', ...orderSummaryRange })
+    ]);
+    const orderSummary = {
+        confirmed: Number(newSummary?.total || 0),
+        pending: Number(pendingSummary?.total || 0),
+        attempted: Number(attemptedSummary?.total || 0),
+        completed: Number(completedSummary?.total || 0),
+        cancelled: Number(cancelledSummary?.total || 0),
+        failed: Number(failedSummary?.total || 0)
+    };
     const attemptedPayments = Number(attemptRows?.[0]?.attempted_payments || 0);
     const paidOrders = Number(base.paid_orders || 0);
     const netSales = Number(base.net_sales || 0);
@@ -858,7 +883,7 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 id: `low_stock_fast_seller_${row.product_id}`,
                 priority: 'high',
                 title: `${row.title} is low stock with active demand`,
-                description: `${Number(row.units_sold || 0)} units sold in selected period.`,
+                description: `${Number(row.orders_count || 0)} orders in selected period.`,
                 target: { tab: 'products' }
             });
         }
@@ -906,6 +931,7 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 title: row.title,
                 variantTitle: row.variant_title || '',
                 thumbnail: row.thumbnail || '',
+                ordersCount: Number(row.orders_count || 0),
                 unitsSold: Number(row.units_sold || 0),
                 revenue: Number(row.revenue || 0)
             })),
@@ -937,8 +963,141 @@ const getDashboardInsightsPayload = async (query = {}) => {
             }))
         },
         actions: actions.slice(0, 8),
+        orderSummary,
         navigationKpis: lifetimeOrderKpis,
         lastUpdatedAt: new Date().toISOString()
+    };
+};
+
+const getDashboardProductPurchasesPayload = async ({ productId, variantId = '', ...query } = {}) => {
+    const safeProductId = String(productId || '').trim();
+    if (!safeProductId) {
+        throw new Error('Product id is required');
+    }
+    const safeVariantId = String(variantId || '').trim();
+    const scope = buildDashboardScope(query || {});
+    const ordersScopeSql = scope.ordersScopeSql;
+    const ordersScopeParams = scope.ordersScopeParams || [];
+    const variantMatchSql = `COALESCE(NULLIF(oi.variant_id, ''), '') = ?`;
+    const sharedParams = [...ordersScopeParams, safeProductId, safeVariantId];
+
+    const [[summaryRows], [orderRows], [customerRows]] = await Promise.all([
+        db.execute(
+            `SELECT
+                oi.product_id,
+                COALESCE(NULLIF(oi.variant_id, ''), '') AS variant_id,
+                COALESCE(NULLIF(oi.title, ''), p.title, 'Untitled Product') AS title,
+                COALESCE(NULLIF(oi.variant_title, ''), '') AS variant_title,
+                MAX(NULLIF(oi.image_url, '')) AS thumbnail,
+                COUNT(DISTINCT scoped.id) AS orders_count,
+                SUM(COALESCE(oi.quantity, 0)) AS units_sold,
+                SUM(COALESCE(oi.line_total, 0)) AS revenue
+             FROM ${ordersScopeSql} scoped
+             JOIN order_items oi ON oi.order_id = scoped.id
+             LEFT JOIN products p ON p.id = oi.product_id
+             WHERE scoped.status <> 'cancelled'
+               AND oi.product_id = ?
+               AND ${variantMatchSql}
+             GROUP BY oi.product_id, COALESCE(NULLIF(oi.variant_id, ''), ''), COALESCE(NULLIF(oi.title, ''), p.title, 'Untitled Product'), COALESCE(NULLIF(oi.variant_title, ''), '')`,
+            sharedParams
+        ),
+        db.execute(
+            `SELECT
+                scoped.id AS order_id,
+                scoped.order_ref,
+                scoped.created_at,
+                scoped.status,
+                scoped.payment_status,
+                scoped.user_id,
+                COALESCE(u.name, 'Guest') AS customer_name,
+                COALESCE(u.mobile, '') AS customer_mobile,
+                COALESCE(u.email, '') AS customer_email,
+                SUM(COALESCE(oi.quantity, 0)) AS quantity,
+                SUM(COALESCE(oi.line_total, 0)) AS line_total
+             FROM ${ordersScopeSql} scoped
+             JOIN order_items oi ON oi.order_id = scoped.id
+             LEFT JOIN users u ON u.id = scoped.user_id
+             WHERE scoped.status <> 'cancelled'
+               AND oi.product_id = ?
+               AND ${variantMatchSql}
+             GROUP BY scoped.id, scoped.order_ref, scoped.created_at, scoped.status, scoped.payment_status, scoped.user_id, customer_name, customer_mobile, customer_email
+             ORDER BY scoped.created_at DESC
+             LIMIT 50`,
+            sharedParams
+        ),
+        db.execute(
+            `SELECT
+                scoped.user_id,
+                COALESCE(u.name, 'Guest') AS customer_name,
+                COALESCE(u.mobile, '') AS customer_mobile,
+                COALESCE(u.email, '') AS customer_email,
+                COUNT(DISTINCT scoped.id) AS orders_count,
+                SUM(COALESCE(oi.quantity, 0)) AS units_sold,
+                SUM(COALESCE(oi.line_total, 0)) AS revenue,
+                MAX(scoped.created_at) AS last_ordered_at
+             FROM ${ordersScopeSql} scoped
+             JOIN order_items oi ON oi.order_id = scoped.id
+             LEFT JOIN users u ON u.id = scoped.user_id
+             WHERE scoped.status <> 'cancelled'
+               AND oi.product_id = ?
+               AND ${variantMatchSql}
+             GROUP BY scoped.user_id, customer_name, customer_mobile, customer_email
+             ORDER BY revenue DESC, orders_count DESC, last_ordered_at DESC
+             LIMIT 50`,
+            sharedParams
+        )
+    ]);
+
+    const summary = summaryRows?.[0] || null;
+
+    return {
+        filter: {
+            quickRange: scope.quickRange,
+            startDate: scope.seriesStartDate,
+            endDate: scope.seriesEndDate
+        },
+        summary: summary ? {
+            productId: summary.product_id,
+            variantId: summary.variant_id || '',
+            title: summary.title || 'Untitled Product',
+            variantTitle: summary.variant_title || '',
+            thumbnail: summary.thumbnail || '',
+            ordersCount: Number(summary.orders_count || 0),
+            unitsSold: Number(summary.units_sold || 0),
+            revenue: Number(summary.revenue || 0)
+        } : {
+            productId: safeProductId,
+            variantId: safeVariantId,
+            title: 'Untitled Product',
+            variantTitle: '',
+            thumbnail: '',
+            ordersCount: 0,
+            unitsSold: 0,
+            revenue: 0
+        },
+        orders: (orderRows || []).map((row) => ({
+            orderId: row.order_id,
+            orderRef: row.order_ref || '',
+            createdAt: row.created_at,
+            status: row.status || '',
+            paymentStatus: row.payment_status || '',
+            userId: row.user_id || null,
+            customerName: row.customer_name || 'Guest',
+            customerMobile: row.customer_mobile || '',
+            customerEmail: row.customer_email || '',
+            quantity: Number(row.quantity || 0),
+            lineTotal: Number(row.line_total || 0)
+        })),
+        customers: (customerRows || []).map((row) => ({
+            userId: row.user_id || null,
+            name: row.customer_name || 'Guest',
+            mobile: row.customer_mobile || '',
+            email: row.customer_email || '',
+            ordersCount: Number(row.orders_count || 0),
+            unitsSold: Number(row.units_sold || 0),
+            revenue: Number(row.revenue || 0),
+            lastOrderedAt: row.last_ordered_at || null
+        }))
     };
 };
 
@@ -1013,6 +1172,19 @@ const getDashboardActions = async (req, res) => {
         return res.json({ filter: payload.filter, actions: payload.actions, lastUpdatedAt: payload.lastUpdatedAt });
     } catch (error) {
         return res.status(500).json({ message: error?.message || 'Failed to load dashboard actions' });
+    }
+};
+
+const getDashboardProductPurchases = async (req, res) => {
+    try {
+        const payload = await getDashboardProductPurchasesPayload({
+            ...req.query,
+            productId: req.params.productId,
+            variantId: req.query?.variantId || ''
+        });
+        return res.json(payload);
+    } catch (error) {
+        return res.status(400).json({ message: error?.message || 'Failed to load product purchases' });
     }
 };
 
@@ -1639,6 +1811,7 @@ const exportCustomers = async (req, res) => {
             'Loyalty Tier',
             'Record Status',
             'Is Active',
+            'Member Since',
             'Created At',
             'Deactivated At',
             'Deactivation Reason',
@@ -1688,6 +1861,7 @@ const exportCustomers = async (req, res) => {
                 toCsvCell(customer.loyaltyTier || 'regular'),
                 toCsvCell(recordStatus),
                 toCsvCell(customer.isActive === false ? 'No' : 'Yes'),
+                toCsvCell(customer.created_at || customer.createdAt || ''),
                 toCsvCell(customer.created_at || customer.createdAt || ''),
                 toCsvCell(customer.deactivatedAt || ''),
                 toCsvCell(customer.deactivationReason || ''),
@@ -2900,6 +3074,7 @@ module.exports = {
     getDashboardTrends,
     getDashboardFunnel,
     getDashboardProducts,
+    getDashboardProductPurchases,
     getDashboardCustomers,
     getDashboardActions,
     listDashboardGoals,
