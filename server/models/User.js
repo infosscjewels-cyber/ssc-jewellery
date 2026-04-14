@@ -374,6 +374,8 @@ class User {
             ...userData,
             role: userData.role || 'customer'
         };
+        const normalizedEmail = String(baseData.email || '').trim().toLowerCase() || null;
+        const normalizedMobile = String(baseData.mobile || '').trim() || null;
 
         // Generate ID: Timestamp + Random (8-12 chars)
         const timePart = Date.now().toString(36);
@@ -385,11 +387,18 @@ class User {
         const billingJson = baseData.billingAddress ? JSON.stringify(baseData.billingAddress) : null;
         
         await db.execute(query, [
-            uniqueId, baseData.name, baseData.email, baseData.mobile, 
+            uniqueId, baseData.name, normalizedEmail, normalizedMobile,
             baseData.password, baseData.role, baseData.dob || null, addressJson, billingJson, baseData.profileImage || null
         ]);
         
-        return { id: uniqueId, ...baseData, dobLocked: false, birthdayOfferClaimedYear: null };
+        return {
+            id: uniqueId,
+            ...baseData,
+            email: normalizedEmail,
+            mobile: normalizedMobile,
+            dobLocked: false,
+            birthdayOfferClaimedYear: null
+        };
     }
 
     static async getDeletionBlockers(id) {

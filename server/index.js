@@ -386,10 +386,12 @@ const scheduleMidnightJob = () => {
 };
 
 const schedulePaymentAttemptExpiryJob = () => {
-    const intervalMs = 5 * 60 * 1000;
+    const intervalDays = Math.max(1, Number(process.env.PAYMENT_ATTEMPT_EXPIRY_INTERVAL_DAYS || 14));
+    const ttlDays = Math.max(1, Number(process.env.PAYMENT_ATTEMPT_TTL_DAYS || 14));
+    const intervalMs = intervalDays * 24 * 60 * 60 * 1000;
     setInterval(async () => {
         try {
-            await PaymentAttempt.expireStaleAttempts({ ttlMinutes: 30 });
+            await PaymentAttempt.expireStaleAttempts({ ttlMinutes: ttlDays * 24 * 60 });
         } catch (error) {
             console.error('Payment attempt expiry job failed:', error);
         }
@@ -397,12 +399,20 @@ const schedulePaymentAttemptExpiryJob = () => {
 };
 
 const schedulePaymentAttemptReconciliationJob = () => {
-    const intervalMs = 2 * 60 * 1000;
+    const intervalSeconds = Math.max(15, Number(process.env.PAYMENT_ATTEMPT_RECONCILE_INTERVAL_SECONDS || 120));
+    const batchLimit = Math.max(1, Number(process.env.PAYMENT_ATTEMPT_RECONCILE_LIMIT || 20));
+    const minAgeSeconds = Math.max(0, Number(process.env.PAYMENT_ATTEMPT_RECONCILE_MIN_AGE_SECONDS || 90));
+    const intervalMs = intervalSeconds * 1000;
     const run = async () => {
         try {
+            const candidates = await PaymentAttempt.listReconciliationCandidates({
+                limit: 1,
+                minAgeSeconds
+            });
+            if (!candidates.length) return;
             const result = await runPaymentAttemptReconciliationPass({
-                limit: 20,
-                minAgeSeconds: 90
+                limit: batchLimit,
+                minAgeSeconds
             });
             if (Number(result?.reconciled || 0) > 0 || Number(result?.failed || 0) > 0 || Number(result?.expired || 0) > 0) {
                 console.log('Payment reconciliation job summary:', result);

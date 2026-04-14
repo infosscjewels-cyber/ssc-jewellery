@@ -914,7 +914,7 @@ export default function CompanyInfo() {
                                     </div>
                                 </td>
                                 <td className="px-6 py-4">
-                                    <div className="text-sm text-gray-900">{user.email}</div>
+                                    <div className="text-sm text-gray-900">{user.email || '—'}</div>
                                     <div className="text-xs text-gray-500">{user.mobile}</div>
                                 </td>
                                 <td className="px-6 py-4">

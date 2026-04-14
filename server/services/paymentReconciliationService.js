@@ -387,14 +387,6 @@ const reconcilePaymentAttemptById = async ({ attemptId, source = 'scheduler' } =
         const paymentStatus = String(paymentDetails?.status || '').trim().toLowerCase();
 
         if (!paymentDetails || !paymentId) {
-            const ageMs = Date.now() - new Date(attempt.created_at || Date.now()).getTime();
-            if (ageMs >= 60 * 60 * 1000) {
-                await PaymentAttempt.markExpired({
-                    id: attempt.id,
-                    reason: 'Payment session expired without a confirmed gateway payment'
-                });
-                return { ok: true, expired: true, reason: 'no_gateway_payment' };
-            }
             await PaymentAttempt.markReconciliationPending({
                 id: attempt.id,
                 errorMessage: 'Waiting for Razorpay payment details'

@@ -1846,7 +1846,7 @@ export default function Checkout() {
                                         <div className="relative">
                                             <input
                                                 name="email"
-                                                value={showGuestLockedPrefill ? (guestLookup?.maskedProfile?.email || 'Not saved') : form.email}
+                                                value={showGuestLockedPrefill ? (guestLookup?.maskedProfile?.email || 'Not saved') : (form.email || '')}
                                                 onChange={handleFieldChange}
                                                 readOnly={showGuestLockedPrefill}
                                                 disabled={formInputsDisabled}
