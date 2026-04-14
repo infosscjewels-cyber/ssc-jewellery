@@ -186,6 +186,7 @@ export default function Checkout() {
     const lastTierSeenRef = useRef(String(user?.loyaltyTier || 'regular').toLowerCase());
     const loyaltyHydratedRef = useRef(false);
     const preserveCheckoutAddressOnLoginRef = useRef(false);
+    const forceEditableAfterOtpLoginRef = useRef(false);
     const checkoutAddressSnapshotRef = useRef({ address: { ...emptyAddress }, billingAddress: { ...emptyAddress } });
     const [form, setForm] = useState({
         name: '',
@@ -389,7 +390,9 @@ export default function Checkout() {
     );
 
     useEffect(() => {
-        setEditing(!user || hasPersistedLoggedInRequiredDetailsMissing);
+        const forceEditableAfterOtpLogin = forceEditableAfterOtpLoginRef.current;
+        forceEditableAfterOtpLoginRef.current = false;
+        setEditing(forceEditableAfterOtpLogin || !user || hasPersistedLoggedInRequiredDetailsMissing);
         if (!user) return;
         lastTierSeenRef.current = String(user?.loyaltyTier || 'regular').toLowerCase();
         loyaltyHydratedRef.current = false;
@@ -966,11 +969,6 @@ export default function Checkout() {
         totalWeightKg,
         useDefaultZone: true
     })?.fee || 0), [zones, form.address?.state, subtotal, totalWeightKg]);
-
-    const shippingFee = useMemo(
-        () => Number(checkoutSummary?.shippingFee ?? fallbackShippingFee ?? 0),
-        [checkoutSummary?.shippingFee, fallbackShippingFee]
-    );
     const fallbackShippingPreview = useMemo(() => computeShippingPreview({
         zones,
         state: form.address?.state,
@@ -978,9 +976,34 @@ export default function Checkout() {
         totalWeightKg,
         useDefaultZone: true
     }), [zones, form.address?.state, subtotal, totalWeightKg]);
+    const shouldUseTentativeShippingPreview = useMemo(
+        () => (
+            !user
+            && !hasCompleteAddress(form.address)
+            && Boolean(fallbackShippingPreview?.isTentative)
+            && Number(checkoutSummary?.shippingFee ?? 0) <= 0
+        ),
+        [user, form.address, fallbackShippingPreview?.isTentative, checkoutSummary?.shippingFee]
+    );
+    const shippingFee = useMemo(
+        () => Number(
+            shouldUseTentativeShippingPreview
+                ? fallbackShippingFee
+                : (checkoutSummary?.shippingFee ?? fallbackShippingFee ?? 0)
+        ),
+        [shouldUseTentativeShippingPreview, fallbackShippingFee, checkoutSummary?.shippingFee]
+    );
     const freeShippingSavings = useMemo(
         () => Number(fallbackShippingPreview?.freeShippingSavings || 0),
         [fallbackShippingPreview?.freeShippingSavings]
+    );
+    const shippingHelperMessage = useMemo(
+        () => (
+            fallbackShippingPreview?.isTentative
+                ? 'Estimated using the default delivery zone. Final shipping updates after you add the delivery address.'
+                : 'Shipping will refresh automatically if the delivery address changes.'
+        ),
+        [fallbackShippingPreview?.isTentative]
     );
     const isShippingUnavailable = Boolean(
         hasCompleteAddress(form.address)
@@ -2191,7 +2214,7 @@ export default function Checkout() {
                                         <span className="font-semibold text-gray-800">₹{summarySubtotalDisplay.toLocaleString()}</span>
                                     </div>
                                     <div className="flex items-center justify-between text-gray-500">
-                                        <span>Shipping</span>
+                                        <span>{shouldUseTentativeShippingPreview ? 'Tentative shipping' : 'Shipping'}</span>
                                         {isShippingUnavailable ? (
                                             <span className="font-semibold text-amber-700">Unavailable for this state</span>
                                         ) : Number(summaryShippingDisplay || 0) <= 0 ? (
@@ -2208,6 +2231,11 @@ export default function Checkout() {
                                     {isShippingUnavailable && (
                                         <p className="text-[11px] text-amber-700">
                                             We do not currently have a matching shipping rule for this state. Update the address or shipping configuration before placing the order.
+                                        </p>
+                                    )}
+                                    {shouldUseTentativeShippingPreview && !isShippingUnavailable && (
+                                        <p className="text-[11px] text-amber-700">
+                                            {shippingHelperMessage}
                                         </p>
                                     )}
                                     <div className="flex items-start justify-between text-gray-500">
@@ -2615,6 +2643,7 @@ export default function Checkout() {
                         address: preservedShippingAddress,
                         billingAddress: preservedBillingAddress
                     };
+                    forceEditableAfterOtpLoginRef.current = true;
                     login(res.token, res.user);
                     setGuestCheckoutConflict('');
                     setIsAccountVerificationOpen(false);

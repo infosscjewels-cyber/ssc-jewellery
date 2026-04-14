@@ -23,6 +23,7 @@ const { computeChange, toSafeEnum, buildDashboardCacheKey, normalizeDashboardEve
 const { emitToUserAudiences } = require('../utils/socketAudience');
 const { resolveUploadedAssetPath } = require('../utils/uploadsRoot');
 const { queueFullRefresh } = require('../services/seoService');
+const DUPLICATE_PAYMENT_SESSION_MESSAGE = 'payment already linked to an existing checkout. please retry with a new payment session.';
 const isProductionLike = () => String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
 const toCsvCell = (value) => {
     if (value === null || value === undefined) return '""';
@@ -635,8 +636,80 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 MIN(CASE WHEN o.status = 'pending' OR (o.status = 'confirmed' AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) >= 24) THEN DATE(o.created_at) ELSE NULL END) AS oldest_pending_order_date,
                 SUM(CASE WHEN o.status = 'completed' THEN 1 ELSE 0 END) AS lifetime_completed_orders,
                 MIN(CASE WHEN o.status = 'completed' THEN DATE(o.created_at) ELSE NULL END) AS oldest_completed_order_date,
-                SUM(CASE WHEN o.status = 'failed' OR LOWER(COALESCE(o.payment_status, '')) = 'failed' THEN 1 ELSE 0 END) AS lifetime_failed_orders,
-                MIN(CASE WHEN o.status = 'failed' OR LOWER(COALESCE(o.payment_status, '')) = 'failed' THEN DATE(o.created_at) ELSE NULL END) AS oldest_failed_order_date
+                (
+                    SELECT COUNT(*)
+                    FROM (
+                        SELECT o_failed.id, o_failed.created_at
+                        FROM orders o_failed
+                        WHERE o_failed.status = 'failed' OR LOWER(COALESCE(o_failed.payment_status, '')) = 'failed'
+                        UNION ALL
+                        SELECT CONCAT('attempt_', pa.id) AS id, pa.created_at
+                        FROM payment_attempts pa
+                        WHERE pa.local_order_id IS NULL
+                          AND pa.status = 'failed'
+                          AND LOWER(COALESCE(pa.failure_reason, '')) <> '${DUPLICATE_PAYMENT_SESSION_MESSAGE}'
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM payment_attempts pa_success
+                              WHERE pa_success.user_id = pa.user_id
+                                AND pa_success.created_at > pa.created_at
+                                AND (
+                                    pa_success.local_order_id IS NOT NULL
+                                    OR pa_success.status = 'paid'
+                                )
+                          )
+                          AND NOT (
+                              pa.status = 'failed'
+                              AND EXISTS (
+                                  SELECT 1
+                                  FROM payment_attempts pa_retry
+                                  WHERE pa_retry.user_id = pa.user_id
+                                    AND JSON_UNQUOTE(JSON_EXTRACT(pa_retry.notes, '$.retryOfAttemptId')) = CAST(pa.id AS CHAR)
+                                    AND (
+                                        pa_retry.local_order_id IS NOT NULL
+                                        OR pa_retry.status = 'paid'
+                                    )
+                              )
+                          )
+                    ) failed_union
+                ) AS lifetime_failed_orders,
+                (
+                    SELECT MIN(DATE(failed_union.created_at))
+                    FROM (
+                        SELECT o_failed.id, o_failed.created_at
+                        FROM orders o_failed
+                        WHERE o_failed.status = 'failed' OR LOWER(COALESCE(o_failed.payment_status, '')) = 'failed'
+                        UNION ALL
+                        SELECT CONCAT('attempt_', pa.id) AS id, pa.created_at
+                        FROM payment_attempts pa
+                        WHERE pa.local_order_id IS NULL
+                          AND pa.status = 'failed'
+                          AND LOWER(COALESCE(pa.failure_reason, '')) <> '${DUPLICATE_PAYMENT_SESSION_MESSAGE}'
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM payment_attempts pa_success
+                              WHERE pa_success.user_id = pa.user_id
+                                AND pa_success.created_at > pa.created_at
+                                AND (
+                                    pa_success.local_order_id IS NOT NULL
+                                    OR pa_success.status = 'paid'
+                                )
+                          )
+                          AND NOT (
+                              pa.status = 'failed'
+                              AND EXISTS (
+                                  SELECT 1
+                                  FROM payment_attempts pa_retry
+                                  WHERE pa_retry.user_id = pa.user_id
+                                    AND JSON_UNQUOTE(JSON_EXTRACT(pa_retry.notes, '$.retryOfAttemptId')) = CAST(pa.id AS CHAR)
+                                    AND (
+                                        pa_retry.local_order_id IS NOT NULL
+                                        OR pa_retry.status = 'paid'
+                                    )
+                              )
+                          )
+                    ) failed_union
+                ) AS oldest_failed_order_date
              FROM orders o`
         )
     ]);

@@ -2903,20 +2903,6 @@ export function Orders({
                         <Download size={16} />
                         {isExporting ? 'Exporting...' : 'Export Report'}
                     </button>
-                    <button
-                        type="button"
-                        onClick={() => setIsAnalyticsPanelOpen((prev) => !prev)}
-                        aria-pressed={isAnalyticsPanelOpen}
-                        aria-label={isAnalyticsPanelOpen ? 'Hide order analytics' : 'Show order analytics'}
-                        className={`hidden md:inline-flex w-full md:w-auto items-center justify-center gap-2 px-4 py-3 rounded-xl border text-sm font-semibold order-3 md:order-3 ${
-                            isAnalyticsPanelOpen
-                                ? 'border-primary bg-primary text-accent shadow-lg shadow-primary/20'
-                                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-                        }`}
-                    >
-                        <BarChart3 size={16} />
-                        {isAnalyticsPanelOpen ? 'Hide Analytics' : 'Show Analytics'}
-                    </button>
                     <div className="relative w-full md:w-auto order-4 md:order-4">
                         <button
                             type="button"
@@ -3082,8 +3068,7 @@ export function Orders({
                 document.body
             )}
 
-            {isAnalyticsPanelOpen && (
-                <div className="grid grid-cols-2 gap-3 mb-4 md:mb-6">
+            <div className={`${isAnalyticsPanelOpen ? 'grid' : 'hidden'} md:grid grid-cols-2 gap-3 mb-4 md:mb-6`}>
                     {cards.map((card, index) => (
                         <div
                             key={`${card.label}-${index}`}
@@ -3098,7 +3083,6 @@ export function Orders({
                         </div>
                     ))}
                 </div>
-            )}
 
             <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-x-hidden overflow-y-visible">
                 <div className="md:hidden px-3 pt-2 pb-2 border-b border-gray-100 space-y-2">

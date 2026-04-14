@@ -383,14 +383,24 @@ const computeShippingFee = async (connection, shippingAddress, subtotal, totalWe
 };
 
 const resolveEffectiveShippingAddress = async (connection, userId, shippingAddress = null) => {
-    const directAddress = hasCompleteAddress(shippingAddress)
-        ? normalizeAddress(shippingAddress)
+    const normalizedDirectAddress = normalizeAddress(shippingAddress);
+    const directAddress = hasCompleteAddress(normalizedDirectAddress)
+        ? normalizedDirectAddress
         : null;
     if (directAddress) return directAddress;
-    if (!userId) return null;
+    if (!userId) {
+        return normalizedDirectAddress && String(normalizedDirectAddress?.state || '').trim()
+            ? normalizedDirectAddress
+            : null;
+    }
     const [userRows] = await connection.execute('SELECT address FROM users WHERE id = ? LIMIT 1', [userId]);
     const savedShippingAddress = normalizeAddress(userRows?.[0]?.address);
-    return hasCompleteAddress(savedShippingAddress) ? savedShippingAddress : null;
+    if (hasCompleteAddress(savedShippingAddress)) return savedShippingAddress;
+    if (normalizedDirectAddress && String(normalizedDirectAddress?.state || '').trim()) {
+        // Pricing preview only needs state to resolve the shipping zone.
+        return normalizedDirectAddress;
+    }
+    return null;
 };
 
 const parseVariantOptionsSafe = (value) => {
