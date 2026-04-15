@@ -215,6 +215,7 @@ const getPrimaryCategoryName = (categoriesInput) => {
 const PRODUCT_IMAGE_MIN_ZOOM = 1;
 const PRODUCT_IMAGE_MAX_ZOOM = 3;
 const PRODUCT_IMAGE_ZOOM_STEP = 0.5;
+const PRODUCT_LOAD_FAILURE_TOAST_COOLDOWN_MS = 60 * 1000;
 
 export default function ProductPage() {
     const { id } = useParams();
@@ -253,6 +254,7 @@ export default function ProductPage() {
     const heartPressTimerRef = useRef(null);
     const imagePanRef = useRef({ active: false, lastX: 0, lastY: 0, x: 50, y: 50 });
     const imageZoomBadgeTimerRef = useRef(null);
+    const productLoadFailureToastCooldownRef = useRef(0);
     const selectedCartEntries = useMemo(() => {
         if (!product?.id) return [];
         return (items || []).filter((entry) => {
@@ -541,7 +543,11 @@ export default function ProductPage() {
 
             } catch (err) {
                 console.error(err);
-                toast.error("Failed to load product");
+                const now = Date.now();
+                if (now >= Number(productLoadFailureToastCooldownRef.current || 0)) {
+                    productLoadFailureToastCooldownRef.current = now + PRODUCT_LOAD_FAILURE_TOAST_COOLDOWN_MS;
+                    toast.error("Failed to load product");
+                }
                 navigate('/shop');
             } finally {
                 setLoading(false);

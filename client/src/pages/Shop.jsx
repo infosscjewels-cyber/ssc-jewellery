@@ -12,12 +12,14 @@ import { buildShopSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
 import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
 import { buildWhatsAppShareLink } from '../utils/publicContact';
+import { useToast } from '../context/ToastContext';
 import emptyIllustration from '../assets/closed.svg';
 import WhatsAppIcon from '../components/WhatsAppIcon';
 
 const PAGE_LIMIT = 20;
 const SEARCH_DEBOUNCE_MS = 150;
 const SEARCH_LIMIT = 60;
+const SHOP_LOAD_FAILURE_TOAST_COOLDOWN_MS = 60 * 1000;
 
 const PROMO_TITLE_FONTS = [
     '"Impact", "Arial Black", sans-serif',
@@ -52,6 +54,7 @@ export default function Shop() {
     const [searchParams] = useSearchParams();
     const { getCarouselCards } = useCms();
     const { companyInfo } = usePublicCompanyInfo();
+    const toast = useToast();
     const [categories, setCategories] = useState([]);
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [selectedUsageAudience, setSelectedUsageAudience] = useState(() => String(searchParams.get('usageAudience') || '').trim().toLowerCase());
@@ -86,6 +89,7 @@ export default function Shop() {
     const requestKeyRef = useRef('');
     const manualRefreshTimerRef = useRef(null);
     const usageScrollRestoreRef = useRef(null);
+    const shopLoadFailureToastCooldownRef = useRef(0);
     const seoConfig = useMemo(() => buildShopSeo({
         categories,
         products,
@@ -368,12 +372,17 @@ export default function Shop() {
             return newItems;
         } catch (err) {
             console.error('Failed to load products', err);
+            const now = Date.now();
+            if (now >= Number(shopLoadFailureToastCooldownRef.current || 0)) {
+                shopLoadFailureToastCooldownRef.current = now + SHOP_LOAD_FAILURE_TOAST_COOLDOWN_MS;
+                toast.error('Failed to load products');
+            }
             return [];
         } finally {
             loadingRef.current = false;
             if (!skipLoading) setIsLoading(false);
         }
-    }, [selectedCategory, selectedUsageAudience, showAudienceCategoryBrowse, sortBy]);
+    }, [selectedCategory, selectedUsageAudience, showAudienceCategoryBrowse, sortBy, toast]);
 
     useEffect(() => {
         loadCategories();
@@ -827,7 +836,6 @@ export default function Shop() {
                 <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-8">
                     {/* Sidebar */}
                     <aside className="bg-white rounded-2xl border border-gray-200 p-4 h-fit">
-                        <h3 className="text-sm font-bold text-gray-700 uppercase tracking-widest mb-4 hidden md:block">Categories</h3>
                         {usageAudienceEnabled && (
                             <>
                                 <h3 className="text-sm font-bold text-gray-700 uppercase tracking-widest mb-4">Usage Audience</h3>
