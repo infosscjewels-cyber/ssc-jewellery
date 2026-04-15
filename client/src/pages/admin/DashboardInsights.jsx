@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRight, AlertTriangle, Activity, TrendingUp, IndianRupee, Users, ShoppingBag, Target, Bell, Save, Play, Trash2, BarChart3, Funnel, Boxes, UsersRound, Route, CalendarDays, ShieldAlert, Sparkles, PieChart, X, ChevronDown, ChevronUp, Download, Share2 } from 'lucide-react';
+import { ArrowRight, AlertTriangle, Activity, TrendingUp, IndianRupee, Users, ShoppingBag, Target, Bell, Save, Play, Trash2, BarChart3, Funnel, Boxes, UsersRound, Route, CalendarDays, ShieldAlert, Sparkles, PieChart, X, ChevronDown, ChevronUp, Download, Share2, XCircle } from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import dashboardIllustration from '../../assets/dashboard.svg';
@@ -759,7 +759,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         {
             label: 'Failed',
             value: Number(failedOrdersNav.count ?? risk.failedPaymentsCurrent6h ?? 0).toLocaleString('en-IN'),
-            icon: AlertTriangle,
+            icon: XCircle,
             target: buildLifetimeOrderTarget({
                 status: 'failed',
                 count: failedOrdersNav.count ?? risk.failedPaymentsCurrent6h,
@@ -1158,15 +1158,15 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     className={`group relative overflow-hidden rounded-2xl border px-2 pb-2 pt-2 shadow-sm flex h-full min-h-0 flex-col text-left transition-transform hover:-translate-y-0.5 ${card.label === 'New Orders' ? 'col-span-2' : ''} ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
                                     style={getKpiCardStyle(card.theme)}
                                 >
+                                    <card.icon size={30} className={`pointer-events-none absolute bottom-2 right-2 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
                                     <div className="flex items-start justify-between gap-2">
-                                        <p className={`max-w-full break-words text-[7px] leading-3 uppercase tracking-[0.08em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
+                                        <p className={`max-w-full break-words text-[8px] font-bold leading-3 uppercase tracking-[0.12em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
                                             {card.label}
                                         </p>
                                         <ArrowRight size={12} className={`shrink-0 ${KPI_CARD_THEMES[card.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent}`} />
                                     </div>
-                                    <div className="mt-auto flex items-end justify-between gap-2">
-                                        <p className={`min-w-0 text-[22px] leading-[0.9] font-semibold ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
-                                        <card.icon size={16} className={`mb-2 shrink-0 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
+                                    <div className="mt-auto flex items-end justify-between gap-2 pr-8">
+                                        <p className={`min-w-0 text-[26px] leading-none font-extrabold ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
                                     </div>
                                 </button>
                             ))}
@@ -1178,20 +1178,20 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                 className={`group relative overflow-hidden rounded-2xl border px-3 pb-2.5 pt-2.5 shadow-sm flex aspect-square flex-col text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
                                 style={getKpiCardStyle(mobileAbandonedCard.theme)}
                                 >
+                                    <MobileAbandonedIcon size={38} className={`pointer-events-none absolute bottom-3 right-3 opacity-90 ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
                                     <div className="flex items-start justify-between gap-2">
                                         <div className="min-w-0">
-                                            <p className={`max-w-full break-words text-[7px] leading-3 uppercase tracking-[0.08em] ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
+                                            <p className={`max-w-full break-words text-[8px] font-bold leading-3 uppercase tracking-[0.12em] ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
                                                 Abandoned Carts
                                             </p>
-                                            <p className="mt-1 inline-flex max-w-full rounded-full bg-black/10 px-2 py-1 text-[7px] font-medium leading-3 text-black/75">
+                                            <p className="mt-1 inline-flex max-w-full rounded-full bg-black/10 px-2.5 py-1 text-[8px] font-semibold leading-3 text-black/75">
                                                 {mobileAbandonedCard.helper || 'Tap to inspect detailed records'}
                                             </p>
                                         </div>
                                         <ArrowRight size={14} className={KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
                                     </div>
-                                <div className="mt-2 flex items-end justify-between gap-2">
-                                    <p className={`min-w-0 text-[30px] leading-[0.88] font-semibold ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{mobileAbandonedCard.value}</p>
-                                    <MobileAbandonedIcon size={20} className={`mb-3.5 shrink-0 opacity-90 ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
+                                <div className="mt-2 flex items-end justify-between gap-2 pr-10">
+                                    <p className={`min-w-0 text-[34px] leading-none font-extrabold ${KPI_CARD_THEMES[mobileAbandonedCard.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{mobileAbandonedCard.value}</p>
                                 </div>
                             </button>
                         )}
@@ -1205,11 +1205,12 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                 className={`group relative overflow-hidden rounded-2xl border p-5 shadow-sm flex min-h-[184px] items-start justify-between text-left transition-transform hover:-translate-y-0.5 ${KPI_CARD_THEMES[card.theme || 'sky']?.shell || KPI_CARD_THEMES.sky.shell}`}
                                 style={getKpiCardStyle(card.theme)}
                             >
-                                <div>
-                                    <p className={`text-xs uppercase tracking-[0.18em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
+                                <card.icon size={64} className={`pointer-events-none absolute bottom-4 right-4 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
+                                <div className="pr-20">
+                                    <p className={`text-sm font-bold uppercase tracking-[0.22em] ${KPI_CARD_THEMES[card.theme || 'sky']?.label || KPI_CARD_THEMES.sky.label}`}>
                                         {card.label}
                                     </p>
-                                    <p className={`mt-2 inline-flex max-w-full rounded-full px-2 py-1 text-xs font-medium leading-4 ${
+                                    <p className={`mt-2 inline-flex max-w-full rounded-full px-3 py-1.5 text-sm font-semibold leading-4 ${
                                         card.label === 'Abandoned Carts'
                                             ? 'bg-black/10 text-black/75'
                                             : card.theme === 'green'
@@ -1224,11 +1225,10 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     }`}>
                                         {card.helper || 'Tap to inspect detailed records'}
                                     </p>
-                                    <p className={`text-3xl font-semibold mt-3 ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
+                                    <p className={`text-4xl font-extrabold mt-3 leading-none ${KPI_CARD_THEMES[card.theme || 'sky']?.value || KPI_CARD_THEMES.sky.value}`}>{card.value}</p>
                                 </div>
-                                <div className="flex flex-col items-end justify-between h-full">
+                                <div className="relative z-10 flex flex-col items-end justify-between h-full">
                                     <ArrowRight size={22} className={KPI_CARD_THEMES[card.theme || 'sky']?.accent || KPI_CARD_THEMES.sky.accent} />
-                                    <card.icon size={44} className={`mt-10 opacity-90 ${KPI_CARD_THEMES[card.theme || 'sky']?.icon || KPI_CARD_THEMES.sky.icon}`} />
                                 </div>
                             </button>
                         ))}
@@ -1412,7 +1412,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     />
                                 )}
                                 {trendGranularity === 'daily' && trendDailyPages.length > 1 && (
-                                    <div className="pt-2 flex items-center justify-between">
+                                    <div className="relative z-10 pt-2 flex items-center justify-between gap-2">
                                         <button
                                             type="button"
                                             disabled={trendPageIndex <= 0}
@@ -1421,7 +1421,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                         >
                                             Prev
                                         </button>
-                                        <span className="text-xs text-gray-500">{trendDailyPages[trendPageIndex]?.label || ''}</span>
+                                        <span className="min-w-0 flex-1 text-center text-xs text-gray-500">{trendDailyPages[trendPageIndex]?.label || ''}</span>
                                         <button
                                             type="button"
                                             disabled={trendPageIndex >= trendDailyPages.length - 1}
@@ -1433,7 +1433,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                     </div>
                                 )}
                             </div>
-                            <BarChart3 size={58} className="absolute right-3 bottom-3 text-gray-300 opacity-15" />
+                            <BarChart3 size={58} className="pointer-events-none absolute right-3 bottom-3 text-gray-300 opacity-15" />
                         </div>
 
                         <div className="xl:col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm p-5 relative overflow-hidden">
@@ -1469,7 +1469,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                 <div key={card.label} className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${KPI_CARD_THEMES[card.theme].shell}`} style={getKpiCardStyle(card.theme)}>
                                     <p className={`text-xs uppercase tracking-[0.2em] flex items-center gap-1 ${KPI_CARD_THEMES[card.theme].label}`}><card.icon size={12} />{card.label}</p>
                                     <p className={`text-xs mt-2 ${KPI_CARD_THEMES[card.theme].subtext}`}>{card.helper}</p>
-                                    <p className={`text-xl font-semibold mt-3 ${KPI_CARD_THEMES[card.theme].value}`}>{card.value}</p>
+                                    <p className={`text-2xl font-extrabold mt-3 leading-none ${KPI_CARD_THEMES[card.theme].value}`}>{card.value}</p>
                                     <card.icon size={46} className={`absolute right-2 bottom-2 opacity-90 ${KPI_CARD_THEMES[card.theme].icon}`} />
                                 </div>
                             ))}
@@ -1534,6 +1534,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                                     label={tierLabel(item.loyaltyTier)}
                                                     className="px-2 py-0.5 text-[10px]"
                                                     iconSize={11}
+                                                    hideRegular
                                                 />
                                             </div>
                                             <p className="text-xs text-gray-500">{Number(item.orders || 0)} orders</p>

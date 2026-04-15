@@ -856,7 +856,7 @@ export default function Navbar() {
                     {/* Actions */}
                     <div className="hidden md:flex items-center gap-4 relative" ref={userMenuRef}>
                         {showTierBadge && (
-                            <TierBadge tier={tier} label={tierLabel} className="px-2.5 py-1 text-[10px] font-bold tracking-widest" iconSize={11} />
+                            <TierBadge tier={tier} label={tierLabel} className="px-3.5 py-1.5 text-sm font-semibold" iconSize={16} hideRegular />
                         )}
                         <button 
                             type="button"
@@ -887,7 +887,7 @@ export default function Navbar() {
                                     <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-2 animate-in fade-in slide-in-from-top-2 overflow-hidden">
                                         <div className="px-4 py-2 border-b border-gray-50">
                                             <p className="text-xs text-gray-500 font-bold uppercase">Hi, {effectiveUser.name}</p>
-                                            <TierBadge tier={tier} label={tierLabel} className="mt-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide" iconSize={12} />
+                                            <TierBadge tier={tier} label={tierLabel} className="mt-1 px-3 py-1 text-xs font-semibold" iconSize={14} hideRegular />
                                         </div>
                                         <Link to="/profile" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Profile</Link>
                                         <Link to="/wishlist" onClick={() => setIsUserMenuOpen(false)} className="block px-4 py-2 text-sm font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-colors">My Wishlist</Link>
@@ -909,7 +909,7 @@ export default function Navbar() {
                     {/* Mobile Actions */}
                     <div className="flex shrink-0 items-center gap-2 md:hidden">
                         {showTierBadge && (
-                            <TierBadge tier={tier} label={tierLabel} className="px-2 py-0.5 text-[10px] font-bold tracking-widest" iconSize={11} />
+                            <TierBadge tier={tier} label={tierLabel} className="px-3 py-1 text-xs font-semibold" iconSize={14} hideRegular />
                         )}
                         <button
                             type="button"
@@ -1274,7 +1274,7 @@ export default function Navbar() {
                         <div className="border-b border-gray-100 py-3 text-left text-sm text-gray-500">
                             Tier:
                             {' '}
-                            <TierBadge tier={tier} label={tierLabel} className="px-2 py-0.5 text-[10px] font-bold tracking-wider" iconSize={11} />
+                            <TierBadge tier={tier} label={tierLabel} className="px-3 py-1 text-xs font-semibold" iconSize={14} hideRegular />
                         </div>
                     )}
                 <div className="pt-3 text-center text-[10px] tracking-wide text-gray-300">

@@ -68,7 +68,7 @@ const KPI_CARD_THEMES = {
         iconGhost: 'text-rose-950/20'
     },
     brown: {
-        shell: 'bg-gradient-to-br from-amber-200 via-orange-300 to-stone-500 border-amber-800/80',
+        shell: 'bg-gradient-to-br from-amber-800 via-orange-900 to-stone-950 border-stone-950/90',
         label: 'text-white/90 drop-shadow-sm',
         value: 'text-white drop-shadow-sm',
         iconChip: 'text-white bg-white/15 border-white/25 backdrop-blur-[1px]',
@@ -104,15 +104,15 @@ const KPI_PATTERN_STYLES = {
         backgroundSize: 'cover, 90px 90px, 90px 90px, 90px 90px'
     },
     brown: {
-        backgroundColor: '#9a5b00',
-        backgroundImage: `linear-gradient(135deg, rgba(69,26,3,0.32), rgba(245,158,11,0.08)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 100 100'%3E%3Crect x='0' y='0' width='46' height='46' fill-opacity='0.45' fill='%23c77700'/%3E%3C/svg%3E")`,
+        backgroundColor: '#3b1f12',
+        backgroundImage: `linear-gradient(135deg, rgba(17,24,39,0.36), rgba(120,53,15,0.12)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 100 100'%3E%3Crect x='0' y='0' width='46' height='46' fill-opacity='0.34' fill='%238b5a2b'/%3E%3C/svg%3E")`,
         backgroundSize: 'cover, 40px 40px'
     }
 };
 const getKpiCardStyle = (theme) => KPI_PATTERN_STYLES[theme] || undefined;
 const applyKpiThemeRotation = (cards = [], startIndex = 0) => cards.map((card, index) => ({
     ...card,
-    theme: KPI_THEME_SEQUENCE[(startIndex + index) % KPI_THEME_SEQUENCE.length]
+    theme: card?.theme || KPI_THEME_SEQUENCE[(startIndex + index) % KPI_THEME_SEQUENCE.length]
 }));
 const CANCELLATION_MODES = [
     { value: 'razorpay', label: 'Razorpay Refund' },
@@ -2650,44 +2650,78 @@ export function Orders({
     const completedOrdersMetrics = orderMetricsByKey[toOrderMetricsKey(completedOrdersMetricsQuery)]?.metrics
         || (statusFilter === 'completed' ? effectiveMetrics : null);
     const cards = useMemo(() => {
+        const normalizeCardKey = (value = '') => String(value || '').trim().toLowerCase();
+        const buildStatusCard = (status) => {
+            const normalized = normalizeCardKey(status);
+            if (!normalized || normalized === 'all') return null;
+            const count = Number(
+                normalized === statusFilter
+                    ? (effectiveMetrics?.totalOrders || 0)
+                    : 0
+            );
+            if (normalized === 'pending') {
+                return { key: 'pending', label: 'Pending Orders', value: count || pendingOrdersMetrics?.totalOrders || 0, icon: Clock3, theme: 'amber' };
+            }
+            if (normalized === 'completed') {
+                return { key: 'completed', label: 'Completed Orders', value: count || completedOrdersMetrics?.totalOrders || 0, icon: CheckCircle2, theme: 'green' };
+            }
+            if (normalized === 'confirmed') {
+                return { key: 'confirmed', label: 'New Orders', value: count, icon: Package, theme: 'sky' };
+            }
+            if (normalized === 'attempted') {
+                return { key: 'attempted', label: 'Attempted Orders', value: count, icon: Smartphone, theme: 'pink' };
+            }
+            if (normalized === 'cancelled') {
+                return { key: 'cancelled', label: 'Cancelled Orders', value: count, icon: X, theme: 'red' };
+            }
+            if (normalized === 'failed') {
+                return { key: 'failed', label: 'Failed Orders', value: count, icon: AlertCircle, theme: 'red' };
+            }
+            return null;
+        };
+
         const baseCards = [
             {
+                key: 'total_orders',
                 label: 'Total Orders',
                 value: allOrdersMetrics?.totalOrders || 0,
                 icon: Package
             },
             {
+                key: 'total_revenue',
                 label: 'Total Revenue',
                 value: `₹${Number(allOrdersMetrics?.totalRevenue || 0).toLocaleString()}`,
                 icon: IndianRupee
             },
-            {
-                label: 'Pending Orders',
-                value: pendingOrdersMetrics?.totalOrders || 0,
-                icon: Clock3
-            },
-            {
-                label: 'Completed Orders',
-                value: completedOrdersMetrics?.totalOrders || 0,
-                icon: CheckCircle2
-            }
-        ];
-        let normalizedCards = baseCards;
-        if (statusFilter === 'pending') {
-            normalizedCards = [
-                baseCards.find((card) => card.label === 'Total Orders'),
-                baseCards.find((card) => card.label === 'Total Revenue'),
-                baseCards.find((card) => card.label === 'Completed Orders'),
-                baseCards.find((card) => card.label === 'Pending Orders')
-            ].filter(Boolean);
-        }
-        return applyKpiThemeRotation(normalizedCards).map((card) => {
-        if (card.label === 'Pending Orders') return { ...card, theme: 'amber' };
-        if (card.label === 'Completed Orders') return { ...card, theme: 'green' };
-        if (card.label === 'Total Revenue') return { ...card, theme: 'brown' };
-        return card;
+            buildStatusCard('pending'),
+            buildStatusCard(statusFilter === 'all' || normalizeCardKey(statusFilter) === 'pending' ? 'completed' : statusFilter)
+        ].filter(Boolean);
+
+        const dedupedCards = [];
+        const seenKeys = new Set();
+        baseCards.forEach((card) => {
+            const key = normalizeCardKey(card?.key || card?.label);
+            if (!key || seenKeys.has(key)) return;
+            seenKeys.add(key);
+            dedupedCards.push(card);
         });
-    }, [allOrdersMetrics?.totalOrders, allOrdersMetrics?.totalRevenue, completedOrdersMetrics?.totalOrders, pendingOrdersMetrics?.totalOrders, statusFilter]);
+
+        if (dedupedCards.length < 4) {
+            const fallbackCompletedCard = buildStatusCard('completed');
+            const fallbackKey = normalizeCardKey(fallbackCompletedCard?.key || fallbackCompletedCard?.label);
+            if (fallbackCompletedCard && fallbackKey && !seenKeys.has(fallbackKey)) {
+                seenKeys.add(fallbackKey);
+                dedupedCards.push(fallbackCompletedCard);
+            }
+        }
+
+        return applyKpiThemeRotation(dedupedCards.slice(0, 4)).map((card) => {
+            if (card.label === 'Pending Orders') return { ...card, theme: 'amber' };
+            if (card.label === 'Completed Orders') return { ...card, theme: 'green' };
+            if (card.label === 'Total Revenue') return { ...card, theme: 'brown' };
+            return card;
+        });
+    }, [allOrdersMetrics?.totalOrders, allOrdersMetrics?.totalRevenue, completedOrdersMetrics?.totalOrders, pendingOrdersMetrics?.totalOrders, statusFilter, effectiveMetrics?.totalOrders]);
     const activeLabelOrder = labelPrintModalOrder;
     const activeLabelOrderId = activeLabelOrder?.order_id || activeLabelOrder?.id || '';
     const activeFromValidation = activeLabelOrder ? getFromLabelValidation(activeLabelOrder) : { ok: false, missing: [] };
@@ -3068,7 +3102,7 @@ export function Orders({
                 document.body
             )}
 
-            <div className={`${isAnalyticsPanelOpen ? 'grid' : 'hidden'} md:grid grid-cols-2 gap-3 mb-4 md:mb-6`}>
+            <div className={`${isAnalyticsPanelOpen ? 'grid' : 'hidden'} md:grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 md:mb-6 w-full`}>
                     {cards.map((card, index) => (
                         <div
                             key={`${card.label}-${index}`}
@@ -3078,7 +3112,7 @@ export function Orders({
                             <card.icon size={isMobileViewport ? 32 : 56} className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || 'sky'].iconGhost}`} />
                             <div className="min-w-0">
                                 <p className={`text-[10px] md:text-xs uppercase tracking-[0.18em] md:tracking-widest font-semibold ${KPI_CARD_THEMES[card.theme || 'sky'].label}`}>{card.label}</p>
-                                <p className={`mt-1 text-sm md:text-lg font-bold ${KPI_CARD_THEMES[card.theme || 'sky'].value}`}>{card.value}</p>
+                                <p className={`mt-1 text-lg md:text-2xl font-extrabold leading-none ${KPI_CARD_THEMES[card.theme || 'sky'].value}`}>{card.value}</p>
                             </div>
                         </div>
                     ))}
@@ -3237,6 +3271,7 @@ export function Orders({
                                                         label={getTierLabel(order)}
                                                         className="px-2 py-0.5 text-[10px]"
                                                         iconSize={11}
+                                                        hideRegular
                                                     />
                                                 </div>
                                             </td>
@@ -3356,7 +3391,7 @@ export function Orders({
                                 if (entry.type === 'date_badge') {
                                     return (
                                         <div key={entry.key} className="sticky top-0 z-[2] flex justify-center bg-white/90 py-1 backdrop-blur-sm">
-                                            <span className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50 px-2 py-0.5 text-[9px] font-semibold text-slate-700 shadow-sm">
+                                            <span className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold leading-none tracking-normal text-slate-700 shadow-sm">
                                                 {entry.label}
                                             </span>
                                         </div>
@@ -3426,6 +3461,7 @@ export function Orders({
                                                 label={getTierLabel(order)}
                                                 className="min-w-[64px] justify-center px-1.5 py-0.5 text-[7px]"
                                                 iconSize={8}
+                                                hideRegular
                                             />
                                             {!!pendingDurationLabel && (
                                                 <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[7px] font-semibold uppercase tracking-[0.12em] text-amber-100 bg-amber-950 border border-amber-700">
@@ -3647,6 +3683,7 @@ export function Orders({
                                                         label={getTierLabel(selectedOrder)}
                                                         className="px-3 py-1 text-xs"
                                                         iconSize={12}
+                                                        hideRegular
                                                     />
                                                     {displayStatus === 'pending' && (
                                                         <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getOrderHeaderBadgeClasses(displayStatus)}`}>
@@ -4280,6 +4317,7 @@ export function Orders({
                                                 label={getTierLabel(selectedManualCustomer)}
                                                 className="px-2.5 py-1 text-xs"
                                                 iconSize={12}
+                                                hideRegular
                                             />
                                         )}
                                     </div>

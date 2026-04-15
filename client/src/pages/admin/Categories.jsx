@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { productService } from '../../services/productService';
 import { adminService } from '../../services/adminService';
@@ -335,7 +335,7 @@ export default function Categories({ onNavigate = () => {}, storefrontOpen = tru
                     {filtered.map((cat, index) => {
                         const theme = getMobileCategoryTheme(index);
                         return (
-                        <>
+                        <Fragment key={cat.id || cat.name || index}>
                             <div 
                                 key={`${cat.id}-mobile`}
                                 onClick={() => openCategory(cat.id)}
@@ -419,7 +419,7 @@ export default function Categories({ onNavigate = () => {}, storefrontOpen = tru
                                     </div>
                                 </div>
                             </div>
-                        </>
+                        </Fragment>
                     )})}
                 </div>
             )}

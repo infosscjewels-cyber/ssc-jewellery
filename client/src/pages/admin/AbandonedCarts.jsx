@@ -1281,13 +1281,14 @@ export default function AbandonedCarts({
                         <button
                             type="button"
                             onClick={() => setIsMobileRangeModalOpen(true)}
-                            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
+                            className={`inline-flex shrink-0 items-center rounded-full border px-3 py-2 text-xs font-semibold leading-none tracking-normal whitespace-nowrap shadow-sm transition ${
                                 rangeDays !== 30 ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700' : 'border-gray-200 bg-white text-gray-600'
                             }`}
                             title="Duration"
                             aria-label="Duration"
                         >
-                            <CalendarDays size={18} />
+                            <CalendarDays size={14} className="mr-1.5" />
+                            {insightRangeOptions.find((option) => String(option.value) === String(rangeDays))?.label || 'Duration'}
                         </button>
                         <div className="relative min-w-0 w-full max-w-[220px]">
                             <Search className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 ${searchInput ? 'text-primary' : 'text-gray-400'}`} />

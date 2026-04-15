@@ -417,8 +417,9 @@ export default function Profile() {
                                 <TierBadge
                                     tier={tier}
                                     label={tierLabel}
-                                    className="absolute top-3 right-3 px-3 py-1 text-[10px] md:text-xs font-bold tracking-[0.12em] shadow-sm"
-                                    iconSize={12}
+                                    className="absolute top-3 right-3 px-3.5 py-1.5 text-xs md:text-sm font-semibold shadow-sm"
+                                    iconSize={16}
+                                    hideRegular
                                 />
                             )}
                             <div className="flex items-start gap-4">
@@ -570,7 +571,7 @@ export default function Profile() {
                                             <div className="flex items-center justify-between gap-3">
                                                 <p className="text-sm font-semibold text-gray-800">Current Benefits</p>
                                                 {tier !== 'regular' && (
-                                                    <TierBadge tier={tier} label={tierLabel} className="px-3 py-1 text-xs" iconSize={12} />
+                                                    <TierBadge tier={tier} label={tierLabel} className="px-3.5 py-1.5 text-sm font-semibold" iconSize={16} hideRegular />
                                                 )}
                                             </div>
                                             <div className="mt-3 space-y-2">

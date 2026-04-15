@@ -842,7 +842,7 @@ export default function Customers({
                             onClick={() => setIsMobileBirthdayModalOpen(false)}
                             className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light"
                         >
-                            Close
+                            Apply
                         </button>
                     </div>
                 </div>,
@@ -875,7 +875,7 @@ export default function Customers({
                             onClick={() => setIsMobileTierModalOpen(false)}
                             className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light"
                         >
-                            Close
+                            Apply
                         </button>
                     </div>
                 </div>,
@@ -909,7 +909,7 @@ export default function Customers({
                             onClick={() => setIsMobileSearchModalOpen(false)}
                             className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light"
                         >
-                            Close
+                            Apply
                         </button>
                     </div>
                 </div>,
@@ -1488,8 +1488,9 @@ export default function Customers({
                                                 <TierBadge
                                                     tier={user.loyaltyTier || 'regular'}
                                                     label={tierLabel(user.loyaltyTier || 'regular')}
-                                                    className="px-2.5 py-0.5 text-xs font-medium"
-                                                    iconSize={12}
+                                                    className="px-3.5 py-1.5 text-sm font-semibold"
+                                                    iconSize={18}
+                                                    hideRegular
                                                 />
                                             </td>
                                             <td className="px-6 py-4">
@@ -1592,8 +1593,9 @@ export default function Customers({
                                                                 <TierBadge
                                                                     tier={user.loyaltyTier || 'regular'}
                                                                     label={tierLabel(user.loyaltyTier || 'regular')}
-                                                                    className="px-2 py-0.5 text-[9px] font-medium"
-                                                                    iconSize={10}
+                                                                    className="px-2.5 py-1 text-[10px] font-semibold"
+                                                                    iconSize={14}
+                                                                    hideRegular
                                                                 />
                                                                 {user.isArchived && <span className="inline-flex items-center whitespace-nowrap px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">Archived</span>}
                                                                 {user.isActive === false && <span className="inline-flex items-center whitespace-nowrap px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-red-100 text-red-800 border border-red-200">Inactive</span>}
