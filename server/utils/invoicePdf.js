@@ -62,12 +62,24 @@ const formatPercent = (value) => `${roundToTwo(value).toLocaleString('en-IN', {
 })}%`;
 const getGstAmountSplit = (totalTaxAmount = 0) => {
     const totalTax = Math.max(0, toNumber(totalTaxAmount, 0));
-    const halfTax = roundToTwo(totalTax / 2);
+    const totalPaise = Math.round(totalTax * 100);
+    const evenPaise = totalPaise % 2 === 0 ? totalPaise : totalPaise + 1;
+    const halfPaise = Math.max(0, evenPaise / 2);
+    const sgst = roundToTwo(halfPaise / 100);
+    const cgst = roundToTwo(halfPaise / 100);
     return {
         totalTax,
-        halfTax,
-        label: `SGST ${inr(halfTax)} + CGST ${inr(halfTax)}`
+        halfTax: sgst,
+        sgst,
+        cgst,
+        label: `SGST ${inr(sgst)} + CGST ${inr(cgst)}`
     };
+};
+const deriveDisplayedGstAmount = (taxAmount = 0) => {
+    const safeTax = Math.max(0, toNumber(taxAmount, 0));
+    const paise = Math.round(safeTax * 100);
+    const evenPaise = paise % 2 === 0 ? paise : paise + 1;
+    return roundToTwo(evenPaise / 100);
 };
 const buildDiscountCellParts = (item = {}) => {
     const totalDiscount = Math.max(
@@ -106,6 +118,20 @@ const buildGstCellParts = (item = {}) => {
         breakdown
     };
 };
+
+const computeDisplayedInvoiceLineTotal = (item = {}) => {
+    const amount = roundCurrency(Math.max(0, toNumber(item.displayAmount, 0)));
+    const totalDiscount = Math.max(
+        0,
+        toNumber(item.displayProductDiscount ?? item.discount, 0)
+        + toNumber(item.displayCouponDiscount ?? item.couponDiscount, 0)
+        + toNumber(item.displayMemberDiscount ?? item.memberDiscount, 0)
+        + toNumber(item.displayShippingBenefitShare ?? item.shippingBenefitShare, 0)
+    );
+    const gst = roundCurrency(Math.max(0, toNumber(item.taxAmount, 0)));
+    return roundCurrency(Math.max(0, amount - totalDiscount + gst));
+};
+
 const getBreakdownCellHeight = (doc, width, parts, fonts) => {
     const totalHeight = textHeight(doc, parts.total, width, 9, fonts);
     const breakdownHeight = parts.breakdown.reduce((sum, line) => (
@@ -428,28 +454,44 @@ const getItems = (order = {}) => {
         const amountBeforeDiscount = taxPriceMode === 'inclusive'
             ? Math.max(0, toNumber(item.lineTotalBase, lineGross) + toNumber(item.discount, 0))
             : Math.max(0, toNumber(item.lineTotalBase, lineGross));
+        const displayProductDiscount = toNumber(item.discount, 0);
+        const displayCouponDiscount = couponShare;
+        const displayMemberDiscount = memberShare;
+        const displayShippingBenefitShare = 0;
+        const totalDisplayDiscount = roundCurrency(
+            displayProductDiscount
+            + displayCouponDiscount
+            + displayMemberDiscount
+            + displayShippingBenefitShare
+        );
+        const fixedDisplayedLineTotal = roundCurrency(
+            taxPriceMode === 'inclusive'
+                ? discountedGross
+                : Math.max(0, taxableValue + toNumber(item.taxAmount, 0))
+        );
+        const displayedTaxAmount = deriveDisplayedGstAmount(item.taxAmount);
+        const displayedAmount = roundCurrency(Math.max(0, fixedDisplayedLineTotal - displayedTaxAmount + totalDisplayDiscount));
         const rateBeforeDiscount = Math.max(
             0,
-            roundCurrency(amountBeforeDiscount / Math.max(1, toNumber(item.qty, 0)))
+            roundCurrency(displayedAmount / Math.max(1, toNumber(item.qty, 0)))
         );
         return {
             ...item,
             couponDiscount: couponShare,
             memberDiscount: memberShare,
-            displayProductDiscount: toNumber(item.discount, 0),
-            displayCouponDiscount: couponShare,
-            displayMemberDiscount: memberShare,
-            displayShippingBenefitShare: 0,
+            displayProductDiscount,
+            displayCouponDiscount,
+            displayMemberDiscount,
+            displayShippingBenefitShare,
             shippingShare: 0,
             shippingBenefitShare: 0,
             netShippingShare: 0,
             taxableValue,
+            taxAmount: displayedTaxAmount,
             displayRate: rateBeforeDiscount,
-            displayAmount: amountBeforeDiscount,
+            displayAmount: displayedAmount,
             lineTotal: taxableValue,
-            lineTotalInclTax: taxPriceMode === 'inclusive'
-                ? discountedGross
-                : taxableValue + toNumber(item.taxAmount, 0)
+            lineTotalInclTax: fixedDisplayedLineTotal
         };
     });
 };
@@ -469,6 +511,14 @@ const buildShippingRow = (order = {}, items = []) => {
     const taxableValue = taxPriceMode === 'inclusive'
         ? Math.max(0, roundCurrency(grossAfterDiscounts - shippingTaxAmount))
         : grossAfterDiscounts;
+    const displayShippingBenefitShare = shippingBenefitShare;
+    const fixedDisplayedLineTotal = roundCurrency(
+        taxPriceMode === 'inclusive'
+            ? grossAfterDiscounts
+            : taxableValue + shippingTaxAmount
+    );
+    const displayedTaxAmount = deriveDisplayedGstAmount(shippingTaxAmount);
+    const displayedAmount = roundCurrency(Math.max(0, fixedDisplayedLineTotal - displayedTaxAmount + displayShippingBenefitShare));
     return {
         name: 'Shipping',
         variantLine: 'Delivery charge',
@@ -484,22 +534,18 @@ const buildShippingRow = (order = {}, items = []) => {
         displayMemberDiscount: 0,
         shippingShare: shippingFeeGross,
         shippingBenefitShare,
-        displayShippingBenefitShare: shippingBenefitShare,
+        displayShippingBenefitShare,
         netShippingShare: taxableValue,
         taxableValue,
         displayRate: taxPriceMode === 'inclusive'
-            ? Math.max(0, taxableValue + shippingBenefitShare)
-            : shippingFeeBase,
-        displayAmount: taxPriceMode === 'inclusive'
-            ? Math.max(0, taxableValue + shippingBenefitShare)
-            : shippingFeeBase,
-        taxAmount: shippingTaxAmount,
+            ? displayedAmount
+            : displayedAmount,
+        displayAmount: displayedAmount,
+        taxAmount: displayedTaxAmount,
         taxRatePercent: 0,
         lineTotal: taxableValue,
         lineTotalGross: shippingFeeGross,
-        lineTotalInclTax: taxPriceMode === 'inclusive'
-            ? grossAfterDiscounts
-            : taxableValue + shippingTaxAmount,
+        lineTotalInclTax: fixedDisplayedLineTotal,
         isShippingRow: true
     };
 };
@@ -590,7 +636,7 @@ const drawTableHeader = (doc, y, { showTaxColumns = false, showDiscountColumn = 
 };
 
 const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false, showDiscountColumn = true, taxPriceMode = 'exclusive' } = {}) => {
-    const pageBottom = doc.page.height - 220;
+    const pageBottom = doc.page.height - doc.page.margins.bottom - 24;
     const table = drawTableHeader(doc, startY, { showTaxColumns, showDiscountColumn, taxPriceMode });
     let y = table.nextY;
 
@@ -647,6 +693,7 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
 
         const displayedRate = toNumber(item.displayRate, 0);
         const displayedAmount = toNumber(item.displayAmount, 0);
+        const displayedLineTotal = computeDisplayedInvoiceLineTotal(item);
         doc.text(inrRate(displayedRate), table.cols.rate.x, y + 6, { width: table.cols.rate.width, align: 'right' });
         doc.font('Helvetica').fontSize(9).fillColor('#111827').text(String(item.qty), table.cols.qty.x, y + 6, { width: table.cols.qty.width, align: 'right' });
         doc.text(inr(displayedAmount), table.cols.amount.x, y + 6, { width: table.cols.amount.width, align: 'right' });
@@ -656,7 +703,7 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
             }
             drawBreakdownCell(doc, table.cols.gstAmount.x, y + 5, table.cols.gstAmount.width, gstParts, 'right', {}, fonts);
             doc.font('Helvetica').fontSize(9).fillColor('#111827');
-            doc.text(inr(item.lineTotalInclTax), table.cols.total.x, y + 6, { width: table.cols.total.width, align: 'right' });
+            doc.text(inr(displayedLineTotal), table.cols.total.x, y + 6, { width: table.cols.total.width, align: 'right' });
         } else {
             if (showDiscountColumn) {
                 drawBreakdownCell(doc, table.cols.discount.x, y + 5, table.cols.discount.width, discountParts, 'right', {}, fonts);
@@ -672,7 +719,7 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
         tableTotals.shippingBenefitShare += toNumber(item.shippingBenefitShare, 0);
         tableTotals.gstAmount += toNumber(item.taxAmount, 0);
         tableTotals.lineTotalBase += toNumber(item.lineTotal, 0);
-        tableTotals.lineTotalInclTax += toNumber(item.lineTotalInclTax, 0);
+        tableTotals.lineTotalInclTax += displayedLineTotal;
         y += rowHeight;
     });
 
@@ -726,6 +773,86 @@ const ensureSpace = (doc, neededHeight, topY = 46) => {
     if (available >= neededHeight) return;
     doc.addPage();
     doc.y = topY;
+};
+
+const measureTotalsRowHeight = (doc, label = '', value = '', strong = false, options = {}) => {
+    const fontName = strong ? 'Helvetica-Bold' : 'Helvetica';
+    const fontSize = strong ? 11 : 10;
+    const labelWidth = Number(options.labelWidth || 120);
+    const valueWidth = Number(options.valueWidth || 95);
+    const rowGap = Number(options.rowGap || 8);
+
+    doc.font(fontName).fontSize(fontSize);
+    const labelHeight = doc.heightOfString(String(label || ''), { width: labelWidth });
+    const valueHeight = doc.heightOfString(String(value || ''), { width: valueWidth, align: 'right' });
+    return Math.max(labelHeight, valueHeight) + rowGap;
+};
+
+const estimateTotalsBlockHeight = (doc, {
+    computation = {},
+    couponCode = '',
+    tierLabel = 'Basic',
+    roundOffAmount = 0,
+    total = 0,
+    showTaxTotals = false
+} = {}) => {
+    let height = 0;
+    height += measureTotalsRowHeight(doc, 'Subtotal', inr(computation.subtotalBaseExShipping));
+    height += measureTotalsRowHeight(doc, 'Shipping', inr(computation.shippingBase));
+    if (computation.hasAnyDiscount) {
+        height += measureTotalsRowHeight(doc, 'Price Before Discounts', inr(computation.priceBeforeDiscounts));
+        if (toNumber(computation?.discounts?.product, 0) > 0) {
+            height += measureTotalsRowHeight(doc, 'Product Discount', `- ${inr(computation.discounts.product)}`);
+        }
+        if (toNumber(computation?.discounts?.coupon, 0) > 0) {
+            height += measureTotalsRowHeight(doc, `Coupon Discount${couponCode ? ` (${couponCode})` : ''}`, `- ${inr(computation.discounts.coupon)}`);
+        }
+        if (toNumber(computation?.discounts?.member, 0) > 0) {
+            height += measureTotalsRowHeight(doc, `Member Discount (${tierLabel})`, `- ${inr(computation.discounts.member)}`);
+        }
+        if (toNumber(computation?.discounts?.memberShippingBenefit, 0) > 0) {
+            height += measureTotalsRowHeight(doc, 'Member Shipping Benefit', `- ${inr(computation.discounts.memberShippingBenefit)}`);
+        }
+        if (toNumber(computation?.discounts?.totalSavings, 0) > 0) {
+            height += measureTotalsRowHeight(doc, 'Total Savings', inr(computation.discounts.totalSavings));
+        }
+        height += measureTotalsRowHeight(doc, 'Price After Discounts', inr(computation.priceAfterDiscounts));
+    }
+    if (showTaxTotals) {
+        const taxSplit = getGstAmountSplit(computation.tableGstTotal);
+        height += measureTotalsRowHeight(doc, 'GST Breakdown', inr(computation.tableGstTotal), false, { rowGap: 3 });
+        doc.font('Helvetica').fontSize(8);
+        height += doc.heightOfString(taxSplit.label, { width: 215, align: 'right' }) + 4;
+    }
+    if (roundOffAmount !== 0) {
+        height += measureTotalsRowHeight(doc, 'Round Off', inr(roundOffAmount));
+    }
+    height += 1; // divider line
+    height += measureTotalsRowHeight(doc, 'Grand Total', inr(total), true, { rowGap: 0 });
+    return height + 24;
+};
+
+const estimatePolicyBlockHeight = (doc, company = {}) => {
+    let height = 0;
+    doc.font('Helvetica-Bold').fontSize(9);
+    height += doc.heightOfString('Terms & Conditions', { width: 520 });
+    doc.font('Helvetica').fontSize(8);
+    height += 3;
+    height += doc.heightOfString(
+        '1. All sales are final after dispatch. 2. Product visuals and colour may slightly vary based on display settings.',
+        { width: 520, lineGap: 1 }
+    );
+    height += 10;
+    doc.font('Helvetica-Bold').fontSize(9);
+    height += doc.heightOfString('Refund Policy', { width: 520 });
+    doc.font('Helvetica').fontSize(8);
+    height += 3;
+    height += doc.heightOfString(
+        'No refunds are allowed under any circumstances. Replacements are allowed only when the customer provides a continuous unedited video from receiving the courier package, opening the box, and clearly showing the defect, if any.',
+        { width: 520, lineGap: 1 }
+    );
+    height += 12;
+    return height;
 };
 
 const addPageNumbers = (doc) => {
@@ -883,7 +1010,14 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     let cursorY = drawItemsTable(doc, fonts, infoY + 34, tableItems, { showTaxColumns, showDiscountColumn, taxPriceMode });
 
     doc.y = cursorY + 12;
-    ensureSpace(doc, 230, 52);
+    ensureSpace(doc, estimateTotalsBlockHeight(doc, {
+        computation,
+        couponCode,
+        tierLabel: tierTheme.label,
+        roundOffAmount,
+        total,
+        showTaxTotals
+    }), 52);
 
     const totalsX = 350;
     const totalsY = doc.y;
@@ -945,7 +1079,7 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     writeTotal('Grand Total', inr(total), runningY + 8, true);
 
     doc.y = runningY + 44;
-    ensureSpace(doc, 120, 52);
+    ensureSpace(doc, estimatePolicyBlockHeight(doc, company), 52);
 
     const policyTop = doc.y;
     doc.font('Helvetica-Bold').fontSize(9).fillColor('#374151').text('Terms & Conditions', 42, policyTop);

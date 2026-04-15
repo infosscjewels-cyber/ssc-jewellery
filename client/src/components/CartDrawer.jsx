@@ -120,6 +120,7 @@ export default function CartDrawer() {
     const canRenderDrawerWidget = !['/cart', '/checkout'].includes(String(location.pathname || '').toLowerCase());
     const storefrontOpen = companyInfo?.storefrontOpen !== false;
     const subCategoriesEnabled = companyInfo?.subCategoriesEnabled === true;
+    const useUnifiedScrollLayout = !CART_DRAWER_RECOMMENDATIONS_ENABLED;
     const isAtMaxQuantity = (item) => Boolean(item?.trackQuantity && Number(item?.availableQuantity || 0) > 0 && Number(item?.quantity || 0) >= Number(item?.availableQuantity || 0));
 
     useEffect(() => {
@@ -376,116 +377,225 @@ export default function CartDrawer() {
                             </div>
                         </div>
                     )}
+                    {items.length > 0 && useUnifiedScrollLayout && (
+                        <div className="relative pt-4 border-t border-gray-100">
+                            <div ref={confettiLayerRef} className="pointer-events-none absolute inset-0 overflow-hidden" />
+                            <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
+                                <span>Subtotal</span>
+                                <span className="font-bold text-gray-800">₹{subtotal.toLocaleString()}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
+                                <span>{shippingPreview?.isTentative ? 'Tentative shipping' : 'Shipping'}</span>
+                                {shippingPreview == null ? (
+                                    <span className="font-bold text-gray-800">Calculated at checkout</span>
+                                ) : isShippingUnavailable ? (
+                                    <span className="font-bold text-amber-700">Unavailable</span>
+                                ) : hasFreeShipping ? (
+                                    <span className="inline-flex items-center gap-2 font-bold">
+                                        {Number(struckShippingFee || freeShippingSavings || 0) > 0 && (
+                                            <span className={`text-gray-400 transition-all duration-500 ${showFreeShippingFx ? 'line-through opacity-100' : 'line-through opacity-70'}`}>
+                                                ₹{Number(struckShippingFee || freeShippingSavings || 0).toLocaleString()}
+                                            </span>
+                                        )}
+                                        <span className={`text-emerald-600 transition-all duration-300 ${showFreeShippingFx ? 'scale-110' : 'scale-100'}`}>
+                                            Free
+                                        </span>
+                                    </span>
+                                ) : (
+                                    <span className="font-bold text-gray-800">₹{Number(shippingPreview.fee || 0).toLocaleString()}</span>
+                                )}
+                            </div>
+                            {estimatedMemberDiscount > 0 && (
+                                <div className="flex items-center justify-between text-sm text-blue-700 mb-3">
+                                    <span>Estimated Member Discount ({formatTierLabel(loyaltyTier)})</span>
+                                    <span className="font-bold">- ₹{estimatedMemberDiscount.toLocaleString()}</span>
+                                </div>
+                            )}
+                            {estimatedMemberShippingBenefit > 0 && (
+                                <div className="flex items-center justify-between text-sm text-blue-700 mb-3">
+                                    <span>Estimated Member Shipping Benefit</span>
+                                    <span className="font-bold">- ₹{estimatedMemberShippingBenefit.toLocaleString()}</span>
+                                </div>
+                            )}
+                            {freeShippingSavings > 0 && (
+                                <div className="flex items-center justify-between text-sm text-emerald-700 mb-3">
+                                    <span>Shipping savings</span>
+                                    <span className="font-bold">₹{freeShippingSavings.toLocaleString()}</span>
+                                </div>
+                            )}
+                            {freeProgress && !isShippingUnavailable && (
+                                <div className={`overflow-hidden transition-all duration-300 ease-out ${shouldShowProgress ? 'max-h-40 opacity-100 mb-4' : 'max-h-0 opacity-0 mb-0'}`}>
+                                    <div className="flex items-center justify-between text-xs text-gray-500">
+                                        <span>{hasSavedShippingState ? 'Free shipping progress' : 'Free shipping from default zone'}</span>
+                                        <span>{freeProgress.remainingLabel} to go</span>
+                                    </div>
+                                    <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
+                                        <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${freeProgress.pct}%` }} />
+                                    </div>
+                                    <p className="mt-2 text-xs text-gray-500">
+                                        {freeProgress.message}
+                                    </p>
+                                    <Link
+                                        to="/shop"
+                                        className="mt-3 w-full inline-flex items-center justify-center rounded-xl border border-gray-200 text-primary font-semibold py-2.5 hover:bg-primary/5 transition-colors"
+                                        onClick={closeCart}
+                                    >
+                                        Explore collection
+                                    </Link>
+                                </div>
+                            )}
+                            {shippingPreview && !freeProgress && !isShippingUnavailable && (
+                                <p className={`text-xs mb-4 ${shippingPreview.isTentative ? 'text-amber-700' : 'text-gray-500'}`}>
+                                    {shippingHelperMessage}
+                                </p>
+                            )}
+                            <div className="mb-3 flex justify-end">
+                                <Link
+                                    to={user ? '/cart' : '/login?redirect=%2Fcart'}
+                                    className="text-xs font-semibold text-primary hover:underline"
+                                    onClick={closeCart}
+                                >
+                                    View cart
+                                </Link>
+                            </div>
+                            {storefrontOpen ? (
+                                <Link
+                                    to="/checkout"
+                                    className="w-full inline-flex items-center justify-center bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all"
+                                    onClick={closeCart}
+                                >
+                                    Proceed to Checkout
+                                </Link>
+                            ) : (
+                                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center">
+                                    <p className="text-sm font-semibold text-amber-900">Storefront is temporarily closed for new orders.</p>
+                                    <p className="mt-1 text-xs text-amber-800">Existing orders will still be fulfilled. You can keep items in cart and checkout when ordering reopens.</p>
+                                </div>
+                            )}
+                            <RazorpayAffordability amountRupees={cartTotal} className="mt-3" showWidget={canRenderDrawerWidget} />
+                            {isShippingUnavailable && (
+                                <p className="text-[10px] text-amber-700 text-center mt-2">
+                                    Shipping is not configured for your saved state yet.
+                                </p>
+                            )}
+                            <p className="text-[10px] text-gray-400 text-center mt-2">
+                                {storefrontOpen
+                                    ? 'Add your contact and address during checkout.'
+                                    : 'Browsing, cart, wishlist, and order tracking stay available while ordering is paused.'}
+                            </p>
+                            <p className="text-[10px] text-gray-300 text-center mt-1">Build {BUILD_VERSION}</p>
+                        </div>
+                    )}
                 </div>
 
-                {items.length > 0 && (
-                <div className="relative shrink-0 max-h-[48dvh] overflow-y-auto overscroll-contain touch-pan-y border-t border-gray-100 bg-white p-5 shadow-[0_-18px_40px_rgba(15,23,42,0.06)] [-webkit-overflow-scrolling:touch]">
-                    <div ref={confettiLayerRef} className="pointer-events-none absolute inset-0 overflow-hidden" />
-                    <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
-                        <span>Subtotal</span>
-                        <span className="font-bold text-gray-800">₹{subtotal.toLocaleString()}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
-                        <span>{shippingPreview?.isTentative ? 'Tentative shipping' : 'Shipping'}</span>
-                        {shippingPreview == null ? (
-                            <span className="font-bold text-gray-800">Calculated at checkout</span>
-                        ) : isShippingUnavailable ? (
-                            <span className="font-bold text-amber-700">Unavailable</span>
-                        ) : hasFreeShipping ? (
-                            <span className="inline-flex items-center gap-2 font-bold">
-                                {Number(struckShippingFee || freeShippingSavings || 0) > 0 && (
-                                    <span className={`text-gray-400 transition-all duration-500 ${showFreeShippingFx ? 'line-through opacity-100' : 'line-through opacity-70'}`}>
-                                        ₹{Number(struckShippingFee || freeShippingSavings || 0).toLocaleString()}
+                {items.length > 0 && !useUnifiedScrollLayout && (
+                    <div className="relative shrink-0 max-h-[48dvh] overflow-y-auto overscroll-contain touch-pan-y border-t border-gray-100 bg-white p-5 shadow-[0_-18px_40px_rgba(15,23,42,0.06)] [-webkit-overflow-scrolling:touch]">
+                        <div ref={confettiLayerRef} className="pointer-events-none absolute inset-0 overflow-hidden" />
+                        <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
+                            <span>Subtotal</span>
+                            <span className="font-bold text-gray-800">₹{subtotal.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
+                            <span>{shippingPreview?.isTentative ? 'Tentative shipping' : 'Shipping'}</span>
+                            {shippingPreview == null ? (
+                                <span className="font-bold text-gray-800">Calculated at checkout</span>
+                            ) : isShippingUnavailable ? (
+                                <span className="font-bold text-amber-700">Unavailable</span>
+                            ) : hasFreeShipping ? (
+                                <span className="inline-flex items-center gap-2 font-bold">
+                                    {Number(struckShippingFee || freeShippingSavings || 0) > 0 && (
+                                        <span className={`text-gray-400 transition-all duration-500 ${showFreeShippingFx ? 'line-through opacity-100' : 'line-through opacity-70'}`}>
+                                            ₹{Number(struckShippingFee || freeShippingSavings || 0).toLocaleString()}
+                                        </span>
+                                    )}
+                                    <span className={`text-emerald-600 transition-all duration-300 ${showFreeShippingFx ? 'scale-110' : 'scale-100'}`}>
+                                        Free
                                     </span>
-                                )}
-                                <span className={`text-emerald-600 transition-all duration-300 ${showFreeShippingFx ? 'scale-110' : 'scale-100'}`}>
-                                    Free
                                 </span>
-                            </span>
-                        ) : (
-                            <span className="font-bold text-gray-800">₹{Number(shippingPreview.fee || 0).toLocaleString()}</span>
+                            ) : (
+                                <span className="font-bold text-gray-800">₹{Number(shippingPreview.fee || 0).toLocaleString()}</span>
+                            )}
+                        </div>
+                        {estimatedMemberDiscount > 0 && (
+                            <div className="flex items-center justify-between text-sm text-blue-700 mb-3">
+                                <span>Estimated Member Discount ({formatTierLabel(loyaltyTier)})</span>
+                                <span className="font-bold">- ₹{estimatedMemberDiscount.toLocaleString()}</span>
+                            </div>
                         )}
-                    </div>
-                    {estimatedMemberDiscount > 0 && (
-                        <div className="flex items-center justify-between text-sm text-blue-700 mb-3">
-                            <span>Estimated Member Discount ({formatTierLabel(loyaltyTier)})</span>
-                            <span className="font-bold">- ₹{estimatedMemberDiscount.toLocaleString()}</span>
-                        </div>
-                    )}
-                    {estimatedMemberShippingBenefit > 0 && (
-                        <div className="flex items-center justify-between text-sm text-blue-700 mb-3">
-                            <span>Estimated Member Shipping Benefit</span>
-                            <span className="font-bold">- ₹{estimatedMemberShippingBenefit.toLocaleString()}</span>
-                        </div>
-                    )}
-                    {freeShippingSavings > 0 && (
-                        <div className="flex items-center justify-between text-sm text-emerald-700 mb-3">
-                            <span>Shipping savings</span>
-                            <span className="font-bold">₹{freeShippingSavings.toLocaleString()}</span>
-                        </div>
-                    )}
-                    {freeProgress && !isShippingUnavailable && (
-                        <div className={`overflow-hidden transition-all duration-300 ease-out ${shouldShowProgress ? 'max-h-40 opacity-100 mb-4' : 'max-h-0 opacity-0 mb-0'}`}>
-                            <div className="flex items-center justify-between text-xs text-gray-500">
-                                <span>{hasSavedShippingState ? 'Free shipping progress' : 'Free shipping from default zone'}</span>
-                                <span>{freeProgress.remainingLabel} to go</span>
+                        {estimatedMemberShippingBenefit > 0 && (
+                            <div className="flex items-center justify-between text-sm text-blue-700 mb-3">
+                                <span>Estimated Member Shipping Benefit</span>
+                                <span className="font-bold">- ₹{estimatedMemberShippingBenefit.toLocaleString()}</span>
                             </div>
-                            <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
-                                <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${freeProgress.pct}%` }} />
+                        )}
+                        {freeShippingSavings > 0 && (
+                            <div className="flex items-center justify-between text-sm text-emerald-700 mb-3">
+                                <span>Shipping savings</span>
+                                <span className="font-bold">₹{freeShippingSavings.toLocaleString()}</span>
                             </div>
-                            <p className="mt-2 text-xs text-gray-500">
-                                {freeProgress.message}
+                        )}
+                        {freeProgress && !isShippingUnavailable && (
+                            <div className={`overflow-hidden transition-all duration-300 ease-out ${shouldShowProgress ? 'max-h-40 opacity-100 mb-4' : 'max-h-0 opacity-0 mb-0'}`}>
+                                <div className="flex items-center justify-between text-xs text-gray-500">
+                                    <span>{hasSavedShippingState ? 'Free shipping progress' : 'Free shipping from default zone'}</span>
+                                    <span>{freeProgress.remainingLabel} to go</span>
+                                </div>
+                                <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
+                                    <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${freeProgress.pct}%` }} />
+                                </div>
+                                <p className="mt-2 text-xs text-gray-500">
+                                    {freeProgress.message}
+                                </p>
+                                <Link
+                                    to="/shop"
+                                    className="mt-3 w-full inline-flex items-center justify-center rounded-xl border border-gray-200 text-primary font-semibold py-2.5 hover:bg-primary/5 transition-colors"
+                                    onClick={closeCart}
+                                >
+                                    Explore collection
+                                </Link>
+                            </div>
+                        )}
+                        {shippingPreview && !freeProgress && !isShippingUnavailable && (
+                            <p className={`text-xs mb-4 ${shippingPreview.isTentative ? 'text-amber-700' : 'text-gray-500'}`}>
+                                {shippingHelperMessage}
                             </p>
+                        )}
+                        <div className="mb-3 flex justify-end">
                             <Link
-                                to="/shop"
-                                className="mt-3 w-full inline-flex items-center justify-center rounded-xl border border-gray-200 text-primary font-semibold py-2.5 hover:bg-primary/5 transition-colors"
+                                to={user ? '/cart' : '/login?redirect=%2Fcart'}
+                                className="text-xs font-semibold text-primary hover:underline"
                                 onClick={closeCart}
                             >
-                                Explore collection
+                                View cart
                             </Link>
                         </div>
-                    )}
-                    {shippingPreview && !freeProgress && !isShippingUnavailable && (
-                        <p className={`text-xs mb-4 ${shippingPreview.isTentative ? 'text-amber-700' : 'text-gray-500'}`}>
-                            {shippingHelperMessage}
+                        {storefrontOpen ? (
+                            <Link
+                                to="/checkout"
+                                className="w-full inline-flex items-center justify-center bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all"
+                                onClick={closeCart}
+                            >
+                                Proceed to Checkout
+                            </Link>
+                        ) : (
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center">
+                                <p className="text-sm font-semibold text-amber-900">Storefront is temporarily closed for new orders.</p>
+                                <p className="mt-1 text-xs text-amber-800">Existing orders will still be fulfilled. You can keep items in cart and checkout when ordering reopens.</p>
+                            </div>
+                        )}
+                        <RazorpayAffordability amountRupees={cartTotal} className="mt-3" showWidget={canRenderDrawerWidget} />
+                        {isShippingUnavailable && (
+                            <p className="text-[10px] text-amber-700 text-center mt-2">
+                                Shipping is not configured for your saved state yet.
+                            </p>
+                        )}
+                        <p className="text-[10px] text-gray-400 text-center mt-2">
+                            {storefrontOpen
+                                ? 'Add your contact and address during checkout.'
+                                : 'Browsing, cart, wishlist, and order tracking stay available while ordering is paused.'}
                         </p>
-                    )}
-                    <div className="mb-3 flex justify-end">
-                        <Link
-                            to={user ? '/cart' : '/login?redirect=%2Fcart'}
-                            className="text-xs font-semibold text-primary hover:underline"
-                            onClick={closeCart}
-                        >
-                            View cart
-                        </Link>
+                        <p className="text-[10px] text-gray-300 text-center mt-1">Build {BUILD_VERSION}</p>
                     </div>
-                    {storefrontOpen ? (
-                        <Link
-                            to="/checkout"
-                            className="w-full inline-flex items-center justify-center bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all"
-                            onClick={closeCart}
-                        >
-                            Proceed to Checkout
-                        </Link>
-                    ) : (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center">
-                            <p className="text-sm font-semibold text-amber-900">Storefront is temporarily closed for new orders.</p>
-                            <p className="mt-1 text-xs text-amber-800">Existing orders will still be fulfilled. You can keep items in cart and checkout when ordering reopens.</p>
-                        </div>
-                    )}
-                    <RazorpayAffordability amountRupees={cartTotal} className="mt-3" showWidget={canRenderDrawerWidget} />
-                    {isShippingUnavailable && (
-                        <p className="text-[10px] text-amber-700 text-center mt-2">
-                            Shipping is not configured for your saved state yet.
-                        </p>
-                    )}
-                    <p className="text-[10px] text-gray-400 text-center mt-2">
-                        {storefrontOpen
-                            ? 'Add your contact and address during checkout.'
-                            : 'Browsing, cart, wishlist, and order tracking stay available while ordering is paused.'}
-                    </p>
-                    <p className="text-[10px] text-gray-300 text-center mt-1">Build {BUILD_VERSION}</p>
-                </div>
                 )}
             </div>
         </div>

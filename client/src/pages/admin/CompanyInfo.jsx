@@ -115,6 +115,7 @@ const WHATSAPP_MODULES = [
 
 export default function CompanyInfo() {
     const toast = useToast();
+    const toastRef = useRef(toast);
     const { user: currentUser } = useAuth();
     const { users, refreshUsers } = useCustomers();
     const { applyCompanyInfo } = usePublicCompanyInfo();
@@ -154,6 +155,8 @@ export default function CompanyInfo() {
     const [preferredPrinter, setPreferredPrinter] = useState(() => getStoredPrinterPreference());
     const [isPrinterConnecting, setIsPrinterConnecting] = useState(false);
     const [isCapturingLocation, setIsCapturingLocation] = useState(false);
+    const settingsLoadErrorToastAtRef = useRef(0);
+    const communicationLogsErrorToastAtRef = useRef(0);
 
     const printerSupport = useMemo(() => getPrinterSupportState(), []);
     const preferredPrinterTransport = useMemo(() => getPreferredPrinterTransport(), []);
@@ -168,10 +171,17 @@ export default function CompanyInfo() {
     }, [refreshUsers]);
 
     useEffect(() => {
+        toastRef.current = toast;
+    }, [toast]);
+
+    useEffect(() => {
+        let active = true;
         const load = async () => {
+            if (!active) return;
             setIsLoading(true);
             try {
                 const data = await adminService.getCompanyInfo();
+                if (!active) return;
                 setForm({
                     ...DEFAULT_FORM,
                     ...(data?.company || {}),
@@ -181,30 +191,47 @@ export default function CompanyInfo() {
                 normalizeTaxRates(data?.taxes);
                 await refreshUsersRef.current?.(false);
             } catch (error) {
-                toast.error(error.message || 'Failed to load settings');
+                if (!active) return;
+                const now = Date.now();
+                if (now - settingsLoadErrorToastAtRef.current > 5000) {
+                    settingsLoadErrorToastAtRef.current = now;
+                    toastRef.current.error(error.message || 'Failed to load settings');
+                }
             } finally {
-                setIsLoading(false);
+                if (active) setIsLoading(false);
             }
         };
         load();
-    }, [toast]);
+        return () => {
+            active = false;
+        };
+    }, []);
 
     useEffect(() => {
         if (!isDevMode) return undefined;
+        let active = true;
         const loadLogs = async () => {
             setIsCommunicationLogsLoading(true);
             try {
                 const data = await adminService.getCommunicationDeliveryLogs({ status: 'all', limit: 20 });
+                if (!active) return;
                 setCommunicationLogs(Array.isArray(data?.logs) ? data.logs : []);
             } catch (error) {
-                toast.error(error?.message || 'Failed to load communication delivery logs');
+                if (!active) return;
+                const now = Date.now();
+                if (now - communicationLogsErrorToastAtRef.current > 5000) {
+                    communicationLogsErrorToastAtRef.current = now;
+                    toastRef.current.error(error?.message || 'Failed to load communication delivery logs');
+                }
             } finally {
-                setIsCommunicationLogsLoading(false);
+                if (active) setIsCommunicationLogsLoading(false);
             }
         };
         loadLogs();
-        return undefined;
-    }, [toast]);
+        return () => {
+            active = false;
+        };
+    }, []);
 
     useAdminCrudSync({
         'company:info_update': ({ company } = {}) => {

@@ -10,7 +10,7 @@ import ordersIllustration from '../assets/orders.svg';
 import { getGstDisplayDetails } from '../utils/gst';
 import { buildWhatsAppChatLink } from '../utils/publicContact';
 import WhatsAppIcon from '../components/WhatsAppIcon';
-import { computeOrderTotalsDisplay } from '../utils/orderTotalsComputation';
+import { computeInvoiceStyleItemRows, computeOrderTotalsDisplay } from '../utils/orderTotalsComputation';
 
 const formatDate = (value) => {
     if (!value) return '—';
@@ -278,6 +278,10 @@ export default function Orders() {
     const selectedOrderTotals = useMemo(
         () => computeOrderTotalsDisplay(selectedOrder),
         [selectedOrder]
+    );
+    const selectedOrderInvoiceItems = useMemo(
+        () => computeInvoiceStyleItemRows(selectedOrder, selectedOrderTotals?.taxRegime),
+        [selectedOrder, selectedOrderTotals]
     );
     const selectedOrderCouponCode = useMemo(
         () => String(selectedOrder?.coupon_code || selectedOrder?.couponCode || selectedOrderTotals?.couponCode || '').trim(),
@@ -638,7 +642,14 @@ export default function Orders() {
                                 </div>
                             </div>
                             <div className="mt-4 border border-gray-200 rounded-xl divide-y">
-                                {(selectedOrder.items || []).map((item) => (
+                                {(selectedOrder.items || []).map((item, index) => {
+                                    const invoiceItem = selectedOrderInvoiceItems[index] || null;
+                                    const displayRate = toNumber(invoiceItem?.displayRate, (isInclusiveOrder(selectedOrder) ? getItemUnitPriceBase(item) : getItemUnitPrice(item)));
+                                    const displayAmount = toNumber(invoiceItem?.displayAmount, (isInclusiveOrder(selectedOrder) ? getItemLineTotalBase(item) : getItemLineTotal(item)));
+                                    const displayDiscount = toNumber(invoiceItem?.totalDiscount, 0);
+                                    const displayTaxAmount = toNumber(invoiceItem?.displayTaxAmount, getItemTaxAmount(item));
+                                    const displayLineTotal = toNumber(invoiceItem?.displayLineTotal, (isInclusiveOrder(selectedOrder) ? getItemLineTotalBase(item) : getItemLineTotal(item)));
+                                    return (
                                     <div key={item.id} className="flex items-center gap-3 p-4">
                                         <div className="w-12 h-12 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden">
                                             {getItemImage(item) && <img src={getItemImage(item)} alt={getItemTitle(item)} className="w-full h-full object-cover" />}
@@ -655,26 +666,19 @@ export default function Orders() {
                                             {getItemSubCategoryLabel(item) && (
                                                 <p className="text-[11px] text-gray-400 line-clamp-1">Sub Category: {getItemSubCategoryLabel(item)}</p>
                                             )}
-                                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
-                                                <p className="text-xs text-gray-700 font-semibold">₹{(isInclusiveOrder(selectedOrder) ? getItemUnitPriceBase(item) : getItemUnitPrice(item)).toLocaleString()}</p>
-                                                {getItemOriginalPrice(item) > getItemUnitPrice(item) && (
-                                                    <>
-                                                        <p className="text-[11px] text-gray-400 line-through">₹{getItemOriginalPrice(item).toLocaleString()}</p>
-                                                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-50 text-red-600 font-semibold">
-                                                            {getItemDiscountPercent(item)}% OFF
-                                                        </span>
-                                                    </>
-                                                )}
-                                            </div>
-                                            <p className="text-xs text-gray-500 mt-1">₹{(isInclusiveOrder(selectedOrder) ? getItemUnitPriceBase(item) : getItemUnitPrice(item)).toLocaleString()} x {getItemQuantity(item)}</p>
+                                            <p className="text-xs text-gray-500 mt-1">Rate: ₹{displayRate.toLocaleString()} x {getItemQuantity(item)}</p>
+                                            <p className="text-[11px] text-gray-400 mt-1">Amount: ₹{displayAmount.toLocaleString()}</p>
+                                            {displayDiscount > 0 && (
+                                                <p className="text-[11px] text-emerald-700 mt-1">Discount: ₹{displayDiscount.toLocaleString()}</p>
+                                            )}
                                         </div>
                                         <div className="text-sm font-semibold text-gray-800">
-                                            ₹{(isInclusiveOrder(selectedOrder) ? getItemLineTotalBase(item) : getItemLineTotal(item)).toLocaleString()}
-                                            {getItemTaxAmount(item) > 0 && (
+                                            ₹{displayLineTotal.toLocaleString()}
+                                            {displayTaxAmount > 0 && (
                                                 <p className="text-[11px] text-gray-500 font-medium">
                                                     {(() => {
                                                         const gst = getGstDisplayDetails({
-                                                            taxAmount: getItemTaxAmount(item),
+                                                            taxAmount: displayTaxAmount,
                                                             taxRatePercent: getItemTaxRate(item),
                                                             taxLabel: getItemTaxLabel(item)
                                                         });
@@ -684,7 +688,7 @@ export default function Orders() {
                                             )}
                                         </div>
                                     </div>
-                                ))}
+                                )})}
                             </div>
                             <div className="mt-4 space-y-2 text-sm">
                                 <div className="flex justify-center">
@@ -819,6 +823,12 @@ export default function Orders() {
                                     <div className="flex items-center justify-between text-gray-600">
                                         <span>Price Before Discounts</span>
                                         <span>₹{toNumber(selectedOrderTotals.priceBeforeDiscounts).toLocaleString()}</span>
+                                    </div>
+                                )}
+                                {selectedOrderTotals.discounts.product > 0 && (
+                                    <div className="flex items-center justify-between text-emerald-700">
+                                        <span>Product Discount (MRP)</span>
+                                        <span>- ₹{toNumber(selectedOrderTotals.discounts.product).toLocaleString()}</span>
                                     </div>
                                 )}
                                 {selectedOrderTotals.discounts.coupon > 0 && (

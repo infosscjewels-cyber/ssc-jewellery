@@ -8,9 +8,9 @@ import orderWaitIllustration from '../../assets/order_wait.svg';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { formatAdminDate, formatAdminDateTime } from '../../utils/dateFormat';
-import { getGstDisplayDetails } from '../../utils/gst';
+import { getGstAmountSplit, getGstDisplayDetails } from '../../utils/gst';
 import { billingAddressEnabled } from '../../utils/billingAddressConfig';
-import { computeOrderTotalsDisplay } from '../../utils/orderTotalsComputation';
+import { computeInvoiceAlignedSummary, computeInvoiceStyleItemRows, computeOrderTotalsDisplay } from '../../utils/orderTotalsComputation';
 import Modal from '../../components/Modal';
 import TierBadge from '../../components/TierBadge';
 import { useAdminKPI } from '../../context/AdminKPIContext';
@@ -1234,6 +1234,10 @@ export function Orders({
         () => computeOrderTotalsDisplay(selectedOrder),
         [selectedOrder]
     );
+    const selectedOrderInvoiceItems = useMemo(
+        () => computeInvoiceStyleItemRows(selectedOrder, selectedOrderTotals?.taxRegime),
+        [selectedOrder, selectedOrderTotals]
+    );
     const selectedOrderCouponCode = useMemo(
         () => String(selectedOrder?.coupon_code || selectedOrder?.couponCode || selectedOrderTotals?.couponCode || '').trim(),
         [selectedOrder, selectedOrderTotals]
@@ -1693,6 +1697,15 @@ export function Orders({
         const safe = String(value ?? '').replace(/"/g, '""');
         return `"${safe}"`;
     };
+    const formatReportAmount = (value) => Number(value || 0).toFixed(2);
+    const companyAddressParts = [
+        companyProfile?.address,
+        companyProfile?.city,
+        companyProfile?.state,
+        companyProfile?.postalCode,
+        companyProfile?.country
+    ].map((part) => String(part || '').trim()).filter(Boolean);
+    const companyAddressLine = companyAddressParts.join(', ');
 
     const handleExport = async () => {
         setIsExporting(true);
@@ -1724,6 +1737,23 @@ export function Orders({
                 return;
             }
 
+            const detailedOrders = [];
+            const detailBatchSize = 10;
+            for (let index = 0; index < exportRows.length; index += detailBatchSize) {
+                const batch = exportRows.slice(index, index + detailBatchSize);
+                const batchResults = await Promise.all(batch.map(async (order) => {
+                    const targetId = order?.order_id || order?.id;
+                    if (!targetId) return order;
+                    try {
+                        const data = await orderService.getAdminOrder(targetId);
+                        return data?.order || order;
+                    } catch {
+                        return order;
+                    }
+                }));
+                detailedOrders.push(...batchResults);
+            }
+
             const header = [
                 'Order Ref',
                 'Order Date',
@@ -1737,40 +1767,69 @@ export function Orders({
                 'Settlement Date',
                 'Subtotal',
                 'Shipping',
+                'Price Before Discounts',
+                'Product Discount',
                 'Coupon Discount',
                 'Member Discount',
                 'Member Shipping Benefit',
-                'Discount',
-                'Tax',
-                'Total',
+                'Total Savings',
+                'Price After Discounts',
+                'GST',
+                'SGST',
+                'CGST',
+                'Round Off',
+                'Grand Total',
+                'Tax Regime',
                 'Coupon Code',
                 'Source Channel'
             ].join(',');
 
-            const lines = exportRows.map((order) => ([
-                toCsvCell(order.order_ref),
-                toCsvCell(formatAdminDate(order.created_at)),
-                toCsvCell(order.customer_name || 'Guest'),
-                toCsvCell(order.customer_mobile || ''),
-                toCsvCell(getTierLabel(order)),
-                toCsvCell(order.status || 'pending'),
-                toCsvCell(getPaymentStatusLabel(order)),
-                toCsvCell(getPaymentReference(order)),
-                toCsvCell(order?.settlement_snapshot?.status || '—'),
-                toCsvCell(order?.settlement_snapshot?.created_at ? formatAdminDateTime(new Date(Number(order.settlement_snapshot.created_at) * 1000).toISOString()) : '—'),
-                toCsvCell(Number(order.subtotal || 0).toFixed(2)),
-                toCsvCell(Number(order.shipping_fee || 0).toFixed(2)),
-                toCsvCell(Number(order.coupon_discount_value || 0).toFixed(2)),
-                toCsvCell(Number(order.loyalty_discount_total || 0).toFixed(2)),
-                toCsvCell(Number(order.loyalty_shipping_discount_total || 0).toFixed(2)),
-                toCsvCell(Number(order.discount_total || 0).toFixed(2)),
-                toCsvCell(Number(order.tax_total || 0).toFixed(2)),
-                toCsvCell(Number(order.total || 0).toFixed(2)),
-                toCsvCell(order.coupon_code || ''),
-                toCsvCell(order.source_channel || '')
-            ].join(',')));
+            const lines = detailedOrders.map((order) => {
+                const totals = computeInvoiceAlignedSummary(order);
+                const gstSplit = getGstAmountSplit(Number(totals?.gstTotal || 0));
+                return ([
+                    toCsvCell(order.order_ref),
+                    toCsvCell(formatAdminDate(order.created_at)),
+                    toCsvCell(order.customer_name || 'Guest'),
+                    toCsvCell(order.customer_mobile || ''),
+                    toCsvCell(getTierLabel(order)),
+                    toCsvCell(order.status || 'pending'),
+                    toCsvCell(getPaymentStatusLabel(order)),
+                    toCsvCell(getPaymentReference(order)),
+                    toCsvCell(order?.settlement_snapshot?.status || '—'),
+                    toCsvCell(order?.settlement_snapshot?.created_at ? formatAdminDateTime(new Date(Number(order.settlement_snapshot.created_at) * 1000).toISOString()) : '—'),
+                    toCsvCell(formatReportAmount(totals?.subtotal)),
+                    toCsvCell(formatReportAmount(totals?.shipping)),
+                    toCsvCell(formatReportAmount(totals?.priceBeforeDiscounts)),
+                    toCsvCell(formatReportAmount(totals?.discounts?.product)),
+                    toCsvCell(formatReportAmount(totals?.discounts?.coupon)),
+                    toCsvCell(formatReportAmount(totals?.discounts?.member)),
+                    toCsvCell(formatReportAmount(totals?.discounts?.memberShippingBenefit)),
+                    toCsvCell(formatReportAmount(totals?.discounts?.totalSavings)),
+                    toCsvCell(formatReportAmount(totals?.priceAfterDiscounts)),
+                    toCsvCell(formatReportAmount(totals?.gstTotal)),
+                    toCsvCell(formatReportAmount(gstSplit?.sgstAmount)),
+                    toCsvCell(formatReportAmount(gstSplit?.cgstAmount)),
+                    toCsvCell(formatReportAmount(totals?.roundOffAmount)),
+                    toCsvCell(formatReportAmount(totals?.grandTotal)),
+                    toCsvCell(String(totals?.taxRegime || 'exclusive')),
+                    toCsvCell(order.coupon_code || ''),
+                    toCsvCell(getSourceLabel(order))
+                ].join(','));
+            });
 
-            const csv = [header, ...lines].join('\n');
+            const metadataLines = [
+                [toCsvCell('Company'), toCsvCell(companyProfile?.displayName || 'SSC Jewellery')].join(','),
+                [toCsvCell('GST Number'), toCsvCell(companyProfile?.gstNumber || '—')].join(','),
+                [toCsvCell('Support Email'), toCsvCell(companyProfile?.supportEmail || '—')].join(','),
+                [toCsvCell('Contact Number'), toCsvCell(companyProfile?.contactNumber || '—')].join(','),
+                [toCsvCell('Address'), toCsvCell(companyAddressLine || '—')].join(','),
+                [toCsvCell('Generated At'), toCsvCell(formatAdminDateTime(new Date().toISOString()))].join(','),
+                [toCsvCell('Filters'), toCsvCell(`Status: ${requestedStatusFilter}, Search: ${search || '—'}, Range: ${quickRange}, Source: ${sourceChannel || 'all'}, Sort: ${sortBy}`)].join(','),
+                ''
+            ];
+
+            const csv = [...metadataLines, header, ...lines].join('\n');
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             const downloadUrl = URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -3869,16 +3928,21 @@ export function Orders({
                                             <div className={`mt-5 overflow-hidden rounded-2xl border ${drawerTheme.shell}`}>
                                                 <div className={`border-b px-4 py-2 text-xs font-semibold uppercase ${drawerTheme.header}`}>Items</div>
                                                 <div className={`divide-y ${drawerTheme.divider}`}>
-                                                    {(selectedOrder.items || []).map((item) => {
+                                                    {(selectedOrder.items || []).map((item, index) => {
                                                         const snapshot = item?.item_snapshot && typeof item.item_snapshot === 'object' ? item.item_snapshot : null;
                                                         const quantity = Number(item.quantity ?? snapshot?.quantity ?? 0);
-                                                        const unitPrice = isInclusivePricingOrder(selectedOrder)
+                                                        const invoiceItem = selectedOrderInvoiceItems[index] || null;
+                                                        const unitPrice = Number(invoiceItem?.displayRate ?? (isInclusivePricingOrder(selectedOrder)
                                                             ? getOrderItemUnitPriceBase(item)
-                                                            : Number(item.price ?? snapshot?.unitPrice ?? 0);
-                                                        const lineTotal = isInclusivePricingOrder(selectedOrder)
+                                                            : Number(item.price ?? snapshot?.unitPrice ?? 0)));
+                                                        const lineTotal = Number(invoiceItem?.displayLineTotal ?? (isInclusivePricingOrder(selectedOrder)
                                                             ? getOrderItemLineTotalBase(item)
-                                                            : Number(item.line_total ?? snapshot?.lineTotal ?? (unitPrice * quantity));
-                                                        const itemTax = Number(item.tax_amount ?? snapshot?.taxAmount ?? 0);
+                                                            : Number(item.line_total ?? snapshot?.lineTotal ?? (unitPrice * quantity))));
+                                                        const displayAmount = Number(invoiceItem?.displayAmount ?? (isInclusivePricingOrder(selectedOrder)
+                                                            ? getOrderItemLineTotalBase(item)
+                                                            : Number(item.line_total ?? snapshot?.lineTotal ?? (unitPrice * quantity))));
+                                                        const displayDiscount = Number(invoiceItem?.totalDiscount ?? 0);
+                                                        const itemTax = Number(invoiceItem?.displayTaxAmount ?? item.tax_amount ?? snapshot?.taxAmount ?? 0);
                                                         const itemTaxRate = Number(item.tax_rate_percent ?? snapshot?.taxRatePercent ?? 0);
                                                         const itemTaxCode = item.tax_code || snapshot?.taxCode || item.tax_name || snapshot?.taxName || '';
                                                         const parsedWarrantyMonths = Number(snapshot?.polishWarrantyMonths ?? 0);
@@ -3910,9 +3974,10 @@ export function Orders({
                                                                     {itemVariantTitle && <p className="text-xs text-gray-500 line-clamp-1">{itemVariantTitle}</p>}
                                                                     {itemCategoryLabel && <p className="text-[11px] text-gray-400 break-words whitespace-normal">Category: {itemCategoryLabel}</p>}
                                                                     {itemWarrantyMonths && <p className="text-[11px] text-gray-400 line-clamp-1">Polish Warranty: {itemWarrantyMonths} months</p>}
-                                                                    <p className="text-xs text-gray-400 mt-1">₹{unitPrice.toLocaleString()} x {quantity}</p>
-                                                                    {isInclusivePricingOrder(selectedOrder) && itemTax > 0 && (
-                                                                        <p className="text-[10px] text-gray-400 mt-1">Gross incl. GST: ₹{Number(item.line_total ?? snapshot?.lineTotal ?? 0).toLocaleString()}</p>
+                                                                    <p className="text-xs text-gray-400 mt-1">Rate: ₹{unitPrice.toLocaleString()} x {quantity}</p>
+                                                                    <p className="text-[11px] text-gray-400 mt-1">Amount: ₹{displayAmount.toLocaleString()}</p>
+                                                                    {displayDiscount > 0 && (
+                                                                        <p className="text-[11px] text-emerald-700 mt-1">Discount: ₹{displayDiscount.toLocaleString()}</p>
                                                                     )}
                                                                 </div>
                                                                 <div className="text-right text-sm font-semibold text-gray-800">
@@ -3949,6 +4014,12 @@ export function Orders({
                                                     <div className="flex items-center justify-between">
                                                         <span className="text-gray-500">Price Before Discounts</span>
                                                         <span className="font-semibold text-gray-800">₹{Number(selectedOrderTotals.priceBeforeDiscounts || 0).toLocaleString()}</span>
+                                                    </div>
+                                                )}
+                                                {selectedOrderTotals.discounts.product > 0 && (
+                                                    <div className="flex items-center justify-between text-emerald-700">
+                                                        <span>Product Discount (MRP)</span>
+                                                        <span className="font-semibold">- ₹{Number(selectedOrderTotals.discounts.product || 0).toLocaleString()}</span>
                                                     </div>
                                                 )}
                                                 {selectedOrderTotals.discounts.coupon > 0 && (
@@ -4633,6 +4704,9 @@ export function Orders({
                                             </div>
                                             {manualTotals.hasAnyDiscount && (
                                                 <div className="flex items-center justify-between"><span className="text-gray-500">Price Before Discounts</span><span className="font-semibold">{formatInrOrDash(manualTotals.priceBeforeDiscounts)}</span></div>
+                                            )}
+                                            {manualTotals.discounts.product > 0 && (
+                                                <div className="flex items-center justify-between text-emerald-700"><span>Product Discount (MRP)</span><span className="font-semibold">- {formatInrOrDash(manualTotals.discounts.product)}</span></div>
                                             )}
                                             {manualTotals.discounts.coupon > 0 && (
                                                 <div className="flex items-center justify-between text-emerald-700"><span>Coupon Discount</span><span className="font-semibold">- {formatInrOrDash(manualTotals.discounts.coupon)}</span></div>

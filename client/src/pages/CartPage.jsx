@@ -114,16 +114,40 @@ export default function CartPage() {
         () => Number(shippingPreview?.freeShippingSavings || 0),
         [shippingPreview?.freeShippingSavings]
     );
-    const totalSavings = useMemo(() => {
-        const productSavings = items.reduce((sum, item) => {
-            const mrp = Number(item.compareAt || 0);
-            const price = Number(item.price || 0);
-            const qty = Number(item.quantity || 0);
-            if (mrp <= price || qty <= 0) return sum;
-            return sum + (mrp - price) * qty;
-        }, 0);
-        return productSavings + freeShippingSavings;
-    }, [freeShippingSavings, items]);
+    const productDiscount = useMemo(() => items.reduce((sum, item) => {
+        const mrp = Number(item.compareAt || item.originalPrice || 0);
+        const price = Number(item.price || 0);
+        const qty = Number(item.quantity || 0);
+        if (mrp <= price || qty <= 0) return sum;
+        return sum + (mrp - price) * qty;
+    }, 0), [items]);
+    const subtotalDisplay = useMemo(
+        () => Number(subtotal || 0) + Number(productDiscount || 0),
+        [subtotal, productDiscount]
+    );
+    const shippingDisplay = useMemo(
+        () => Number(shippingPreview?.fee || 0),
+        [shippingPreview?.fee]
+    );
+    const priceBeforeDiscounts = useMemo(
+        () => Math.max(0, Number(subtotalDisplay || 0) + Number(shippingDisplay || 0)),
+        [subtotalDisplay, shippingDisplay]
+    );
+    const priceAfterDiscounts = useMemo(
+        () => Math.max(
+            0,
+            Number(priceBeforeDiscounts || 0)
+            - Number(productDiscount || 0)
+            - Number(estimatedMemberDiscount || 0)
+            - Number(estimatedMemberShippingBenefit || 0)
+            - Number(freeShippingSavings || 0)
+        ),
+        [priceBeforeDiscounts, productDiscount, estimatedMemberDiscount, estimatedMemberShippingBenefit, freeShippingSavings]
+    );
+    const totalSavings = useMemo(
+        () => Number(productDiscount || 0) + Number(estimatedMemberDiscount || 0) + Number(estimatedMemberShippingBenefit || 0) + Number(freeShippingSavings || 0),
+        [productDiscount, estimatedMemberDiscount, estimatedMemberShippingBenefit, freeShippingSavings]
+    );
     const hasFreeShipping = useMemo(() => Number(shippingPreview?.fee || 0) === 0, [shippingPreview?.fee]);
     const shouldShowProgress = !!freeProgress && !hasFreeShipping;
     const isShippingUnavailable = Boolean(shippingPreview?.isUnavailable);
@@ -243,7 +267,7 @@ export default function CartPage() {
                                         <div className="flex-1 min-w-0">
                                             {(() => {
                                                 const price = Number(item.price || 0);
-                                                const mrp = Number(item.compareAt || 0);
+                                                const mrp = Number(item.compareAt || item.originalPrice || 0);
                                                 const hasDiscount = mrp > price;
                                                 const discountPct = hasDiscount ? Math.round(((mrp - price) / mrp) * 100) : 0;
                                                 const lowStockCopy = item.isLowStock
@@ -277,9 +301,9 @@ export default function CartPage() {
                                                             </>
                                                         )}
                                                     </div>
-                                            <p className="text-xs text-gray-500 mt-1">
-                                                        ₹{price.toLocaleString()} x {item.quantity} = ₹{(price * item.quantity).toLocaleString()}
-                                            </p>
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        ₹{price.toLocaleString()} x {item.quantity}
+                                                    </p>
                                                     </>
                                                 );
                                             })()}
@@ -385,7 +409,7 @@ export default function CartPage() {
                             <div className="mt-4 space-y-2 text-sm text-gray-500">
                                 <div className="flex items-center justify-between">
                                     <span>Subtotal</span>
-                                    <span className="font-semibold text-gray-800">₹{subtotal.toLocaleString()}</span>
+                                    <span className="font-semibold text-gray-800">₹{subtotalDisplay.toLocaleString()}</span>
                                 </div>
                                 <div className="flex items-center justify-between">
                                     <span>{shippingPreview?.isTentative ? 'Tentative shipping' : 'Shipping'}</span>
@@ -408,6 +432,16 @@ export default function CartPage() {
                                         <span className="font-semibold text-gray-800">₹{Number(shippingPreview.fee || 0).toLocaleString()}</span>
                                     )}
                                 </div>
+                                <div className="flex items-center justify-between">
+                                    <span>Price Before Discounts</span>
+                                    <span className="font-semibold text-gray-800">₹{priceBeforeDiscounts.toLocaleString()}</span>
+                                </div>
+                                {productDiscount > 0 && (
+                                    <div className="flex items-center justify-between text-emerald-700">
+                                        <span>Product Discount (MRP)</span>
+                                        <span className="font-semibold">- ₹{productDiscount.toLocaleString('en-IN')}</span>
+                                    </div>
+                                )}
                                 {estimatedMemberDiscount > 0 && (
                                     <div className="flex items-center justify-between text-blue-700">
                                         <span>Estimated Member Discount ({formatTierLabel(loyaltyTier)})</span>
@@ -447,10 +481,21 @@ export default function CartPage() {
                                 )}
                                 {totalSavings > 0 && (
                                     <div className="flex items-center justify-between text-emerald-700">
-                                        <span>Total savings</span>
+                                        <span>Total Savings</span>
                                         <span className="font-semibold">₹{totalSavings.toLocaleString()}</span>
                                     </div>
                                 )}
+                                {totalSavings > 0 && (
+                                    <p className="text-[11px] text-emerald-700/80 pt-1">
+                                        Savings = Product Discount + Member Discount + Shipping Benefit + Shipping Waived.
+                                    </p>
+                                )}
+                                <div className="flex items-center justify-between">
+                                    <span>Price After Discounts</span>
+                                    <span className="font-semibold text-gray-800">
+                                        {isShippingUnavailable ? 'Update address at checkout' : `₹${priceAfterDiscounts.toLocaleString()}`}
+                                    </span>
+                                </div>
                                 <div className="border-t border-gray-100 pt-3 flex items-center justify-between text-base font-semibold text-gray-800">
                                     <span>Total</span>
                                     <span>{isShippingUnavailable ? 'Update address at checkout' : `₹${cartTotal.toLocaleString()}`}</span>

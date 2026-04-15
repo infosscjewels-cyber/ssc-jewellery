@@ -255,6 +255,27 @@ const buildPricingDisplay = ({
                 ? roundMoney(discountedLineTotalGross * (100 / (100 + ratePercent)))
                 : lineTotalBase))
         ));
+        const originalUnitPriceGross = roundMoney(Math.max(
+            unitPriceGross,
+            Number(
+                item?.originalUnitPriceGross
+                ?? item?.originalPrice
+                ?? item?.original_price
+                ?? item?.snapshot?.originalPrice
+                ?? unitPriceGross
+            )
+        ));
+        const originalLineTotalGross = quantity > 0
+            ? roundMoney(originalUnitPriceGross * quantity)
+            : lineTotalGross;
+        const originalUnitPriceBase = mode === 'inclusive' && ratePercent > 0
+            ? roundMoney(originalUnitPriceGross * (100 / (100 + ratePercent)))
+            : originalUnitPriceGross;
+        const originalLineTotalBase = quantity > 0
+            ? roundMoney(originalUnitPriceBase * quantity)
+            : (mode === 'inclusive' && ratePercent > 0
+                ? roundMoney(originalLineTotalGross * (100 / (100 + ratePercent)))
+                : originalLineTotalGross);
         const taxAmount = roundMoney(Math.max(0, Number(item?.taxAmount || 0)));
         return {
             ...item,
@@ -264,6 +285,10 @@ const buildPricingDisplay = ({
             lineTotalBase,
             discountedLineTotalGross,
             discountedLineTotalBase,
+            originalUnitPriceGross,
+            originalUnitPriceBase,
+            originalLineTotalGross,
+            originalLineTotalBase,
             taxAmount
         };
     });
@@ -283,7 +308,13 @@ const buildPricingDisplay = ({
     const safeRoundOffAmount = roundMoney(Number(roundOffAmount || 0));
 
     const subtotalBase = roundMoney(normalizedItems.reduce((sum, item) => sum + item.lineTotalBase, 0));
+    const subtotalGross = roundMoney(normalizedItems.reduce((sum, item) => sum + item.lineTotalGross, 0));
     const discountedSubtotalBase = roundMoney(normalizedItems.reduce((sum, item) => sum + item.discountedLineTotalBase, 0));
+    const discountedSubtotalGross = roundMoney(normalizedItems.reduce((sum, item) => sum + item.discountedLineTotalGross, 0));
+    const originalSubtotalBase = roundMoney(normalizedItems.reduce((sum, item) => sum + item.originalLineTotalBase, 0));
+    const originalSubtotalGross = roundMoney(normalizedItems.reduce((sum, item) => sum + item.originalLineTotalGross, 0));
+    const productDiscountBase = roundMoney(Math.max(0, originalSubtotalBase - subtotalBase));
+    const productDiscountGross = roundMoney(Math.max(0, originalSubtotalGross - subtotalGross));
     const productTaxTotal = roundMoney(normalizedItems.reduce((sum, item) => sum + item.taxAmount, 0));
     const shippingGrossAfterDiscounts = roundMoney(Math.max(0, safeShippingFee - couponShippingDiscount - safeLoyaltyShippingDiscount));
     const shippingTaxTotal = roundMoney(Math.max(0, safeTaxTotal - productTaxTotal));
@@ -306,14 +337,16 @@ const buildPricingDisplay = ({
     return {
         taxPriceMode: mode,
         roundOffAmount: safeRoundOffAmount,
-        displaySubtotalBase: mode === 'inclusive' ? subtotalBase : safeSubtotal,
-        displaySubtotalGross: safeSubtotal,
+        displaySubtotalBase: mode === 'inclusive' ? originalSubtotalBase : originalSubtotalGross,
+        displaySubtotalGross: originalSubtotalGross,
         displayShippingBase: mode === 'inclusive' ? shippingBase : safeShippingFee,
         displayShippingGross: safeShippingFee,
-        displayBaseBeforeDiscounts: roundMoney((mode === 'inclusive' ? subtotalBase : safeSubtotal) + (mode === 'inclusive' ? shippingBase : safeShippingFee)),
-        displayGrossBeforeDiscounts: roundMoney(safeSubtotal + safeShippingFee),
+        displayBaseBeforeDiscounts: roundMoney((mode === 'inclusive' ? originalSubtotalBase : originalSubtotalGross) + (mode === 'inclusive' ? shippingBase : safeShippingFee)),
+        displayGrossBeforeDiscounts: roundMoney(originalSubtotalGross + safeShippingFee),
+        displayProductDiscountBase: mode === 'inclusive' ? productDiscountBase : productDiscountGross,
+        displayProductDiscountGross: productDiscountGross,
         displayValueAfterDiscountsBase: roundMoney(discountedSubtotalBase + discountedShippingBase),
-        displayGrossAfterDiscounts: roundMoney(Math.max(0, safeSubtotal + safeShippingFee - safeCouponDiscount - safeLoyaltyDiscount - safeLoyaltyShippingDiscount)),
+        displayGrossAfterDiscounts: roundMoney(Math.max(0, discountedSubtotalGross + shippingGrossAfterDiscounts)),
         displayProductTaxTotal: productTaxTotal,
         displayShippingTaxTotal: shippingTaxTotal,
         displayGstTotal: safeTaxTotal,
@@ -753,6 +786,7 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
             variantTitle: row.variant_title || null,
             quantity,
             price,
+            originalPrice,
             lineTotal,
             imageUrl,
                 sku: row.variant_sku || row.product_sku || null,
@@ -1070,6 +1104,7 @@ class Order {
                     categoryNames,
                     quantity,
                     price: unitPrice,
+                    originalPrice: Number(row.variant_price || row.mrp || unitPrice),
                     lineTotal: roundMoney(unitPrice * quantity)
                 });
             }
@@ -1184,6 +1219,7 @@ class Order {
                     categoryNames: Array.isArray(item.categoryNames) ? item.categoryNames : [],
                     quantity: item.quantity,
                     price: item.price,
+                    originalPrice: Number(item.originalPrice ?? item.originalUnitPriceGross ?? item.snapshot?.originalPrice ?? item.price ?? 0),
                     lineTotal: item.lineTotal,
                     unitPriceBase: Number(item.unitPriceBase || 0),
                     unitPriceGross: Number(item.unitPriceGross || 0),
@@ -1343,6 +1379,7 @@ class Order {
                     variantTitle: row.variant_title || null,
                     quantity,
                     price,
+                    originalPrice,
                     lineTotal,
                     imageUrl,
                     sku: row.variant_sku || row.product_sku || null,
@@ -3049,6 +3086,7 @@ class Order {
                         ...item,
                         quantity: Number(item?.quantity ?? snapshot?.quantity ?? 0),
                         price: Number(item?.price ?? snapshot?.unitPrice ?? 0),
+                        originalPrice: Number(item?.original_price ?? item?.originalPrice ?? snapshot?.originalPrice ?? item?.price ?? snapshot?.unitPrice ?? 0),
                         lineTotal: Number(item?.line_total ?? item?.lineTotal ?? snapshot?.lineTotal ?? 0),
                         taxAmount: Number(item?.tax_amount ?? item?.taxAmount ?? snapshot?.taxAmount ?? 0),
                         taxBase: Number(item?.tax_base ?? item?.taxBase ?? snapshot?.taxBase ?? item?.line_total ?? snapshot?.lineTotal ?? 0),
@@ -3152,6 +3190,7 @@ class Order {
                     ...item,
                     quantity: Number(item?.quantity ?? snapshot?.quantity ?? 0),
                     price: Number(item?.price ?? snapshot?.unitPrice ?? 0),
+                    originalPrice: Number(item?.original_price ?? item?.originalPrice ?? snapshot?.originalPrice ?? item?.price ?? snapshot?.unitPrice ?? 0),
                     lineTotal: Number(item?.line_total ?? snapshot?.lineTotal ?? 0),
                     taxAmount: Number(item?.tax_amount ?? snapshot?.taxAmount ?? 0),
                     taxBase: Number(snapshot?.taxBase ?? item?.line_total ?? snapshot?.lineTotal ?? 0),

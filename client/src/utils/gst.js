@@ -28,15 +28,19 @@ export const getGstRateSplit = (ratePercent = 0, locale = 'en-IN') => {
 
 export const getGstAmountSplit = (taxAmount = 0, locale = 'en-IN') => {
     const totalAmount = Math.max(0, toFiniteNumber(taxAmount, 0));
-    const halfAmount = roundToTwo(totalAmount / 2);
+    const totalPaise = Math.round(totalAmount * 100);
+    const evenPaise = totalPaise % 2 === 0 ? totalPaise : totalPaise + 1;
+    const halfPaise = Math.max(0, evenPaise / 2);
+    const sgstAmount = roundToTwo(halfPaise / 100);
+    const cgstAmount = roundToTwo(halfPaise / 100);
     return {
         totalAmount,
-        sgstAmount: halfAmount,
-        cgstAmount: halfAmount,
+        sgstAmount,
+        cgstAmount,
         totalAmountLabel: `₹${formatNumber(totalAmount, locale)}`,
-        sgstAmountLabel: `₹${formatNumber(halfAmount, locale)}`,
-        cgstAmountLabel: `₹${formatNumber(halfAmount, locale)}`,
-        splitAmountLabel: `SGST ₹${formatNumber(halfAmount, locale)} + CGST ₹${formatNumber(halfAmount, locale)}`
+        sgstAmountLabel: `₹${formatNumber(sgstAmount, locale)}`,
+        cgstAmountLabel: `₹${formatNumber(cgstAmount, locale)}`,
+        splitAmountLabel: `SGST ₹${formatNumber(sgstAmount, locale)} + CGST ₹${formatNumber(cgstAmount, locale)}`
     };
 };
 
@@ -54,4 +58,3 @@ export const getGstDisplayDetails = ({ taxAmount = 0, taxRatePercent = 0, taxLab
         title
     };
 };
-

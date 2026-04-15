@@ -927,8 +927,8 @@ export default function Checkout() {
         lineTotal: Number(item.price || 0) * Number(item.quantity || 0),
         weightKg: Number(item.weightKg || 0)
     })), [items]);
-    const productMrpSavings = useMemo(() => lineItems.reduce((sum, item) => {
-        const mrp = Number(item.compareAt || 0);
+    const fallbackProductMrpSavings = useMemo(() => lineItems.reduce((sum, item) => {
+        const mrp = Number(item.compareAt || item.originalPrice || 0);
         const price = Number(item.price || 0);
         const qty = Number(item.quantity || 0);
         if (mrp <= price || qty <= 0) return sum;
@@ -1086,10 +1086,6 @@ export default function Checkout() {
     );
     const isEstimatedLoyaltyDiscount = loyaltyDiscount > 0 && !hasServerLoyaltyDiscount;
     const isEstimatedLoyaltyShippingDiscount = loyaltyShippingDiscount > 0 && !hasServerLoyaltyShippingDiscount;
-    const totalSavings = useMemo(
-        () => Number(productMrpSavings || 0) + Number(couponDiscount || 0) + Number(loyaltyDiscount || 0) + Number(loyaltyShippingDiscount || 0) + Number(freeShippingSavings || 0),
-        [productMrpSavings, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount, freeShippingSavings]
-    );
     const displayPricing = useMemo(
         () => checkoutSummary?.displayPricing && typeof checkoutSummary.displayPricing === 'object' ? checkoutSummary.displayPricing : null,
         [checkoutSummary?.displayPricing]
@@ -1118,13 +1114,29 @@ export default function Checkout() {
         ),
         [taxPriceMode, displayPricing?.displayGrossBeforeDiscounts, displayPricing?.displayBaseBeforeDiscounts, subtotal, shippingFee]
     );
+    const productDiscountDisplay = useMemo(
+        () => Number(
+            taxPriceMode === 'inclusive'
+                ? (displayPricing?.displayProductDiscountGross ?? displayPricing?.displayProductDiscountBase ?? 0)
+                : (displayPricing?.displayProductDiscountBase ?? displayPricing?.displayProductDiscountGross ?? 0)
+        ),
+        [taxPriceMode, displayPricing?.displayProductDiscountBase, displayPricing?.displayProductDiscountGross]
+    );
     const summaryValueAfterDiscounts = useMemo(
         () => Number(
             taxPriceMode === 'inclusive'
-                ? (displayPricing?.displayGrossAfterDiscounts ?? Math.max(0, basePriceBeforeDiscounts - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0)))
-                : (displayPricing?.displayValueAfterDiscountsBase ?? Math.max(0, basePriceBeforeDiscounts - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0)))
+                ? (displayPricing?.displayGrossAfterDiscounts ?? Math.max(0, basePriceBeforeDiscounts - Number(productDiscountDisplay || fallbackProductMrpSavings || 0) - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0)))
+                : (displayPricing?.displayValueAfterDiscountsBase ?? Math.max(0, basePriceBeforeDiscounts - Number(productDiscountDisplay || fallbackProductMrpSavings || 0) - Number(couponDiscount || 0) - Number(loyaltyDiscount || 0) - Number(loyaltyShippingDiscount || 0)))
         ),
-        [taxPriceMode, displayPricing?.displayGrossAfterDiscounts, displayPricing?.displayValueAfterDiscountsBase, basePriceBeforeDiscounts, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]
+        [taxPriceMode, displayPricing?.displayGrossAfterDiscounts, displayPricing?.displayValueAfterDiscountsBase, basePriceBeforeDiscounts, productDiscountDisplay, fallbackProductMrpSavings, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount]
+    );
+    const resolvedProductDiscount = useMemo(
+        () => Number(productDiscountDisplay || fallbackProductMrpSavings || 0),
+        [productDiscountDisplay, fallbackProductMrpSavings]
+    );
+    const totalSavings = useMemo(
+        () => Number(resolvedProductDiscount || 0) + Number(couponDiscount || 0) + Number(loyaltyDiscount || 0) + Number(loyaltyShippingDiscount || 0) + Number(freeShippingSavings || 0),
+        [resolvedProductDiscount, couponDiscount, loyaltyDiscount, loyaltyShippingDiscount, freeShippingSavings]
     );
     const grandTotal = useMemo(() => {
         if (checkoutSummary?.total != null) return Number(checkoutSummary.total || 0);
@@ -2242,10 +2254,10 @@ export default function Checkout() {
                                         <span>{taxPriceMode === 'inclusive' ? 'Price Before Discounts (Incl. GST)' : 'Base Price (Before Discounts)'}</span>
                                         <span className="font-semibold text-gray-800">₹{basePriceBeforeDiscounts.toLocaleString()}</span>
                                     </div>
-                                    {productMrpSavings > 0 && (
+                                    {resolvedProductDiscount > 0 && (
                                         <div className="flex items-center justify-between text-emerald-700">
                                             <span>Product Discount (MRP)</span>
-                                            <span className="font-semibold">- ₹{Number(productMrpSavings || 0).toLocaleString()}</span>
+                                            <span className="font-semibold">- ₹{Number(resolvedProductDiscount || 0).toLocaleString()}</span>
                                         </div>
                                     )}
                                     {couponDiscount > 0 && (
@@ -2440,8 +2452,40 @@ export default function Checkout() {
                                 const couponValue = Number(orderResult.coupon_discount_value || orderResult.couponDiscountValue || orderResult.couponDiscountTotal || 0);
                                 const loyaltyValue = Number(orderResult.loyalty_discount_total || orderResult.loyaltyDiscountTotal || 0);
                                 const loyaltyShippingValue = Number(orderResult.loyalty_shipping_discount_total || orderResult.loyaltyShippingDiscountTotal || 0);
-                                const totalSavingsValue = Number(orderResult.discountTotal || orderResult.discount_total || (couponValue + loyaltyValue + loyaltyShippingValue));
+                                const orderTaxPriceMode = String(orderResult.taxPriceMode || orderResult.tax_price_mode || displayPricingValue?.taxPriceMode || orderResult.companySnapshot?.taxPriceMode || 'exclusive').trim().toLowerCase() === 'inclusive'
+                                    ? 'inclusive'
+                                    : 'exclusive';
+                                const productDiscountValue = Number(
+                                    orderTaxPriceMode === 'inclusive'
+                                        ? (displayPricingValue?.displayProductDiscountGross ?? displayPricingValue?.displayProductDiscountBase)
+                                        : (displayPricingValue?.displayProductDiscountBase ?? displayPricingValue?.displayProductDiscountGross)
+                                    ?? 0
+                                );
+                                const totalSavingsValue = Math.max(
+                                    Number(productDiscountValue + couponValue + loyaltyValue + loyaltyShippingValue),
+                                    Number(orderResult.discountTotal || orderResult.discount_total || 0)
+                                );
                                 const valueAfterDiscounts = Math.max(0, subtotalValue + shippingValue - couponValue - loyaltyValue - loyaltyShippingValue);
+                                const summarySubtotalValue = Number(
+                                    orderTaxPriceMode === 'inclusive'
+                                        ? (displayPricingValue?.displaySubtotalGross ?? subtotalValue)
+                                        : (displayPricingValue?.displaySubtotalBase ?? subtotalValue)
+                                );
+                                const summaryShippingValue = Number(
+                                    orderTaxPriceMode === 'inclusive'
+                                        ? (displayPricingValue?.displayShippingGross ?? shippingValue)
+                                        : (displayPricingValue?.displayShippingBase ?? shippingValue)
+                                );
+                                const summaryBeforeDiscountsValue = Number(
+                                    orderTaxPriceMode === 'inclusive'
+                                        ? (displayPricingValue?.displayGrossBeforeDiscounts ?? Math.max(0, subtotalValue + shippingValue))
+                                        : (displayPricingValue?.displayBaseBeforeDiscounts ?? Math.max(0, subtotalValue + shippingValue))
+                                );
+                                const summaryAfterDiscountsValue = Number(
+                                    orderTaxPriceMode === 'inclusive'
+                                        ? (displayPricingValue?.displayGrossAfterDiscounts ?? valueAfterDiscounts)
+                                        : (displayPricingValue?.displayValueAfterDiscountsBase ?? valueAfterDiscounts)
+                                );
                                 return (
                                     <>
                                         <div className="flex items-center justify-between text-sm">
@@ -2451,29 +2495,14 @@ export default function Checkout() {
                                         {Array.isArray(orderResult.items) && orderResult.items.length > 0 && (
                                             <div className="mt-4 pt-3 border-t border-gray-200 space-y-2">
                                                 {orderResult.items.slice(0, 3).map((item, idx) => {
-                                                    const orderTaxPriceMode = String(orderResult.taxPriceMode || orderResult.tax_price_mode || displayPricingValue?.taxPriceMode || orderResult.companySnapshot?.taxPriceMode || 'exclusive').trim().toLowerCase() === 'inclusive'
-                                                        ? 'inclusive'
-                                                        : 'exclusive';
                                                     const quantity = Number(item.quantity || item.item_snapshot?.quantity || 0);
-                                                    const taxAmount = Number(item.tax_amount || item.taxAmount || item.item_snapshot?.taxAmount || 0);
-                                                    const baseLineTotal = Number(
-                                                        item.line_total_base
-                                                        ?? item.lineTotalBase
-                                                        ?? item.tax_base
-                                                        ?? item.taxBase
-                                                        ?? item.item_snapshot?.lineTotalBase
-                                                        ?? item.item_snapshot?.taxBase
-                                                        ?? item.line_total
-                                                        ?? item.lineTotal
-                                                        ?? 0
-                                                    );
                                                     const grossLineTotal = Number(
                                                         item.line_total
                                                         ?? item.lineTotal
                                                         ?? item.lineTotalGross
                                                         ?? item.item_snapshot?.lineTotalGross
                                                         ?? item.item_snapshot?.lineTotal
-                                                        ?? baseLineTotal
+                                                        ?? 0
                                                     );
                                                     const displayLineTotal = grossLineTotal;
                                                     const imageUrl = getOrderResultItemImage(item);
@@ -2507,9 +2536,6 @@ export default function Checkout() {
                                                             </div>
                                                             <div className="text-right shrink-0">
                                                                 <p className="text-sm font-semibold text-gray-800">₹{displayLineTotal.toLocaleString()}</p>
-                                                                {orderTaxPriceMode === 'inclusive' && taxAmount > 0 && (
-                                                                    <p className="text-[11px] text-gray-400 mt-1">Taxable value: ₹{baseLineTotal.toLocaleString()}</p>
-                                                                )}
                                                             </div>
                                                         </div>
                                                     );
@@ -2518,21 +2544,27 @@ export default function Checkout() {
                                         )}
                                         <div className="mt-4 pt-3 border-t border-gray-200 space-y-2">
                                             <div className="flex items-center justify-between text-sm">
-                                                <span className="text-gray-500">Subtotal (Before GST)</span>
-                                                <span className="font-semibold text-gray-800">₹{Number(displayPricingValue?.displaySubtotalBase ?? subtotalValue).toLocaleString()}</span>
+                                                <span className="text-gray-500">{orderTaxPriceMode === 'inclusive' ? 'Subtotal' : 'Subtotal (Before GST)'}</span>
+                                                <span className="font-semibold text-gray-800">₹{summarySubtotalValue.toLocaleString()}</span>
                                             </div>
                                             <div className="flex items-center justify-between text-sm">
                                                 <span className="text-gray-500">Shipping</span>
-                                                {Number(displayPricingValue?.displayShippingBase ?? shippingValue) <= 0 ? (
+                                                {Number(summaryShippingValue) <= 0 ? (
                                                     <span className="font-semibold text-emerald-600">FREE</span>
                                                 ) : (
-                                                    <span className="font-semibold text-gray-800">₹{Number(displayPricingValue?.displayShippingBase ?? shippingValue).toLocaleString()}</span>
+                                                    <span className="font-semibold text-gray-800">₹{summaryShippingValue.toLocaleString()}</span>
                                                 )}
                                             </div>
                                             <div className="flex items-center justify-between text-sm">
-                                                <span className="text-gray-500">Price Before Discounts</span>
-                                                <span className="font-semibold text-gray-800">₹{Number(displayPricingValue?.displayBaseBeforeDiscounts ?? Math.max(0, subtotalValue + shippingValue)).toLocaleString()}</span>
+                                                <span className="text-gray-500">{orderTaxPriceMode === 'inclusive' ? 'Price Before Discounts (Incl. GST)' : 'Price Before Discounts'}</span>
+                                                <span className="font-semibold text-gray-800">₹{summaryBeforeDiscountsValue.toLocaleString()}</span>
                                             </div>
+                                            {productDiscountValue > 0 && (
+                                                <div className="flex items-center justify-between text-sm text-emerald-700">
+                                                    <span>Product Discount (MRP)</span>
+                                                    <span className="font-semibold">-₹{productDiscountValue.toLocaleString()}</span>
+                                                </div>
+                                            )}
                                             {couponValue > 0 && (
                                                 <div className="flex items-center justify-between text-sm text-emerald-700">
                                                     <span>Coupon{orderResult.couponCode || orderResult.coupon_code ? ` (${orderResult.couponCode || orderResult.coupon_code})` : ''}</span>
@@ -2558,8 +2590,8 @@ export default function Checkout() {
                                                 </div>
                                             )}
                                             <div className="flex items-center justify-between text-sm">
-                                                <span className="text-gray-500">Price After Discounts</span>
-                                                <span className="font-semibold text-gray-800">₹{Number(displayPricingValue?.displayValueAfterDiscountsBase ?? valueAfterDiscounts).toLocaleString()}</span>
+                                                <span className="text-gray-500">{orderTaxPriceMode === 'inclusive' ? 'Price After Discounts (Incl. GST)' : 'Price After Discounts'}</span>
+                                                <span className="font-semibold text-gray-800">₹{summaryAfterDiscountsValue.toLocaleString()}</span>
                                             </div>
                                             {taxValue > 0 && (
                                                 <div className="flex items-start justify-between text-sm">
