@@ -1231,7 +1231,7 @@ export function Orders({
         return null;
     }, [fallbackManualSummary, manualOrderItems, manualSummary]);
     const selectedOrderTotals = useMemo(
-        () => computeOrderTotalsDisplay(selectedOrder),
+        () => computeInvoiceAlignedSummary(selectedOrder),
         [selectedOrder]
     );
     const selectedOrderInvoiceItems = useMemo(

@@ -10,7 +10,7 @@ import ordersIllustration from '../assets/orders.svg';
 import { getGstDisplayDetails } from '../utils/gst';
 import { buildWhatsAppChatLink } from '../utils/publicContact';
 import WhatsAppIcon from '../components/WhatsAppIcon';
-import { computeInvoiceStyleItemRows, computeOrderTotalsDisplay } from '../utils/orderTotalsComputation';
+import { computeInvoiceAlignedSummary, computeInvoiceStyleItemRows } from '../utils/orderTotalsComputation';
 
 const formatDate = (value) => {
     if (!value) return '—';
@@ -276,7 +276,7 @@ export default function Orders() {
         [page, pagination.totalPages]
     );
     const selectedOrderTotals = useMemo(
-        () => computeOrderTotalsDisplay(selectedOrder),
+        () => computeInvoiceAlignedSummary(selectedOrder),
         [selectedOrder]
     );
     const selectedOrderInvoiceItems = useMemo(
