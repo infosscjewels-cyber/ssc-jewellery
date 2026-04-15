@@ -2685,11 +2685,12 @@ const getPublicCheckoutSummary = async (req, res) => {
 
 const getAdminOrders = async (req, res) => {
     try {
+        const normalizeAdminOrderSearch = (value = '') => String(value || '').trim().replace(/^#+\s*/, '');
         const MAX_RANGE_DAYS = 90;
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 20;
         const status = req.query.status || 'all';
-        const search = req.query.search || '';
+        const search = normalizeAdminOrderSearch(req.query.search || '');
         const startDate = req.query.startDate || '';
         const endDate = req.query.endDate || '';
         const quickRangeRaw = String(req.query.quickRange || 'last_90_days').trim().toLowerCase();

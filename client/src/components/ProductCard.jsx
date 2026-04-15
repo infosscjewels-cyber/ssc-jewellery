@@ -417,7 +417,7 @@ export default function ProductCard({ product, displayCategory = '' }) {
                 </p>
                 
                 {/* Title */}
-                <h3 className="font-bold text-gray-800 text-base line-clamp-2 min-h-[2.75rem] mb-1 group-hover:text-primary transition-colors">
+                <h3 className="font-sans font-semibold text-gray-800 text-base line-clamp-2 min-h-[2.75rem] mb-1 group-hover:text-primary transition-colors">
                     {product.title}
                 </h3>
                 

@@ -130,6 +130,7 @@ const toSubunits = (amount) => Math.round(Number(amount || 0) * 100);
 const fromSubunits = (subunits) => Number(subunits || 0) / 100;
 const roundMoney = (value) => Number(Number(value || 0).toFixed(2));
 const isForcedOutOfStock = (value) => value === 1 || value === true || value === '1' || value === 'true';
+const normalizeAdminOrderSearch = (value = '') => String(value || '').trim().replace(/^#+\s*/, '');
 const normalizeTaxPriceMode = (value = 'exclusive') => String(value || 'exclusive').trim().toLowerCase() === 'inclusive'
     ? 'inclusive'
     : 'exclusive';
@@ -832,6 +833,7 @@ const buildAdminStatusClause = ({ status = 'all', alias = 'o', params = [] } = {
 };
 
 const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days', sourceChannel = 'all', includeStatus = true } = {}) => {
+    const normalizedSearch = normalizeAdminOrderSearch(search);
     const params = [];
     let where = 'WHERE 1=1';
     let latestLimit = null;
@@ -840,9 +842,9 @@ const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', e
         where += buildAdminStatusClause({ status, alias: 'o', params });
     }
 
-    if (search) {
+    if (normalizedSearch) {
         where += ' AND (o.order_ref LIKE ? OR u.name LIKE ? OR u.mobile LIKE ?)';
-        const term = `%${search}%`;
+        const term = `%${normalizedSearch}%`;
         params.push(term, term, term);
     }
 
@@ -2573,6 +2575,7 @@ class Order {
         sortBy = 'newest',
         sourceChannel = 'all'
     }) {
+        search = normalizeAdminOrderSearch(search);
         const safeLimit = Math.max(1, Number(limit) || 20);
         const safePage = Math.max(1, Number(page) || 1);
         const offset = (safePage - 1) * safeLimit;
@@ -3310,6 +3313,7 @@ class Order {
     }
 
     static async getMetrics({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days', sourceChannel = 'all' } = {}) {
+        search = normalizeAdminOrderSearch(search);
         const { where, params, latestLimit } = buildAdminOrderFilters({
             status,
             search,

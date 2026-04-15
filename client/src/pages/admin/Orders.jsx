@@ -130,6 +130,7 @@ const MANUAL_PAYMENT_OPTIONS = [
 const MOBILE_ORDERS_MEDIA_QUERY = '(max-width: 767px)';
 const EMPTY_ADDRESS = { line1: '', city: '', state: '', zip: '' };
 const EMPTY_MANUAL_ITEM = { productId: '', variantId: '', quantity: 1 };
+const normalizeOrderSearchTerm = (value = '') => String(value || '').trim().replace(/^#+\s*/, '');
 const normalizeOrderStatus = (status) => {
     const normalized = String(status || 'pending').trim().toLowerCase();
     if (normalized === 'shipped') return 'completed';
@@ -835,6 +836,7 @@ export function Orders({
     const [draftStartDate, setDraftStartDate] = useState('');
     const [draftEndDate, setDraftEndDate] = useState('');
     const [sourceChannel, setSourceChannel] = useState('all');
+    const mobileStatusChipRefs = useRef({});
     const startDateInputRef = useRef(null);
     const endDateInputRef = useRef(null);
     const shouldResetDashboardRangeOnNextStatusChangeRef = useRef(false);
@@ -1015,6 +1017,22 @@ export function Orders({
     };
     const isAttemptEntry = (order) => String(order?.entity_type || '').toLowerCase() === 'attempt';
     const isAbandonedRecoveryOrder = (order) => Boolean(order?.is_abandoned_recovery || order?.source_channel === 'abandoned_recovery');
+    const getSourceLabel = (order) => {
+        if (isAbandonedRecoveryOrder(order)) return 'Abandoned cart recovery';
+        const rawSource = String(order?.source_channel || order?.sourceChannel || '').trim().toLowerCase();
+        if (!rawSource || rawSource === 'direct' || rawSource === 'checkout_webhook_recovery') {
+            return 'Website Direct';
+        }
+        if (rawSource === 'admin_manual') return 'Admin Manual';
+        if (rawSource === 'admin_attempt_conversion') return 'Admin Attempt Conversion';
+        if (rawSource === 'checkout_reconciler') return 'Checkout Reconciler';
+        if (rawSource === 'checkout') return 'Website Direct';
+        return rawSource
+            .split('_')
+            .filter(Boolean)
+            .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+            .join(' ');
+    };
     const formatRangeDate = (value) => {
         if (!value) return '—';
         return formatAdminDate(`${value}T00:00:00`);
@@ -1499,12 +1517,32 @@ export function Orders({
 
     useEffect(() => {
         const timer = setTimeout(() => {
-            if (search === searchInput) return;
-            setSearch(searchInput);
+            const normalizedSearch = normalizeOrderSearchTerm(searchInput);
+            if (normalizedSearch) {
+                const allStatus = normalizeStatusSelection('all');
+                if (draftStatusFilter !== allStatus) {
+                    setDraftStatusFilter(allStatus);
+                }
+                if (statusFilter !== allStatus) {
+                    setStatusFilter(allStatus);
+                }
+            }
+            if (search === normalizedSearch) return;
+            setSearch(normalizedSearch);
             setPage(1);
         }, 250);
         return () => clearTimeout(timer);
-    }, [search, searchInput]);
+    }, [draftStatusFilter, normalizeStatusSelection, search, searchInput, statusFilter]);
+
+    useEffect(() => {
+        const activeChip = mobileStatusChipRefs.current?.[statusFilter];
+        if (!activeChip || typeof activeChip.scrollIntoView !== 'function') return;
+        activeChip.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+            inline: 'center'
+        });
+    }, [statusFilter]);
 
     useEffect(() => {
         const next = normalizeStatusSelection(initialStatusFilter);
@@ -3158,6 +3196,13 @@ export function Orders({
                                         <button
                                             key={chip.value}
                                             type="button"
+                                            ref={(node) => {
+                                                if (node) {
+                                                    mobileStatusChipRefs.current[chip.value] = node;
+                                                } else {
+                                                    delete mobileStatusChipRefs.current[chip.value];
+                                                }
+                                            }}
                                             onClick={() => handleStatusFilterChange(chip.value)}
                                             className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1.5 text-[11px] font-semibold leading-none tracking-normal whitespace-nowrap transition ${
                                                 active ? getOrderStatusBadgeClasses(chip.value) : 'border-gray-200 bg-white text-gray-600'
@@ -3464,7 +3509,7 @@ export function Orders({
                                                 hideRegular
                                             />
                                             {!!pendingDurationLabel && (
-                                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[7px] font-semibold uppercase tracking-[0.12em] text-amber-100 bg-amber-950 border border-amber-700">
+                                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[7px] font-semibold uppercase tracking-[0.12em] ${getOrderStatusBadgeClasses('pending')}`}>
                                                     {pendingDurationLabel}
                                                 </span>
                                             )}
@@ -4135,7 +4180,7 @@ export function Orders({
                                                                 ...(memberProductDiscount > 0 ? [{ label: 'Member Product Discount', value: `₹${memberProductDiscount.toLocaleString()}` }] : []),
                                                                 ...(memberShippingDiscount > 0 ? [{ label: 'Member Shipping Discount', value: `₹${memberShippingDiscount.toLocaleString()}` }] : []),
                                                                 ...(Number(selectedOrder.discount_total || 0) > 0 ? [{ label: 'Total Discount', value: `₹${Number(selectedOrder.discount_total || 0).toLocaleString()}` }] : []),
-                                                                { label: 'Source', value: isAbandonedRecoveryOrder(selectedOrder) ? 'Abandoned cart recovery' : (selectedOrder.source_channel || 'checkout') }
+                                                                { label: 'Source', value: getSourceLabel(selectedOrder) }
                                                             ];
                                                             return (
                                                                 <>
