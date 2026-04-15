@@ -67,6 +67,7 @@ const normalizeVariantForPublic = (variant = {}) => {
     return {
         id: variant.id,
         variant_title: variant.variant_title,
+        variant_options: safeParse(variant.variant_options, {}),
         price: variant.price,
         discount_price: variant.discount_price,
         sku: variant.sku,

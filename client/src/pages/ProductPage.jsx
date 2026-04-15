@@ -350,6 +350,10 @@ export default function ProductPage() {
     const activeVariantIdRef = useRef(null);
     const relatedCategoryRef = useRef(null);
     const relatedProductsRef = useRef([]);
+    const requestedVariantId = useMemo(
+        () => String(new URLSearchParams(location.search).get('variantId') || '').trim(),
+        [location.search]
+    );
 
     useEffect(() => { activeVariantIdRef.current = activeVariantId; }, [activeVariantId]);
 
@@ -519,9 +523,11 @@ export default function ProductPage() {
                 
                 // Initialize Variant (Newest first strategy)
                 if (data.variants && data.variants.length > 0) {
-                    
                     const sorted = [...data.variants].sort((a, b) => String(a.id).localeCompare(String(b.id)));
-                    const firstVar = sorted[0];
+                    const requestedVariant = requestedVariantId
+                        ? sorted.find((variant) => String(variant.id) === requestedVariantId)
+                        : null;
+                    const firstVar = requestedVariant || sorted[0];
 
                     setActiveVariantId(firstVar.id);
                     // Set initial image
@@ -542,7 +548,7 @@ export default function ProductPage() {
             }
         };
         fetchAllData();
-    }, [id, navigate, toast, loadRelatedProducts]);
+    }, [id, navigate, toast, loadRelatedProducts, requestedVariantId]);
 
     // --- 2. Real-Time Sync ---
     useEffect(() => {

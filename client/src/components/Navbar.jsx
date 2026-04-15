@@ -44,7 +44,7 @@ const TIER_STYLES = {
     }
 };
 
-const NAV_SEARCH_SEED_KEY = 'nav_search_seed_v1';
+const NAV_SEARCH_SEED_KEY = 'nav_search_seed_v2';
 const MAX_SEARCH_RESULTS = 8;
 const SEARCH_SEED_LIMIT = 60;
 const CUSTOM_ORDER_URL = String(import.meta.env.VITE_CUSTOM_ORDER_URL || 'https://rzp.io/rzp/sscjewels').trim();
@@ -70,7 +70,10 @@ const writeSeedCache = (products = []) => {
 const getMediaThumbnail = (product = {}) => {
     const mediaList = Array.isArray(product?.media) ? product.media : [];
     const image = mediaList.find((entry) => entry?.type === 'image' && entry?.url);
-    return image?.url || placeholderImg;
+    if (image?.url) return image.url;
+    const variants = Array.isArray(product?.variants) ? product.variants : [];
+    const variantImage = variants.find((entry) => String(entry?.image_url || '').trim());
+    return variantImage?.image_url || placeholderImg;
 };
 
 const getPriceLabel = (product = {}) => {
@@ -88,6 +91,28 @@ const normalizeFilterValue = (value) => {
     if (!text) return '';
     if (text === 'undefined' || text === 'null') return '';
     return text;
+};
+const getMatchedVariant = (product = {}, query = '') => {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return null;
+    const variants = Array.isArray(product?.variants) ? product.variants : [];
+    return variants.find((variant) => {
+        const haystack = [
+            variant?.variant_title,
+            variant?.sku
+        ].map((value) => String(value || '').trim().toLowerCase()).filter(Boolean);
+        return haystack.some((value) => value.includes(q));
+    }) || null;
+};
+const buildSearchResultEntry = (product = {}, query = '') => {
+    const matchedVariant = getMatchedVariant(product, query);
+    return {
+        ...product,
+        matchedVariantId: matchedVariant?.id || '',
+        matchedVariantTitle: matchedVariant?.variant_title || '',
+        matchedVariantSku: matchedVariant?.sku || '',
+        matchedVariantImageUrl: matchedVariant?.image_url || ''
+    };
 };
 
 export default function Navbar() {
@@ -300,8 +325,10 @@ export default function Navbar() {
                     product?.subtitle,
                     product?.sku
                 ].map((value) => String(value || '').toLowerCase()).join(' ');
-                return haystack.includes(q);
+                if (haystack.includes(q)) return true;
+                return Boolean(getMatchedVariant(product, q));
             })
+            .map((product) => buildSearchResultEntry(product, q))
             .slice(0, MAX_SEARCH_RESULTS);
     }, []);
 
@@ -371,7 +398,10 @@ export default function Navbar() {
                 );
                 const remote = Array.isArray(data?.products) ? data.products : [];
                 setSearchResults((prev) => {
-                    const merged = [...(Array.isArray(prev) ? prev : []), ...remote];
+                    const merged = [
+                        ...(Array.isArray(prev) ? prev : []),
+                        ...remote.map((product) => buildSearchResultEntry(product, q))
+                    ];
                     const seen = new Set();
                     const deduped = [];
                     merged.forEach((item) => {
@@ -409,13 +439,19 @@ export default function Navbar() {
         }, 120);
     }, [runLocalSearch, searchQuery]);
 
-    const handleSearchSelect = (productId) => {
+    const handleSearchSelect = (product) => {
+        const productId = product?.id;
         const id = String(productId || '').trim();
         if (!id) return;
         setIsSearchOpen(false);
         setSearchQuery('');
         setIsOpen(false);
-        navigate(`/product/${encodeURIComponent(id)}`);
+        const matchedVariantId = String(product?.matchedVariantId || '').trim();
+        navigate(
+            matchedVariantId
+                ? `/product/${encodeURIComponent(id)}?variantId=${encodeURIComponent(matchedVariantId)}`
+                : `/product/${encodeURIComponent(id)}`
+        );
     };
 
     const handleLogout = async () => {
@@ -825,21 +861,25 @@ export default function Navbar() {
                                     <div className="max-h-80 overflow-y-auto">
                                         {searchResults.map((product) => (
                                             <button
-                                                key={`nav-search-${product.id}`}
+                                                key={`nav-search-${product.id}-${product.matchedVariantId || 'base'}`}
                                                 type="button"
-                                                onClick={() => handleSearchSelect(product.id)}
+                                                onClick={() => handleSearchSelect(product)}
                                                 className="w-full text-left px-3 py-2.5 hover:bg-gray-50 border-b last:border-b-0 border-gray-100"
                                             >
                                                 <div className="flex items-center gap-3">
                                                     <img
-                                                        src={getMediaThumbnail(product)}
+                                                        src={product?.matchedVariantImageUrl || getMediaThumbnail(product)}
                                                         alt={product?.title || 'Product'}
                                                         className="w-10 h-10 rounded-lg object-cover border border-gray-100"
                                                         onError={(e) => { e.currentTarget.src = placeholderImg; }}
                                                     />
                                                     <div className="min-w-0">
                                                         <p className="text-sm font-medium text-gray-800 truncate">{product?.title || 'Untitled Product'}</p>
-                                                        <p className="text-xs text-gray-500 truncate">{getPriceLabel(product)}</p>
+                                                        <p className="text-xs text-gray-500 truncate">
+                                                            {product?.matchedVariantTitle || product?.matchedVariantSku
+                                                                ? `${product?.matchedVariantTitle || product?.matchedVariantSku} • ${getPriceLabel(product)}`
+                                                                : getPriceLabel(product)}
+                                                        </p>
                                                     </div>
                                                 </div>
                                             </button>
@@ -964,21 +1004,25 @@ export default function Navbar() {
                                 <div className="max-h-72 overflow-y-auto">
                                     {searchResults.map((product) => (
                                         <button
-                                            key={`nav-search-mobile-${product.id}`}
+                                            key={`nav-search-mobile-${product.id}-${product.matchedVariantId || 'base'}`}
                                             type="button"
-                                            onClick={() => handleSearchSelect(product.id)}
+                                            onClick={() => handleSearchSelect(product)}
                                             className="w-full text-left px-3 py-2.5 hover:bg-gray-50 border-b last:border-b-0 border-gray-100"
                                         >
                                             <div className="flex items-center gap-3">
                                                 <img
-                                                    src={getMediaThumbnail(product)}
+                                                    src={product?.matchedVariantImageUrl || getMediaThumbnail(product)}
                                                     alt={product?.title || 'Product'}
                                                     className="w-10 h-10 rounded-lg object-cover border border-gray-100"
                                                     onError={(e) => { e.currentTarget.src = placeholderImg; }}
                                                 />
                                                 <div className="min-w-0">
                                                     <p className="text-sm font-medium text-gray-800 truncate">{product?.title || 'Untitled Product'}</p>
-                                                    <p className="text-xs text-gray-500 truncate">{getPriceLabel(product)}</p>
+                                                    <p className="text-xs text-gray-500 truncate">
+                                                        {product?.matchedVariantTitle || product?.matchedVariantSku
+                                                            ? `${product?.matchedVariantTitle || product?.matchedVariantSku} • ${getPriceLabel(product)}`
+                                                            : getPriceLabel(product)}
+                                                    </p>
                                                 </div>
                                             </div>
                                         </button>

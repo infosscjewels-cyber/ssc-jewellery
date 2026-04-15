@@ -2487,6 +2487,16 @@ export default function Checkout() {
                                                                 </div>
                                                                 <div className="min-w-0">
                                                                     <p className="text-sm text-gray-700 truncate">{item.title}</p>
+                                                                    {String(
+                                                                        item.variantTitle
+                                                                        || item.variant_title
+                                                                        || item.item_snapshot?.variantTitle
+                                                                        || ''
+                                                                    ).trim() ? (
+                                                                        <p className="text-[11px] text-gray-500 truncate">
+                                                                            {item.variantTitle || item.variant_title || item.item_snapshot?.variantTitle}
+                                                                        </p>
+                                                                    ) : null}
                                                                     {subCategoriesEnabled && (item.sub_category || item.subCategory || item.item_snapshot?.subCategory) ? (
                                                                         <p className="text-[11px] text-gray-400 truncate">
                                                                             Sub Category: {item.sub_category || item.subCategory || item.item_snapshot?.subCategory}

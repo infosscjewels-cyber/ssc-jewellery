@@ -37,6 +37,27 @@ const normalizeRelatedProductsState = (value = {}, availableCategories = [], sel
         category: String(config.category || '').trim() || chooseRandomRelatedCategory(availableCategories, selectedCategories)
     };
 };
+const normalizeVariantOptionsPayload = (value = {}) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.entries(value).reduce((acc, [key, optionValue]) => {
+        const normalizedKey = String(key || '').trim();
+        const normalizedValue = String(optionValue || '').trim();
+        if (!normalizedKey || !normalizedValue) return acc;
+        acc[normalizedKey] = normalizedValue;
+        return acc;
+    }, {});
+};
+const buildVariantOptionsMap = (currentOptions = [], combo = []) => {
+    const optionList = Array.isArray(currentOptions) ? currentOptions : [];
+    const comboList = Array.isArray(combo) ? combo : [];
+    return optionList.reduce((acc, option, index) => {
+        const key = String(option?.name || '').trim();
+        const value = String(comboList[index] || '').trim();
+        if (!key || !value) return acc;
+        acc[key] = value;
+        return acc;
+    }, {});
+};
 
 export default function AddProductModal({ isOpen, onClose, onConfirm, productToEdit = null, usageAudienceConfig = {}, subCategoriesEnabled = false }) {
     const getYoutubeVideoId = (value = '') => {
@@ -134,7 +155,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
     // ... inside AddProductModal component ...
     const [isCategoriesLoading, setIsCategoriesLoading] = useState(false); // <--- Add this
     const categoryInputRef = useRef(null);
-    const usageAudienceEnabled = usageAudienceConfig?.enabled === true;
+    const [usageAudienceEnabled, setUsageAudienceEnabled] = useState(usageAudienceConfig?.enabled === true);
     const selectedSubCategoryOptions = useMemo(() => {
         const merged = formData.categories.flatMap((categoryName) => categorySubCategoryMap[categoryName] || []);
         const unique = [...new Set(merged.map((entry) => String(entry || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
@@ -167,10 +188,14 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                 .catch(() => setAvailableTaxes([]));
             adminService.getCompanyInfo()
                 .then((data) => {
+                    setUsageAudienceEnabled(data?.company?.usageAudienceEnabled === true);
                     const nextMode = String(data?.company?.taxPriceMode || 'exclusive').trim().toLowerCase();
                     setTaxPriceMode(nextMode === 'inclusive' ? 'inclusive' : 'exclusive');
                 })
-                .catch(() => setTaxPriceMode('exclusive'));
+                .catch(() => {
+                    setUsageAudienceEnabled(usageAudienceConfig?.enabled === true);
+                    setTaxPriceMode('exclusive');
+                });
 
             // Existing Form Population Logic
             if (productToEdit) {
@@ -215,6 +240,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                     setVariants(productToEdit.variants.map(v => ({
                         ...v, 
                         title: v.variant_title,
+                        variant_options: normalizeVariantOptionsPayload(v.variant_options),
                         price: v.price !== null ? v.price : '', 
                         discount_price: v.discount_price !== null ? v.discount_price : '', 
                         sku: v.sku !== null ? v.sku : '',
@@ -241,7 +267,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                 setRelatedProducts(normalizeRelatedProductsState({}, [], []));
             }
         }
-    }, [productToEdit, isOpen]);
+    }, [productToEdit, isOpen, usageAudienceConfig?.enabled]);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -358,8 +384,13 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
         const newVariants = combinations.map(combo => {
             const title = combo.join(' / ');
             const existing = variants.find(v => v.title === title);
-            return existing || {
+            const variantOptions = buildVariantOptionsMap(currentOptions, combo);
+            return existing ? {
+                ...existing,
+                variant_options: normalizeVariantOptionsPayload(existing.variant_options || variantOptions)
+            } : {
                 title, 
+                variant_options: variantOptions,
                 price: formData.mrp || '', 
                 discount_price: formData.discount_price || '',
                 sku: '', 
@@ -624,6 +655,17 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
             // Assuming variants use 1/0 in backend loop:
             const cleanVariants = (options.length > 0 ? variants : []).map(v => ({
                 ...v,
+                variant_options: normalizeVariantOptionsPayload(
+                    v.variant_options && Object.keys(normalizeVariantOptionsPayload(v.variant_options)).length > 0
+                        ? v.variant_options
+                        : buildVariantOptionsMap(
+                            options,
+                            String(v.title || '')
+                                .split('/')
+                                .map((entry) => String(entry || '').trim())
+                                .filter(Boolean)
+                        )
+                ),
                 price: v.price || 0,
                 discount_price: v.discount_price || 0,
                 track_quantity: inventoryTrackingEnabled
@@ -728,7 +770,7 @@ export default function AddProductModal({ isOpen, onClose, onConfirm, productToE
                                 )}
                                 <div className="space-y-4">
                                     <label className="block text-sm font-bold text-gray-700">Tax Rate</label>
-                                    <p className="text-xs text-gray-500 -mt-2">{taxPriceModeCopy}</p>
+                                    {/* <p className="text-xs text-gray-500 -mt-2">{taxPriceModeCopy}</p> */}
                                     <select
                                         name="tax_config_id"
                                         value={formData.tax_config_id}

@@ -209,7 +209,12 @@ class Product {
             related_products: Product.normalizeRelatedProductsConfig(row.related_products, categories),
             additional_info: typeof row.additional_info === 'string' ? JSON.parse(row.additional_info) : (row.additional_info || []),
             options: typeof row.options === 'string' ? JSON.parse(row.options) : (row.options || []),
-            variants: Array.isArray(row.variants) ? row.variants : []
+            variants: Array.isArray(row.variants)
+                ? row.variants.map((variant) => ({
+                    ...variant,
+                    variant_options: Product.parseJsonSafe(variant.variant_options, {})
+                }))
+                : []
         };
     }
 
@@ -637,7 +642,10 @@ class Product {
         );
 
         // 3. Attach variants to the product object
-        product.variants = variantRows;
+        product.variants = variantRows.map((variant) => ({
+            ...variant,
+            variant_options: Product.parseJsonSafe(variant.variant_options, {})
+        }));
 
         return product;
     }
@@ -678,13 +686,14 @@ class Product {
             if (data.variants && data.variants.length > 0) {
                 const variantQuery = `
                     INSERT INTO product_variants 
-                    (id, product_id, variant_title, price, discount_price, sku, weight_kg, quantity, track_quantity, force_out_of_stock, track_low_stock, low_stock_threshold, image_url)
+                    (id, product_id, variant_title, variant_options, price, discount_price, sku, weight_kg, quantity, track_quantity, force_out_of_stock, track_low_stock, low_stock_threshold, image_url)
                     VALUES ?
                 `;
                 const variantValues = data.variants.map(v => [
                     `var_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 5)}`, // ID
                     uniqueId,
                     v.title,
+                    JSON.stringify(Product.parseJsonSafe(v.variant_options, {})),
                     v.price,
                     v.discount_price || null,
                     v.sku || null,
@@ -788,11 +797,11 @@ class Product {
                     // --- UPDATE ---
                     await connection.execute(
                         `UPDATE product_variants SET 
-                            variant_title=?, price=?, discount_price=?, sku=?, weight_kg=?, 
+                            variant_title=?, variant_options=?, price=?, discount_price=?, sku=?, weight_kg=?, 
                             quantity=?, track_quantity=?, force_out_of_stock=?, track_low_stock=?, low_stock_threshold=?, image_url=?
                          WHERE id = ? AND product_id = ?`,
                         [
-                            v.title, v.price, v.discount_price || null, v.sku || null, v.weight_kg || null,
+                            v.title, JSON.stringify(Product.parseJsonSafe(v.variant_options, {})), v.price, v.discount_price || null, v.sku || null, v.weight_kg || null,
                             v.quantity || 0, v.track_quantity ? 1 : 0, v.force_out_of_stock ? 1 : 0, v.track_low_stock ? 1 : 0, 
                             v.low_stock_threshold || 0, v.image_url || null,
                             v.id, id
@@ -805,10 +814,10 @@ class Product {
                     
                     await connection.execute(
                         `INSERT INTO product_variants 
-                        (id, product_id, variant_title, price, discount_price, sku, weight_kg, quantity, track_quantity, force_out_of_stock, track_low_stock, low_stock_threshold, image_url)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        (id, product_id, variant_title, variant_options, price, discount_price, sku, weight_kg, quantity, track_quantity, force_out_of_stock, track_low_stock, low_stock_threshold, image_url)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         [
-                            newVarId, id, v.title, v.price, v.discount_price || null, v.sku || null, v.weight_kg || null,
+                            newVarId, id, v.title, JSON.stringify(Product.parseJsonSafe(v.variant_options, {})), v.price, v.discount_price || null, v.sku || null, v.weight_kg || null,
                             v.quantity || 0, v.track_quantity ? 1 : 0, v.force_out_of_stock ? 1 : 0, v.track_low_stock ? 1 : 0, 
                             v.low_stock_threshold || 0, v.image_url || null
                         ]
