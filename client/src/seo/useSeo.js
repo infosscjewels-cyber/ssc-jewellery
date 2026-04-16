@@ -51,7 +51,7 @@ export const applySeoToDocument = (config = {}) => {
     upsertMeta({ selector: 'meta[name="keywords"]', attributes: { name: 'keywords' }, content: seo.keywords || '' });
     upsertMeta({ selector: 'meta[name="robots"]', attributes: { name: 'robots' }, content: seo.robots });
     upsertMeta({ selector: 'meta[property="og:type"]', attributes: { property: 'og:type' }, content: seo.ogType || 'website' });
-    upsertMeta({ selector: 'meta[property="og:site_name"]', attributes: { property: 'og:site_name' }, content: seo.siteName || 'SSC Jewellery' });
+    upsertMeta({ selector: 'meta[property="og:site_name"]', attributes: { property: 'og:site_name' }, content: seo.siteName || 'Sree Sai Collections' });
     upsertMeta({ selector: 'meta[property="og:title"]', attributes: { property: 'og:title' }, content: seo.ogTitle || seo.title });
     upsertMeta({ selector: 'meta[property="og:description"]', attributes: { property: 'og:description' }, content: seo.ogDescription || seo.description });
     upsertMeta({ selector: 'meta[property="og:url"]', attributes: { property: 'og:url' }, content: seo.canonical });

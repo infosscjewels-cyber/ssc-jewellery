@@ -88,7 +88,7 @@ export const buildHomeSeo = ({
     );
 
     return {
-        title: toTitle(brand),
+        title: toTitle(`${brand} | Impon & Fashion Jewellery Online`),
         description,
         keywords: buildKeywords(brand, categoryNames, productTitles.slice(0, 8), ['imitation jewellery', 'fashion jewellery', 'online jewellery']),
         canonical: buildCanonical('/'),
@@ -116,8 +116,8 @@ export const buildShopSeo = ({
     const selected = normalizeText(selectedCategory);
     const selectedCategoryName = normalizeText(selectedCategory);
     const title = selected && selected !== 'all'
-        ? `Shop ${selectedCategoryName} Collection Online`
-        : 'Shop Jewellery Collections Online';
+        ? `Shop ${selectedCategoryName} Jewellery Online`
+        : `Shop Jewellery Collections Online at ${brand}`;
     const description = selected && selected !== 'all'
         ? clampDescription(`Browse ${selectedCategoryName} at ${brand}. Discover current offers, live availability, and featured styles online.`)
         : clampDescription(`Browse jewellery collections at ${brand}. Explore ${categoryNames.slice(0, 4).join(', ') || 'popular categories'} with current offers and storefront-ready products online.`);
@@ -164,7 +164,7 @@ export const buildCategorySeo = ({
     const productImages = (Array.isArray(products) ? products : []).flatMap((product) => getProductImageCandidates(product));
 
     return {
-        title: toTitle(`${categoryName} Jewellery Collection`),
+        title: toTitle(`Buy ${categoryName} Jewellery Online | ${brand}`),
         description,
         keywords: buildKeywords(brand, categoryName, topProducts.slice(0, 8), ['shop by category', 'jewellery collection']),
         canonical: buildCanonical(`/shop/${encodeURIComponent(categoryName)}`),
@@ -224,7 +224,7 @@ export const buildProductSeo = ({
     breadcrumbItems.push({ name: normalizeText(product.title) || 'Product', url: `/product/${product.id}` });
 
     return {
-        title: toTitle(productTitleWithQualifier),
+        title: toTitle(`${productTitleWithQualifier} | ${brand}`),
         description,
         keywords: buildKeywords(
             brand,
@@ -249,7 +249,7 @@ export const buildFaqSeo = ({ company = {} } = {}) => {
     company = safeObject(company);
     const brand = normalizeText(company.displayName) || SITE_NAME;
     return {
-        title: toTitle('Frequently Asked Questions'),
+        title: toTitle(`FAQs | ${brand}`),
         description: clampDescription(`Read frequently asked questions about orders, shipping, refunds, and product support at ${brand}.`),
         keywords: buildKeywords(brand, 'FAQ', 'shipping questions', 'refund questions', 'polishing support'),
         canonical: buildCanonical('/faq'),
@@ -272,7 +272,7 @@ export const buildAboutSeo = ({ company = {}, products = [], categories = [] } =
     const brand = normalizeText(company.displayName) || SITE_NAME;
     const categoryNames = (categories || []).map((entry) => normalizeText(entry?.name)).filter(Boolean);
     return {
-        title: toTitle(`About ${brand}`),
+        title: toTitle(`About ${brand} | Jewellery Store Story`),
         description: clampDescription(
             `${brand} offers imitation and fashion jewellery${categoryNames.length ? ` across ${categoryNames.slice(0, 3).join(', ')}` : ''}. Learn more about our store promise, product support, and customer-first service.`
         ),
@@ -300,7 +300,7 @@ export const buildContactSeo = ({ company = {} } = {}) => {
     const brand = normalizeText(company.displayName) || SITE_NAME;
     const cityOrAddress = normalizeText(company.address);
     return {
-        title: toTitle(`Contact ${brand}`),
+        title: toTitle(`Contact ${brand} | Support & WhatsApp Help`),
         description: clampDescription(
             `Contact ${brand}${cityOrAddress ? ` in ${cityOrAddress}` : ''} for order help, product questions, and customer support via email, phone, or WhatsApp.`
         ),

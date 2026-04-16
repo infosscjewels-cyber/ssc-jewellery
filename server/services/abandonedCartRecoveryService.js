@@ -672,6 +672,12 @@ const processDueAbandonedCartRecoveries = async ({ limit = 25, onJourneyUpdate =
                     continue;
                 }
 
+                const recipientMobile = String(
+                    user?.mobile
+                    || workingJourney?.customer_mobile
+                    || ''
+                ).trim();
+
                 const discountPercent = AbandonedCart.resolveDiscountPercent(campaign, attemptNo);
                 const loyaltyStatus = await getUserLoyaltyStatus(workingJourney.user_id).catch(() => ({ tier: 'regular' }));
                 const loyaltyProfile = getLoyaltyProfileByTier(loyaltyStatus?.tier || 'regular');
@@ -762,6 +768,8 @@ const processDueAbandonedCartRecoveries = async ({ limit = 25, onJourneyUpdate =
                         responses.whatsapp = await sendWhatsapp({
                             type: 'abandoned_cart_recovery',
                             userId: workingJourney.user_id,
+                            mobile: recipientMobile,
+                            contact: recipientMobile,
                             attemptNo,
                             discountCode,
                             discountPercent: discount.percent,
@@ -769,8 +777,7 @@ const processDueAbandonedCartRecoveries = async ({ limit = 25, onJourneyUpdate =
                             cartValueSubunits: latestSummary.totalSubunits,
                             currency: workingJourney.currency || 'INR',
                             paymentLink: paymentLink?.shortUrl || null,
-                            checkoutLink: checkoutUrl,
-                            urlParam: checkoutUrl || null
+                            checkoutLink: checkoutUrl
                         });
                         channels.push('whatsapp');
                     } catch (whatsappError) {

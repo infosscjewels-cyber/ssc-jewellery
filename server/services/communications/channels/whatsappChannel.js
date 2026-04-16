@@ -68,6 +68,12 @@ const normalizeMobile = (value = '') => {
 };
 
 const resolveTemplateName = ({ payload = {}, workflow = 'generic', content = {} } = {}) => {
+    const workflowKey = toText(workflow || payload.type || '').toLowerCase();
+    if (workflowKey === 'abandoned_cart_recovery') {
+        const contentTemplate = toText(content.template);
+        if (contentTemplate && WORKFLOW_TEMPLATES[contentTemplate]) return toText(WORKFLOW_TEMPLATES[contentTemplate]);
+        if (contentTemplate) return toText(contentTemplate);
+    }
     const explicitTemplate = toText(
         payload.template
         || payload.templateName
@@ -77,7 +83,6 @@ const resolveTemplateName = ({ payload = {}, workflow = 'generic', content = {} 
     if (explicitTemplate && WORKFLOW_TEMPLATES[explicitTemplate]) return toText(WORKFLOW_TEMPLATES[explicitTemplate]);
     if (explicitTemplate) return toText(explicitTemplate);
 
-    const workflowKey = toText(workflow || payload.type || '').toLowerCase();
     if (workflowKey && WORKFLOW_TEMPLATES[workflowKey]) return toText(WORKFLOW_TEMPLATES[workflowKey]);
     if (WORKFLOW_TEMPLATES.generic) return toText(WORKFLOW_TEMPLATES.generic);
     return toText(WORKFLOW_TEMPLATES.default || '');

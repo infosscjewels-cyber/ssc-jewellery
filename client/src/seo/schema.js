@@ -97,6 +97,7 @@ export const buildWebsiteSchema = ({ includeSearchAction = false } = {}) => ({
     '@context': 'https://schema.org',
     '@type': 'WebSite',
     name: SITE_NAME,
+    alternateName: 'SSC Jewels',
     url: buildCanonical('/'),
     description: SITE_DESCRIPTION,
     ...(includeSearchAction

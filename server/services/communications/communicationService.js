@@ -932,6 +932,7 @@ const sendOrderLifecycleCommunication = async ({
         };
     }
     const template = buildOrderLifecycleTemplate({ stage: safeStage, customer: recipient, order, includeInvoice });
+    const whatsappStage = safeStage === 'completed' ? 'shipped' : safeStage;
     const invoiceRef = String(order?.order_ref || order?.orderRef || order?.id || Date.now()).replace(/[^a-zA-Z0-9-_]/g, '');
     const invoiceFileName = `invoice-${invoiceRef}.pdf`;
     const invoiceFileUrl = includeInvoice
@@ -969,7 +970,7 @@ const sendOrderLifecycleCommunication = async ({
                 order,
                 disableDedupe,
                 sendFn: () => sendWhatsapp({
-                    stage: safeStage,
+                    stage: whatsappStage,
                     customer: recipient,
                     order,
                     type: 'order',
@@ -1123,7 +1124,6 @@ const sendAbandonedCartRecoveryCommunication = async ({ customer = {}, cart = {}
         customer: recipient,
         cart,
         type: 'abandoned_cart_recovery',
-        template: 'abandoned_cart_recovery',
         mobile: recipient.mobile
     }).catch((error) => toChannelFailure(error, 'whatsapp_send_failed'));
     const emailResult = recipient.email

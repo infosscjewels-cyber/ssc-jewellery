@@ -5,6 +5,7 @@ const {
     DEFAULT_IMAGE_MIME_TYPES,
     DEFAULT_AUDIO_MIME_TYPES
 } = require('../utils/upload');
+const { generateBrandingDerivedAssets } = require('../utils/brandingDerivedAssets');
 
 const router = express.Router();
 const uploadProfile = createUploader('profile', {
@@ -97,11 +98,15 @@ router.post('/usage-audience-image', protect, authorize('admin', 'staff'), uploa
     return res.json({ url: `/uploads/categories/${req.file.filename}` });
 });
 
-router.post('/company-logo', protect, authorize('admin', 'staff'), uploadBrandingLogo.single('image'), (req, res) => {
+router.post('/company-logo', protect, authorize('admin', 'staff'), uploadBrandingLogo.single('image'), async (req, res) => {
     if (!req.file) {
         return res.status(400).json({ message: 'No logo uploaded' });
     }
-    return res.json({ url: `/uploads/branding/${req.file.filename}` });
+    const derivedAssets = await generateBrandingDerivedAssets(req.file).catch(() => null);
+    return res.json({
+        url: `/uploads/branding/${req.file.filename}`,
+        ...(derivedAssets || {})
+    });
 });
 
 router.post('/company-favicon', protect, authorize('admin', 'staff'), uploadBrandingFavicon.single('image'), (req, res) => {

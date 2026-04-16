@@ -388,6 +388,12 @@ export default function CompanyInfo() {
             const assetUrl = String(data?.url || '').trim();
             if (!assetUrl) throw new Error('Upload did not return an asset URL');
             const nextPayload = { ...form, [field]: assetUrl };
+            if (field === 'logoUrl') {
+                const derivedFaviconUrl = String(data?.faviconUrl || '').trim();
+                const derivedAppleTouchIconUrl = String(data?.appleTouchIconUrl || '').trim();
+                if (derivedFaviconUrl) nextPayload.faviconUrl = derivedFaviconUrl;
+                if (derivedAppleTouchIconUrl) nextPayload.appleTouchIconUrl = derivedAppleTouchIconUrl;
+            }
             const saved = await adminService.updateCompanyInfo({
                 ...nextPayload,
                 gstNumber: String(nextPayload.gstNumber || '').trim().toUpperCase(),

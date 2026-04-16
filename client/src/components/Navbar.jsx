@@ -125,8 +125,8 @@ export default function Navbar() {
     const [popBadge, setPopBadge] = useState(false);
     const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
     const [installModalContent, setInstallModalContent] = useState({
-        title: 'Install SSC Jewellery',
-        message: 'To install SSC Jewellery on iPhone, tap Share in Safari, then choose Add to Home Screen.',
+        title: 'Install Sree Sai Collections',
+        message: 'To install Sree Sai Collections on iPhone, tap Share in Safari, then choose Add to Home Screen.',
         confirmText: 'OK',
         showSettingsAction: false
     });
@@ -609,8 +609,8 @@ export default function Navbar() {
     const handleInstallApp = useCallback(async () => {
         if (showIosHint) {
             setInstallModalContent({
-                title: 'Install SSC Jewellery',
-                message: 'To install SSC Jewellery on iPhone, tap Share in Safari, then choose Add to Home Screen.',
+                title: 'Install Sree Sai Collections',
+                message: 'To install Sree Sai Collections on iPhone, tap Share in Safari, then choose Add to Home Screen.',
                 confirmText: 'OK',
                 showSettingsAction: false
             });
@@ -620,7 +620,7 @@ export default function Navbar() {
         const result = await install();
         if (result?.status === 'dismissed' || result?.status === 'accepted') return;
         setInstallModalContent({
-            title: result?.platform === 'android' || isAndroid ? 'Allow app installation' : 'Install SSC Jewellery',
+            title: result?.platform === 'android' || isAndroid ? 'Allow app installation' : 'Install Sree Sai Collections',
             message: result?.platform === 'android' || isAndroid
                 ? 'If your phone blocks installation, open Android settings and allow installs from this browser, then return here and tap Install app again.'
                 : 'The install prompt is not available right now. Use your browser menu and choose Install app or Add to Home screen.',

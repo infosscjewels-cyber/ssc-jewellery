@@ -55,6 +55,7 @@ console.log('Boot: JWT secret present');
 const { getSocketRoomsForUser, canAuthenticateSocketUser } = require('./utils/socketAudience');
 const { getUploadsRoot } = require('./utils/uploadsRoot');
 const { resolveBrandingAsset } = require('./utils/brandingAssets');
+const { ensureCompanyBrandingDerivedAssets } = require('./utils/brandingDerivedAssets');
 const db = require('./config/db');
 console.log('Boot: DB module loaded');
 
@@ -322,6 +323,13 @@ const startServer = async () => {
             });
             if (Number(relatedProductsBackfill?.updated || 0) > 0) {
                 console.log(`Boot: related products defaults backfilled for ${relatedProductsBackfill.updated} product(s)`);
+            }
+            const brandingPatch = await ensureCompanyBrandingDerivedAssets().catch((error) => {
+                console.error('Boot: branding derived-asset sync failed:', error?.message || error);
+                return null;
+            });
+            if (brandingPatch?.updated) {
+                console.log('Boot: generated missing favicon/apple-touch branding assets from existing company logo');
             }
         } else {
             console.log('Boot: DB readiness promise not found, continuing');

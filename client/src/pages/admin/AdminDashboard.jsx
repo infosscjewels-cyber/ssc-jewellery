@@ -25,7 +25,7 @@ import { orderService } from '../../services/orderService';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../context/ToastContext';
 import { getGstDisplayDetails } from '../../utils/gst';
-import { computeOrderTotalsDisplay } from '../../utils/orderTotalsComputation';
+import { computeInvoiceAlignedSummary, computeOrderTotalsDisplay } from '../../utils/orderTotalsComputation';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { BRAND_LOGO_URL } from '../../utils/branding.js';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
@@ -391,7 +391,13 @@ export default function AdminDashboard() {
     }, [incomingOrders]);
     const incomingPrimaryOrder = useMemo(() => incomingOrders[0] || null, [incomingOrders]);
     const incomingPrimaryTotals = useMemo(
-        () => computeOrderTotalsDisplay(incomingPrimaryOrder),
+        () => {
+            const order = incomingPrimaryOrder;
+            const hasItems = Array.isArray(order?.items) && order.items.length > 0;
+            return hasItems
+                ? computeInvoiceAlignedSummary(order)
+                : computeOrderTotalsDisplay(order);
+        },
         [incomingPrimaryOrder]
     );
     const incomingPrimaryCouponCode = useMemo(

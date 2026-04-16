@@ -4,8 +4,8 @@ const { resolvePublicAssetPath } = require('./publicAssetResolver');
 
 const BRANDING_FALLBACKS = {
     logo: ['/logo.webp', '/assets/logo.webp', '/logo_light.webp', '/assets/logo_light.webp'],
-    favicon: ['/favicon.ico', '/logo.webp', '/assets/logo.webp'],
-    appleTouchIcon: ['/apple-touch-icon.png', '/logo.webp', '/assets/logo.webp']
+    favicon: ['/favicon.ico', '/favicon-48x48.png', '/favicon-96x96.png', '/favicon-192x192.png'],
+    appleTouchIcon: ['/apple-touch-icon.png', '/favicon-192x192.png', '/logo.webp', '/assets/logo.webp']
 };
 
 const BRANDING_FIELD_MAP = {

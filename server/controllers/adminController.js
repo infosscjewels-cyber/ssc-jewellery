@@ -22,6 +22,7 @@ const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConf
 const { computeChange, toSafeEnum, buildDashboardCacheKey, normalizeDashboardEventType } = require('../utils/dashboardUtils');
 const { emitToUserAudiences } = require('../utils/socketAudience');
 const { resolveUploadedAssetPath } = require('../utils/uploadsRoot');
+const { cleanupBrandingDerivedAssetsForLogo } = require('../utils/brandingDerivedAssets');
 const { queueFullRefresh } = require('../services/seoService');
 const DUPLICATE_PAYMENT_SESSION_MESSAGE = 'payment already linked to an existing checkout. please retry with a new payment session.';
 const isProductionLike = () => String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
@@ -2561,6 +2562,7 @@ const updateCompanyInfo = async (req, res) => {
             existingCompany?.logoUrl
             && existingCompany.logoUrl !== company?.logoUrl
         ) {
+            await cleanupBrandingDerivedAssetsForLogo(existingCompany.logoUrl);
             await removeUploadedAssetIfLocal(existingCompany.logoUrl);
         }
         if (

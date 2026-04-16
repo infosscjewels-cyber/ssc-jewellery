@@ -4,8 +4,8 @@ import { useSeo } from '../seo/useSeo';
 
 export default function ComingSoon() {
   useSeo({
-    title: 'Coming Soon | SSC Jewellery',
-    description: 'SSC Jewellery storefront is being prepared. Please check back shortly.',
+    title: 'Coming Soon | Sree Sai Collections',
+    description: 'Sree Sai Collections storefront is being prepared. Please check back shortly.',
     robots: 'noindex, nofollow',
     image: constructionIllustration,
     canonical: typeof window !== 'undefined' ? `${window.location.origin}/coming-soon` : '/coming-soon'

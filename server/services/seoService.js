@@ -22,8 +22,8 @@ const STATIC_ROUTE_PATHS = [
 
 const ROBOTS_INDEX = 'index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1';
 const ROBOTS_NOINDEX = 'noindex,nofollow';
-const DEFAULT_TITLE = 'SSC Jewellery';
-const DEFAULT_DESCRIPTION = 'Shop imitation and fashion jewellery online at SSC Jewellery. Discover best sellers, new arrivals, category collections, and current offers.';
+const DEFAULT_TITLE = 'Sree Sai Collections';
+const DEFAULT_DESCRIPTION = 'Shop imitation and fashion jewellery online at Sree Sai Collections. Discover best sellers, new arrivals, category collections, and current offers.';
 const DEFAULT_IMAGE = '/placeholder_banner.jpg';
 
 const state = {
@@ -218,8 +218,8 @@ const buildFallbackSeo = async (pathname = '/') => {
     if (pathname.startsWith('/product/')) {
         return {
             ...base,
-            title: 'Product | SSC Jewellery',
-            description: 'Product details are loading. Explore current jewellery collections at SSC Jewellery.',
+            title: 'Product | Sree Sai Collections',
+            description: 'Product details are loading. Explore current jewellery collections at Sree Sai Collections.',
             canonical: absoluteUrl(pathname),
             robots: ROBOTS_NOINDEX,
             structuredData: []
@@ -229,8 +229,8 @@ const buildFallbackSeo = async (pathname = '/') => {
     if (pathname.startsWith('/shop/')) {
         return {
             ...base,
-            title: 'Collection | SSC Jewellery',
-            description: 'Collection details are loading. Explore jewellery collections at SSC Jewellery.',
+            title: 'Collection | Sree Sai Collections',
+            description: 'Collection details are loading. Explore jewellery collections at Sree Sai Collections.',
             canonical: absoluteUrl(pathname),
             robots: ROBOTS_NOINDEX,
             structuredData: []

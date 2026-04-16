@@ -36,6 +36,8 @@ const resolveBaseFromGross = (gross = 0, ratePercent = 0) => {
 const parseDisplayPricing = (source = {}) => {
     if (source?.display_pricing && typeof source.display_pricing === 'object') return source.display_pricing;
     if (source?.displayPricing && typeof source.displayPricing === 'object') return source.displayPricing;
+    if (typeof source?.display_pricing === 'string') return parseObject(source.display_pricing);
+    if (typeof source?.displayPricing === 'string') return parseObject(source.displayPricing);
     return null;
 };
 
@@ -325,6 +327,7 @@ const computeInvoiceStyleTotals = (row = {}, taxRegime = 'exclusive', displayPri
 const computeOrderTotalsDisplay = (source = null) => {
     const row = source && typeof source === 'object' ? source : {};
     const displayPricing = parseDisplayPricing(row);
+    const hasOrderItems = Array.isArray(row?.items) && row.items.length > 0;
     const taxRegime = normalizeTaxRegime(
         row.tax_price_mode
         || row.taxPriceMode
@@ -334,17 +337,17 @@ const computeOrderTotalsDisplay = (source = null) => {
 
     const invoiceStyleTotals = computeInvoiceStyleTotals(row, taxRegime, displayPricing);
     const subtotal = roundCurrency(Math.max(0, toNumber(
-        invoiceStyleTotals?.subtotal,
+        hasOrderItems ? invoiceStyleTotals?.subtotal : null,
         displayPricing?.displaySubtotalBase ?? toNumber(row.subtotal, toNumber(row.subtotalBase, 0))
     )));
     const shipping = roundCurrency(Math.max(0, toNumber(
-        invoiceStyleTotals?.shipping,
+        hasOrderItems ? invoiceStyleTotals?.shipping : null,
         displayPricing?.displayShippingBase ?? toNumber(row.shipping_fee, toNumber(row.shippingFee, 0))
     )));
     const priceBeforeDiscounts = roundCurrency(Math.max(0, subtotal + shipping));
 
     const productDiscount = roundCurrency(Math.max(0, toNumber(
-        invoiceStyleTotals?.productDiscount,
+        hasOrderItems ? invoiceStyleTotals?.productDiscount : null,
         displayPricing?.displayProductDiscountBase
     )));
     const couponDiscount = roundCurrency(Math.max(0, toNumber(row.coupon_discount_value, toNumber(row.couponDiscountTotal, 0))));
@@ -360,7 +363,7 @@ const computeOrderTotalsDisplay = (source = null) => {
 
     const priceAfterDiscounts = roundCurrency(Math.max(0, priceBeforeDiscounts - totalSavings));
     const gstTotal = roundCurrency(Math.max(0, toNumber(
-        invoiceStyleTotals?.gstTotal,
+        hasOrderItems ? invoiceStyleTotals?.gstTotal : null,
         toNumber(row.tax_total, toNumber(row.taxTotal, 0))
     )));
     const roundOffAmount = roundCurrency(toNumber(row.round_off_amount, toNumber(row.roundOffAmount, 0)));

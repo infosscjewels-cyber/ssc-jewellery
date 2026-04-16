@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Instagram, Youtube, Facebook, Mail, MapPin, Home, Store, Info, PhoneCall, HelpCircle, User, Package, LogIn, FileText, ShieldCheck, Truck, RefreshCw, Copyright, Search as SearchIcon, BadgeCheck, Lock, Server, PackageCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
@@ -49,11 +49,12 @@ const PAYMENT_LOGOS = [
 ];
 
 export default function Footer() {
+    const location = useLocation();
     const { user } = useAuth();
     const { categories, refreshCategories } = usePublicCategories();
     const { companyInfo, refreshCompanyInfo, applyCompanyInfo } = usePublicCompanyInfo();
     const company = {
-        displayName: 'SSC Jewellery',
+        displayName: 'Sree Sai Collections',
         contactNumber: '',
         supportEmail: '',
         address: '',
@@ -105,6 +106,7 @@ export default function Footer() {
         '9500941350'
     ].filter(Boolean);
     const hasSocial = Boolean(company.instagramUrl || company.youtubeUrl || company.facebookUrl || whatsappLink);
+    const isAboutPage = String(location?.pathname || '').split('?')[0] === '/about';
 
     return (
         <footer className="bg-primary text-white mt-0 pb-24 md:pb-0">
@@ -112,7 +114,7 @@ export default function Footer() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
                     <div className="space-y-4">
                         <div className="flex items-center gap-2">
-                            <img src={BRAND_LOGO_URL} alt="SSC Jewellery" className="h-14 w-auto" loading="lazy" decoding="async" fetchPriority="low" />
+                            <img src={BRAND_LOGO_URL} alt="Sree Sai Collections" className="h-14 w-auto" loading="lazy" decoding="async" fetchPriority="low" />
                             <span className="flex min-w-0 flex-col justify-center leading-none">
                                 <span className="truncate font-serif text-[1.05rem] font-bold tracking-[0.06em] text-white">
                                     Sree Sai Collections
@@ -300,7 +302,22 @@ export default function Footer() {
                 </div>
             </div>
             <div className="bg-black/30 text-center text-xs text-white/60 py-4">
-                <div>© {new Date().getFullYear()} {company.displayName || 'SSC Jewellery'}. All rights reserved.</div>
+                <div>
+                    © {new Date().getFullYear()}{' '}
+                    {isAboutPage ? (
+                        <a
+                            href="https://creativecodz.com"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="cursor-pointer text-inherit no-underline hover:no-underline"
+                        >
+                            {company.displayName || 'Sree Sai Collections'}
+                        </a>
+                    ) : (
+                        <>{company.displayName || 'Sree Sai Collections'}</>
+                    )}
+                    . All rights reserved.
+                </div>
                 <div className="mt-1 text-[10px] tracking-wide text-white/35">Build {BUILD_VERSION}</div>
             </div>
         </footer>

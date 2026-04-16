@@ -6,7 +6,7 @@ export default function NotFound() {
   const location = useLocation();
 
   useSeo({
-    title: 'Page Not Found | SSC Jewellery',
+    title: 'Page Not Found | Sree Sai Collections',
     description: 'The page you requested could not be found.',
     robots: 'noindex, nofollow',
     image: missingIllustration,

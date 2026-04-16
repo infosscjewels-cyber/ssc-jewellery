@@ -4,8 +4,8 @@ import { useSeo } from '../seo/useSeo';
 
 export default function StorefrontClosed() {
   useSeo({
-    title: 'Shop Temporarily Closed | SSC Jewellery',
-    description: 'SSC Jewellery is temporarily closed for new orders. Existing orders will still be fulfilled.',
+    title: 'Shop Temporarily Closed | Sree Sai Collections',
+    description: 'Sree Sai Collections is temporarily closed for new orders. Existing orders will still be fulfilled.',
     robots: 'noindex, nofollow',
     image: closedIllustration,
     canonical: typeof window !== 'undefined' ? `${window.location.origin}/checkout` : '/checkout'

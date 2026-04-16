@@ -1215,8 +1215,8 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                             ? 'bg-black/10 text-black/75'
                                             : card.theme === 'green'
                                                 ? 'bg-black/10 text-black/75'
-                                                : card.theme === 'amber'
-                                                    ? 'bg-stone-950/8 text-stone-900/75'
+                                            : card.theme === 'amber'
+                                                    ? 'bg-white/40 text-stone-900/85 shadow-sm backdrop-blur-[1px]'
                                                 : card.theme === 'sky'
                                                     ? 'bg-slate-900/8 text-slate-900/75'
                                                     : ['red', 'brown'].includes(card.theme)
