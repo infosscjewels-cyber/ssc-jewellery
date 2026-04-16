@@ -441,7 +441,8 @@ export default function AbandonedCarts({
     initialStatusFilter = '',
     initialJourneyWindow = '',
     onInitialStatusApplied = () => {},
-    onInitialJourneyWindowApplied = () => {}
+    onInitialJourneyWindowApplied = () => {},
+    mobilePageHeaderActive = false
 }) {
     const toast = useToast();
     const {
@@ -1195,9 +1196,9 @@ export default function AbandonedCarts({
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-3 md:block">
-                        <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Abandoned Cart Recovery</h1>
+                        <h1 className={`${mobilePageHeaderActive ? 'hidden md:block' : ''} text-2xl md:text-3xl font-serif text-primary font-bold`}>Abandoned Cart Recovery</h1>
                     </div>
-                    <p className="text-sm text-gray-500 mt-1">Campaign settings, recovery insights, journeys and timelines.</p>
+                    <p className={`${mobilePageHeaderActive ? 'hidden md:block' : ''} text-sm text-gray-500 mt-1`}>Campaign settings, recovery insights, journeys and timelines.</p>
                 </div>
                 <div className="flex items-center gap-2">
                     <button

@@ -29,6 +29,12 @@ import { computeInvoiceAlignedSummary, computeOrderTotalsDisplay } from '../../u
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { BRAND_LOGO_URL } from '../../utils/branding.js';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
+import AdminMobilePageHeader from '../../components/admin/AdminMobilePageHeader';
+import {
+    isTrackedAdminMobilePageTab,
+    readPreviousAdminMobilePageTab,
+    writePreviousAdminMobilePageTab
+} from '../../utils/adminMobilePageNav';
 
 const ADMIN_LAST_SEEN_ORDER_TS_KEY = 'admin_last_seen_order_ts_v1';
 const ADMIN_MURUGAR_POPUP_DATE_KEY = 'admin_murugar_popup_date_v1';
@@ -58,6 +64,13 @@ const ADMIN_PERSISTABLE_TABS = new Set([
     'loyalty',
     'companyInfo'
 ]);
+const ADMIN_MOBILE_PAGE_HEADER_TABS = {
+    orders: 'Orders',
+    products: 'Products',
+    categories: 'Categories',
+    customers: 'Customers',
+    abandoned: 'Abandoned Carts'
+};
 
 const getInitialAdminTab = () => {
     if (typeof window === 'undefined') return 'dashboard';
@@ -107,11 +120,14 @@ export default function AdminDashboard() {
     const playedOrderSoundRef = useRef(false);
     const playedShippingSoundRef = useRef('');
     const shippingCooldownTimerRef = useRef(null);
+    const lastTrackedTabRef = useRef(getInitialAdminTab());
     const navigate = useNavigate();
     const toast = useToast();
     const { logout, user } = useAuth();
     const { isDownloading = false, progress = 0 } = useProducts() || {};
     useAdminPushNotifications(user);
+    const mobilePageHeaderTitle = ADMIN_MOBILE_PAGE_HEADER_TABS[activeTab] || '';
+    const hasMobilePageHeader = Boolean(mobilePageHeaderTitle);
 
     const loadStorefrontState = useCallback(async () => {
         try {
@@ -130,6 +146,15 @@ export default function AdminDashboard() {
         if (typeof window === 'undefined') return;
         if (!ADMIN_PERSISTABLE_TABS.has(activeTab)) return;
         window.localStorage.setItem(ADMIN_ACTIVE_TAB_STORAGE_KEY, activeTab);
+    }, [activeTab]);
+
+    useEffect(() => {
+        if (!isTrackedAdminMobilePageTab(activeTab)) return;
+        const previousTrackedTab = String(lastTrackedTabRef.current || '').trim();
+        if (previousTrackedTab && previousTrackedTab !== activeTab && isTrackedAdminMobilePageTab(previousTrackedTab)) {
+            writePreviousAdminMobilePageTab(previousTrackedTab);
+        }
+        lastTrackedTabRef.current = activeTab;
     }, [activeTab]);
 
     useAdminCrudSync({
@@ -160,6 +185,15 @@ export default function AdminDashboard() {
         await logout(); // [FIX] Uses AuthContext to clear session & Firebase
         navigate('/admin/login');
     };
+
+    const handleMobilePageBack = useCallback(() => {
+        const previousTab = readPreviousAdminMobilePageTab();
+        if (previousTab && previousTab !== activeTab && ADMIN_PERSISTABLE_TABS.has(previousTab)) {
+            setActiveTab(previousTab);
+            return;
+        }
+        setActiveTab('dashboard');
+    }, [activeTab]);
 
     const handleViewSiteAsGuest = useCallback(() => {
         if (typeof window === 'undefined') return;
@@ -561,23 +595,34 @@ export default function AdminDashboard() {
             {/* --- MAIN CONTENT AREA --- */}
             <main className="flex-1 md:ml-64 min-h-screen transition-all flex flex-col overflow-x-hidden">
                 {/* Mobile Header */}
-                <div className="md:hidden bg-white p-4 flex items-center justify-between shadow-sm sticky top-0 z-40 relative">
-                    <img src={BRAND_LOGO_URL} className="w-10 h-auto" alt="Logo" />
-                    <div className={`absolute left-1/2 top-1/2 inline-flex -translate-x-1/2 -translate-y-1/2 shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                        storefrontOpen
-                            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                            : 'border-gray-300 bg-gray-100 text-gray-800'
-                    }`}>
-                        <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
-                        {storefrontOpen ? 'Store Open' : 'Store Closed'}
+                {activeTab === 'dashboard' ? (
+                    <div className="md:hidden bg-white p-4 flex items-center justify-between shadow-sm sticky top-0 z-40 relative">
+                        <img src={BRAND_LOGO_URL} className="w-10 h-auto" alt="Logo" />
+                        <div className={`absolute left-1/2 top-1/2 inline-flex -translate-x-1/2 -translate-y-1/2 shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                            storefrontOpen
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                : 'border-gray-300 bg-gray-100 text-gray-800'
+                        }`}>
+                            <span className={`h-2 w-2 rounded-full ${storefrontOpen ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                            {storefrontOpen ? 'Store Open' : 'Store Closed'}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button onClick={handleLogout} className="text-gray-400"><LogOut size={20}/></button>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={handleLogout} className="text-gray-400"><LogOut size={20}/></button>
-                    </div>
-                </div>
+                ) : hasMobilePageHeader ? (
+                    <AdminMobilePageHeader
+                        title={mobilePageHeaderTitle}
+                        storefrontOpen={storefrontOpen}
+                        onBack={handleMobilePageBack}
+                        onLogout={handleLogout}
+                    />
+                ) : null}
+
+                {hasMobilePageHeader && <div className="md:hidden h-[88px]" aria-hidden="true" />}
 
                 {isDownloading && (
-                    <div className="sticky top-[56px] md:top-0 z-30 bg-white border-b border-gray-200">
+                    <div className={`sticky ${hasMobilePageHeader ? 'top-[88px]' : 'top-[56px]'} md:top-0 z-30 bg-white border-b border-gray-200`}>
                         <div className="h-1 bg-gray-100">
                             <div
                                 className="h-1 bg-accent transition-all duration-300"
@@ -590,7 +635,7 @@ export default function AdminDashboard() {
                     </div>
                 )}
 
-                <div className="flex-1 p-4 md:p-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full overflow-x-hidden">
+                <div className={`flex-1 px-4 md:px-8 ${hasMobilePageHeader ? 'pt-1' : 'pt-4'} md:pt-8 pb-24 md:pb-8 max-w-7xl mx-auto w-full overflow-x-hidden`}>
                     <div className="mb-6 hidden items-center justify-end md:flex">
                         <div className="flex items-center gap-2">
                             <button
@@ -647,9 +692,10 @@ export default function AdminDashboard() {
                             storefrontOpen={storefrontOpen}
                             focusProductId={focusProductId}
                             onFocusHandled={() => setFocusProductId(null)}
+                            mobilePageHeaderActive
                         />
                     )}
-                    {activeTab === 'categories' && <Categories onNavigate={setActiveTab} storefrontOpen={storefrontOpen} />}
+                    {activeTab === 'categories' && <Categories onNavigate={setActiveTab} storefrontOpen={storefrontOpen} mobilePageHeaderActive />}
                     {activeTab === 'customers' && (
                         <Customers
                             storefrontOpen={storefrontOpen}
@@ -659,6 +705,7 @@ export default function AdminDashboard() {
                             }}
                             focusCustomerId={focusCustomerId}
                             onFocusCustomerHandled={() => setFocusCustomerId(null)}
+                            mobilePageHeaderActive
                         />
                     )}
                     {activeTab === 'shipping' && <ShippingSettings />}
@@ -699,6 +746,7 @@ export default function AdminDashboard() {
                             onInitialSourceChannelApplied={() => setOrdersInitialSourceChannel('')}
                             initialManualCustomerId={ordersInitialManualCustomerId}
                             onInitialManualCustomerApplied={() => setOrdersInitialManualCustomerId('')}
+                            mobilePageHeaderActive
                         />
                     )}
                     {activeTab === 'abandoned' && (
@@ -708,6 +756,7 @@ export default function AdminDashboard() {
                             onInitialStatusApplied={() => setAbandonedInitialStatusFilter('')}
                             initialJourneyWindow={abandonedInitialRangeDays}
                             onInitialJourneyWindowApplied={() => setAbandonedInitialRangeDays('')}
+                            mobilePageHeaderActive
                         />
                     )}
                     {activeTab === 'loyalty' && <LoyaltySettings onBack={() => setActiveTab('dashboard')} storefrontOpen={storefrontOpen} />}

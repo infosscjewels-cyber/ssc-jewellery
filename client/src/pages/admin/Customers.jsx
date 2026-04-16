@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
 import {
     Archive,
+    ArrowLeft,
     Ban,
     Calendar,
     Download,
@@ -222,7 +223,8 @@ const getMobileCustomerCardTheme = (user = {}) => {
 export default function Customers({
     onCreateOrderForCustomer,
     focusCustomerId = null,
-    onFocusCustomerHandled = () => {}
+    onFocusCustomerHandled = () => {},
+    mobilePageHeaderActive = false
 }) {
     const { users, loading: isLoading, refreshUsers } = useCustomers();
     const { user: currentUser } = useAuth();
@@ -245,6 +247,7 @@ export default function Customers({
 
     const [selectedUser, setSelectedUser] = useState(null);
     const [isProfileOpen, setIsProfileOpen] = useState(false);
+    const [isProfileDrawerScrolled, setIsProfileDrawerScrolled] = useState(false);
     const [isCartOpen, setIsCartOpen] = useState(false);
     const [cartItems, setCartItems] = useState([]);
     const [isCartLoading, setIsCartLoading] = useState(false);
@@ -274,6 +277,7 @@ export default function Customers({
         expiresAt: ''
     });
     const [cartCountOverrides, setCartCountOverrides] = useState({});
+    const profileDrawerScrollRef = useRef(null);
 
     const applyArchiveMode = useCallback((nextMode) => {
         setArchiveMode(nextMode);
@@ -285,6 +289,12 @@ export default function Customers({
     useEffect(() => {
         refreshUsers(false, { archiveMode });
     }, [archiveMode, refreshUsers]);
+
+    useEffect(() => {
+        if (!isProfileOpen) {
+            setIsProfileDrawerScrolled(false);
+        }
+    }, [isProfileOpen]);
 
     const handleArchiveModeToggle = useCallback(() => {
         const nextMode = archiveMode === 'active'
@@ -1132,8 +1142,26 @@ export default function Customers({
 
             {isProfileOpen && selectedUser && createPortal(
                 <div className="fixed inset-0 z-[60] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
-                    <div className="bg-white w-full max-w-xl h-full shadow-2xl overflow-hidden">
-                        <div className="h-full overflow-y-auto p-6">
+                    <div
+                        ref={profileDrawerScrollRef}
+                        className="bg-white w-full max-w-xl h-full shadow-2xl overflow-y-auto"
+                        onScroll={(event) => setIsProfileDrawerScrolled(event.currentTarget.scrollTop > 8)}
+                    >
+                        <div className="sticky top-0 z-20 px-4 py-3 bg-white/68 backdrop-blur-xl supports-[backdrop-filter]:bg-white/60">
+                            <button
+                                onClick={() => setIsProfileOpen(false)}
+                                className={`absolute left-4 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border transition ${
+                                    isProfileDrawerScrolled
+                                        ? 'border-slate-900/70 bg-slate-950/85 text-white backdrop-blur-md'
+                                        : 'border-white/70 bg-white/85 text-slate-800 shadow-sm'
+                                }`}
+                                aria-label="Back"
+                            >
+                                <ArrowLeft size={18} />
+                            </button>
+                            <h3 className="m-0 flex min-h-[44px] items-center justify-center text-center text-base font-semibold leading-none text-gray-900">Customer Profile</h3>
+                        </div>
+                        <div className="px-6 pb-6 pt-4">
                         {(() => {
                             const drawerTheme = getMobileCustomerCardTheme(selectedUser);
                             const profileImage = getCustomerProfileImage(selectedUser);
@@ -1143,10 +1171,6 @@ export default function Customers({
                             const shippingAddress = parseAddress(selectedUser.address) || {};
                             return (
                                 <>
-                        <div className="flex items-center justify-between mb-6">
-                            <h3 className="text-xl font-bold text-gray-800">Customer Profile</h3>
-                            <button onClick={() => setIsProfileOpen(false)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"><X size={18} /></button>
-                        </div>
                         <div className={`relative mb-6 overflow-hidden rounded-3xl border px-5 pb-5 pt-5 shadow-sm ${drawerTheme.shell}`}>
                             <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r ${drawerTheme.strip}`} />
                             <div className="flex items-start gap-4">
@@ -1327,7 +1351,7 @@ export default function Customers({
             <div className="mb-3 md:mb-6 flex flex-col gap-2 md:gap-4 md:flex-row md:items-center md:justify-between">
                 <div className="w-full">
                     <div className="flex items-center justify-between gap-3 md:block">
-                        <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Customers</h1>
+                        <h1 className={`${mobilePageHeaderActive ? 'hidden md:block' : ''} text-2xl md:text-3xl font-serif text-primary font-bold`}>Customers</h1>
                         <div className="flex items-center justify-end gap-1.5 md:hidden">
                             <button
                                 type="button"

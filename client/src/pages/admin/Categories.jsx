@@ -43,7 +43,7 @@ const MOBILE_CATEGORY_CARD_THEMES = [
 
 const getMobileCategoryTheme = (index) => MOBILE_CATEGORY_CARD_THEMES[index % MOBILE_CATEGORY_CARD_THEMES.length];
 
-export default function Categories({ onNavigate = () => {}, storefrontOpen = true }) {
+export default function Categories({ onNavigate = () => {}, storefrontOpen = true, mobilePageHeaderActive = false }) {
     const [view, setView] = useState('list'); // 'list' or 'detail'
     const [selectedCategoryId, setSelectedCategoryId] = useState(null);
     
@@ -204,18 +204,20 @@ export default function Categories({ onNavigate = () => {}, storefrontOpen = tru
                 <div>
                     <div className="flex items-center justify-between gap-3 md:block">
                         <div className="flex items-center gap-3">
-                            <button
-                                type="button"
-                                onClick={() => onNavigate('products')}
-                                className="inline-flex md:hidden h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
-                                aria-label="Back to products"
-                            >
-                                <ArrowLeft size={18} />
-                            </button>
-                            <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Categories</h1>
+                            {!mobilePageHeaderActive && (
+                                <button
+                                    type="button"
+                                    onClick={() => onNavigate('products')}
+                                    className="inline-flex md:hidden h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm"
+                                    aria-label="Back to products"
+                                >
+                                    <ArrowLeft size={18} />
+                                </button>
+                            )}
+                            <h1 className={`${mobilePageHeaderActive ? 'hidden md:block' : ''} text-2xl md:text-3xl font-serif text-primary font-bold`}>Categories</h1>
                         </div>
                     </div>
-                    <p className="text-gray-500 text-sm mt-1">Manage product organization</p>
+                    <p className={`${mobilePageHeaderActive ? 'hidden md:block' : ''} text-gray-500 text-sm mt-1`}>Manage product organization</p>
                 </div>
                 <div className="hidden md:flex flex-wrap items-center gap-3">
                     <label className="inline-flex items-center gap-3 text-sm font-semibold text-gray-700">

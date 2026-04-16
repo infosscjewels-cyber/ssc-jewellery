@@ -818,7 +818,8 @@ export function Orders({
     initialSourceChannel = '',
     onInitialSourceChannelApplied = () => {},
     initialManualCustomerId = '',
-    onInitialManualCustomerApplied = () => {}
+    onInitialManualCustomerApplied = () => {},
+    mobilePageHeaderActive = false
 }) {
     const toast = useToast();
     const { user } = useAuth();
@@ -2936,7 +2937,7 @@ export function Orders({
                     <div className="w-full">
                         <div className="flex items-start justify-between gap-2 md:block">
                             <div className="flex min-w-0 items-start gap-2">
-                                <h1 className="shrink-0 text-2xl md:text-3xl font-serif text-primary font-bold leading-none">Orders</h1>
+                                <h1 className={`${mobilePageHeaderActive ? 'hidden md:block' : ''} shrink-0 text-2xl md:text-3xl font-serif text-primary font-bold leading-none`}>Orders</h1>
                                 <button
                                     type="button"
                                     onClick={() => setIsAnalyticsPanelOpen((prev) => !prev)}
@@ -2962,7 +2963,7 @@ export function Orders({
                                 )}
                             </div>
                         </div>
-                        <p className="hidden md:block text-gray-500 text-sm mt-1">Track sales, payments, and order status.</p>
+                        <p className={`${mobilePageHeaderActive ? 'hidden' : 'hidden md:block'} text-gray-500 text-sm mt-1`}>Track sales, payments, and order status.</p>
                         {selectedPeriodText && (
                             <p className="hidden md:block mt-0.5 md:mt-1 text-[11px] md:text-xs text-gray-400 leading-tight">Selected period: {selectedPeriodText}</p>
                         )}

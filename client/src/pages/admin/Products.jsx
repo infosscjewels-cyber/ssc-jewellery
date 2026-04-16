@@ -185,7 +185,13 @@ const MOBILE_PRODUCT_CARD_THEMES = [
 ];
 const getMobileProductCardTheme = (index = 0) => MOBILE_PRODUCT_CARD_THEMES[index % MOBILE_PRODUCT_CARD_THEMES.length];
 
-export default function Products({ onNavigate, storefrontOpen = true, focusProductId = null, onFocusHandled = () => {} }) {
+export default function Products({
+    onNavigate,
+    storefrontOpen = true,
+    focusProductId = null,
+    onFocusHandled = () => {},
+    mobilePageHeaderActive = false
+}) {
     const [allProducts, setAllProducts] = useState([]);
     const [isDownloading, setIsDownloading] = useState(false);
     
@@ -715,9 +721,9 @@ export default function Products({ onNavigate, storefrontOpen = true, focusProdu
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
                 <div className="w-full">
                     <div className="flex items-center justify-between gap-3 md:block">
-                        <h1 className="text-2xl md:text-3xl font-serif text-primary font-bold">Products</h1>
+                        <h1 className={`${mobilePageHeaderActive ? 'hidden md:block' : ''} text-2xl md:text-3xl font-serif text-primary font-bold`}>Products</h1>
                     </div>
-                    <p className="text-gray-500 text-sm mt-1">Manage your catalogue</p>
+                    <p className={`${mobilePageHeaderActive ? 'hidden md:block' : ''} text-gray-500 text-sm mt-1`}>Manage your catalogue</p>
                 </div>
                 
                 <div className="hidden md:flex flex-col md:flex-row gap-2 w-full md:w-auto">
