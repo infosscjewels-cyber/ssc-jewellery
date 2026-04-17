@@ -863,79 +863,68 @@ export default function CategoryStore() {
                                     {displayProducts.length} results
                                 </div>
 
-                                <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showFilters ? 'max-h-48 opacity-100 mt-3 pb-2' : 'max-h-0 opacity-0'}`}>
-                                    <div className="flex flex-wrap items-center gap-4 md:gap-8 pt-3 border-t border-gray-100">
-                                        <div className="flex items-center gap-2">
+                                <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showFilters ? 'mt-3 max-h-[420px] pb-2 opacity-100' : 'max-h-0 opacity-0'}`}>
+                                    <div className="grid grid-cols-1 gap-3 border-t border-gray-100 pt-3">
+                                        <div className="w-full">
                                             <input
                                                 type="text"
                                                 placeholder="Search products..."
                                                 value={searchTerm}
                                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                                className="w-48 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-primary"
+                                                className="w-full max-w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none sm:max-w-xs"
                                             />
                                         </div>
-                                        {subCategoriesEnabled && availableSubCategories.length > 0 && (
-                                            <div className="flex items-center gap-2 lg:hidden">
-                                                <span className="text-sm text-gray-600 font-medium">Sub Category:</span>
-                                                <select
-                                                    value={selectedSubCategory}
-                                                    onChange={(e) => handleSubCategoryChange(e.target.value)}
-                                                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-primary bg-white"
-                                                >
-                                                    <option value="">All Sub Categories</option>
-                                                    {availableSubCategories.map((subCategory) => (
-                                                        <option key={subCategory} value={subCategory}>{subCategory}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
-                                        )}
-                                        
-                                        <label className="flex items-center gap-2 cursor-pointer select-none">
-                                            <div className="relative">
-                                                <input 
-                                                    type="checkbox" 
-                                                    className="sr-only peer" 
-                                                    checked={inStockOnly}
-                                                    onChange={() => {
-                                                        const next = !inStockOnly;
-                                                        setInStockOnly(next);
-                                                        updateFilterParams({ inStockOnly: next ? 'true' : '' });
-                                                    }}
-                                                />
-                                                <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                                            </div>
-                                            <span className="text-sm text-gray-600 font-medium">In Stock Only</span>
-                                        </label>
+                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[104px_minmax(0,1fr)] sm:items-center sm:gap-4">
+                                            <span className="text-sm font-medium text-gray-600 sm:whitespace-nowrap">Availability</span>
+                                            <label className="flex items-center gap-3 cursor-pointer select-none">
+                                                <div className="relative">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="sr-only peer"
+                                                        checked={inStockOnly}
+                                                        onChange={() => {
+                                                            const next = !inStockOnly;
+                                                            setInStockOnly(next);
+                                                            updateFilterParams({ inStockOnly: next ? 'true' : '' });
+                                                        }}
+                                                    />
+                                                    <div className="h-5 w-9 rounded-full bg-gray-200 peer peer-focus:outline-none peer-checked:bg-primary peer-checked:after:translate-x-full peer-checked:after:border-white after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-['']"></div>
+                                                </div>
+                                                <span className="text-sm font-medium text-gray-600">In Stock Only</span>
+                                            </label>
+                                        </div>
 
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-sm text-gray-600 font-medium">Price:</span>
-                                            <input 
-                                                type="number" 
-                                                placeholder="Min" 
-                                                value={priceRange.min}
-                                                onChange={(e) => {
-                                                    const nextValue = e.target.value;
-                                                    setPriceRange(prev => ({ ...prev, min: nextValue }));
-                                                    updateFilterParams({ minPrice: nextValue });
-                                                }}
-                                                className="w-20 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-primary"
-                                            />
-                                            <span className="text-gray-400">-</span>
-                                            <input 
-                                                type="number" 
-                                                placeholder="Max" 
-                                                value={priceRange.max}
-                                                onChange={(e) => {
-                                                    const nextValue = e.target.value;
-                                                    setPriceRange(prev => ({ ...prev, max: nextValue }));
-                                                    updateFilterParams({ maxPrice: nextValue });
-                                                }}
-                                                className="w-20 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:border-primary"
-                                            />
+                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[104px_minmax(0,1fr)] sm:items-center sm:gap-4">
+                                            <span className="text-sm font-medium text-gray-600 sm:whitespace-nowrap">Price</span>
+                                            <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+                                                <input
+                                                    type="number"
+                                                    placeholder="Min"
+                                                    value={priceRange.min}
+                                                    onChange={(e) => {
+                                                        const nextValue = e.target.value;
+                                                        setPriceRange(prev => ({ ...prev, min: nextValue }));
+                                                        updateFilterParams({ minPrice: nextValue });
+                                                    }}
+                                                    className="w-24 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                                                />
+                                                <span className="text-gray-400">-</span>
+                                                <input
+                                                    type="number"
+                                                    placeholder="Max"
+                                                    value={priceRange.max}
+                                                    onChange={(e) => {
+                                                        const nextValue = e.target.value;
+                                                        setPriceRange(prev => ({ ...prev, max: nextValue }));
+                                                        updateFilterParams({ maxPrice: nextValue });
+                                                    }}
+                                                    className="w-24 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                                                />
+                                            </div>
                                         </div>
 
                                         {hasActiveFilters && (
-                                            <button 
+                                            <button
                                                 onClick={() => {
                                                     clearFilters();
                                                     updateFilterParams({
@@ -946,13 +935,30 @@ export default function CategoryStore() {
                                                         maxPrice: ''
                                                     });
                                                 }}
-                                                className="text-xs text-red-500 hover:text-red-700 font-bold ml-auto md:ml-0"
+                                                className="justify-self-start text-xs font-bold text-red-500 hover:text-red-700 sm:ml-[120px]"
                                             >
                                                 Clear Filters
                                             </button>
                                         )}
                                     </div>
                                 </div>
+                                {subCategoriesEnabled && availableSubCategories.length > 0 && (
+                                    <div className="border-t border-gray-100 px-4 py-3 lg:hidden">
+                                        <label className="block">
+                                            <span className="mb-2 block text-sm font-medium text-gray-600">Search by Sub categories</span>
+                                            <select
+                                                value={selectedSubCategory}
+                                                onChange={(e) => handleSubCategoryChange(e.target.value)}
+                                                className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                                            >
+                                                <option value="">All Sub Categories</option>
+                                                {availableSubCategories.map((subCategory) => (
+                                                    <option key={subCategory} value={subCategory}>{subCategory}</option>
+                                                ))}
+                                            </select>
+                                        </label>
+                                    </div>
+                                )}
                             </div>
                         </div>
 

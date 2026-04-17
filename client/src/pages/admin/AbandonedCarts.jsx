@@ -9,6 +9,12 @@ import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import cartIllustration from '../../assets/cart.svg';
 import EmptyState from '../../components/EmptyState';
 import WhatsAppIcon from '../../components/WhatsAppIcon';
+import {
+    ADMIN_ABANDONED_RANGE_OPTIONS,
+    DEFAULT_ADMIN_ABANDONED_RANGE,
+    normalizeAbandonedRangeValue,
+    resolveNamedDateRange
+} from '../../utils/adminDateRanges';
 
 const journeyStatusOptions = [
     { value: 'all', label: 'All' },
@@ -21,7 +27,7 @@ const journeyStatusOptions = [
 const mobileJourneyStatusOptions = [
     { value: 'new', label: 'New' },
     { value: 'attempted', label: 'Attempted' },
-    { value: 'completed', label: 'Completed' },
+    { value: 'recovered', label: 'Recovered' },
     { value: 'expired', label: 'Expired' },
     { value: 'all', label: 'All' }
 ];
@@ -34,12 +40,7 @@ const sortOptions = [
     { value: 'lowest_value', label: 'Lowest Cart Value' },
     { value: 'next_due', label: 'Next Due' }
 ];
-const insightRangeOptions = [
-    { value: 7, label: 'Last 7 days' },
-    { value: 30, label: 'Last 30 days' },
-    { value: 90, label: 'Last 90 days' },
-    { value: 'lifetime', label: 'All time' }
-];
+const insightRangeOptions = ADMIN_ABANDONED_RANGE_OPTIONS;
 const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
 const KPI_CARD_THEMES = {
     sky: {
@@ -119,7 +120,7 @@ const MOBILE_JOURNEY_CARD_THEMES = {
         meta: 'border-orange-100 bg-orange-50/80',
         divider: 'border-orange-100'
     },
-    completed: {
+    recovered: {
         shell: 'border-emerald-200 bg-gradient-to-br from-white via-emerald-50/60 to-lime-50/75 shadow-emerald-100/70',
         strip: 'from-emerald-400 via-lime-400 to-emerald-300',
         meta: 'border-emerald-100 bg-emerald-50/80',
@@ -195,28 +196,28 @@ const statusClass = (status) => {
 };
 const getMobileJourneyLifecycleStatus = (journey = {}) => {
     const backendStatus = String(journey?.status || '').toLowerCase();
-    if (backendStatus === 'recovered' || String(journey?.recovered_order_ref || '').trim()) return 'completed';
+    if (backendStatus === 'recovered' || String(journey?.recovered_order_ref || '').trim()) return 'recovered';
     if (backendStatus === 'expired' || backendStatus === 'cancelled') return 'expired';
     if (Number(journey?.last_attempt_no || 0) > 0) return 'attempted';
     return 'new';
 };
 const getMobileJourneyStatusLabel = (journey = {}) => {
     const key = getMobileJourneyLifecycleStatus(journey);
-    if (key === 'completed') return 'Completed';
+    if (key === 'recovered') return 'Recovered';
     if (key === 'attempted') return 'Attempted';
     if (key === 'expired') return 'Expired';
     return 'New';
 };
 const getMobileJourneyStatusBadgeClass = (journey = {}) => {
     const key = getMobileJourneyLifecycleStatus(journey);
-    if (key === 'completed') return 'bg-lime-200 text-emerald-950 border border-lime-300';
+    if (key === 'recovered') return 'bg-lime-200 text-emerald-950 border border-lime-300';
     if (key === 'attempted') return 'bg-amber-200 text-amber-950 border border-amber-300';
     if (key === 'expired') return 'bg-red-200 text-red-950 border border-red-300';
     return 'bg-sky-200 text-sky-950 border border-sky-300';
 };
 const getMobileJourneyFilterBadgeClass = (value = '', active = false) => {
     if (!active) return 'border-gray-200 bg-white text-gray-600';
-    if (value === 'completed') return 'bg-lime-200 text-emerald-950 border border-lime-300';
+    if (value === 'recovered') return 'bg-lime-200 text-emerald-950 border border-lime-300';
     if (value === 'attempted') return 'bg-amber-200 text-amber-950 border border-amber-300';
     if (value === 'expired') return 'bg-red-200 text-red-950 border border-red-300';
     if (value === 'new') return 'bg-sky-200 text-sky-950 border border-sky-300';
@@ -257,6 +258,18 @@ const formatCustomerContacts = (journey) => {
     const mobile = String(journey?.customer_mobile || '').trim();
     if (email && mobile) return `${email} | ${mobile}`;
     return email || mobile || '—';
+};
+const formatRangeDate = (value) => {
+    if (!value) return '—';
+    if (value instanceof Date) {
+        if (Number.isNaN(value.getTime())) return '—';
+        return value.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+    const raw = String(value || '').trim();
+    if (!raw) return '—';
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T00:00:00`) : new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return '—';
+    return parsed.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 const buildRecoverySubject = ({ attemptNo = 1, discountPercent = 0 } = {}) => {
     const idx = Math.max(0, Number(attemptNo || 1) - 1);
@@ -402,16 +415,10 @@ const attemptHasChannelData = (attempt = {}, channel = '') => {
 const JOURNEY_PAGE_SIZE = 20;
 const MAX_CAMPAIGN_ATTEMPTS = 6;
 const RECOVERY_WINDOW_BUFFER_HOURS = 2;
-const normalizeUnifiedRangeDays = (value, fallback = 30) => {
+const normalizeUnifiedRangeDays = (value, fallback = DEFAULT_ADMIN_ABANDONED_RANGE) => {
     const raw = String(value ?? '').trim().toLowerCase();
-    if (raw === 'lifetime' || raw === 'all' || raw === 'all_time') return 'lifetime';
-    if (raw === '7') return 7;
-    if (raw === '30') return 30;
-    if (raw === '90') return 90;
-    if (raw === 'last_10') return 'lifetime';
-    const numeric = Number(raw || fallback);
-    if ([7, 30, 90].includes(numeric)) return numeric;
-    return fallback;
+    if (raw === 'all' || raw === 'all_time' || raw === 'last_10') return 'lifetime';
+    return normalizeAbandonedRangeValue(value, { fallback });
 };
 const buildVisiblePages = (currentPage, totalPages, windowSize = 4) => {
     const safeTotal = Math.max(1, Number(totalPages || 1));
@@ -460,7 +467,7 @@ export default function AbandonedCarts({
     const [mobileJourneyStatusCounts, setMobileJourneyStatusCounts] = useState({
         new: 0,
         attempted: 0,
-        completed: 0,
+        recovered: 0,
         expired: 0,
         all: 0
     });
@@ -470,7 +477,7 @@ export default function AbandonedCarts({
     const [search, setSearch] = useState('');
     const [searchInput, setSearchInput] = useState('');
     const [page, setPage] = useState(1);
-    const [rangeDays, setRangeDays] = useState(30);
+    const [rangeDays, setRangeDays] = useState(DEFAULT_ADMIN_ABANDONED_RANGE);
     const [isMobileStatusModalOpen, setIsMobileStatusModalOpen] = useState(false);
     const [isMobileSortModalOpen, setIsMobileSortModalOpen] = useState(false);
     const [isMobileSearchModalOpen, setIsMobileSearchModalOpen] = useState(false);
@@ -543,7 +550,7 @@ export default function AbandonedCarts({
         setMobileJourneyStatusCounts({
             new: newCount,
             attempted: Math.max(0, activeCount - newCount),
-            completed: Number(totals.recovered || 0),
+            recovered: Number(totals.recovered || 0),
             expired: Number(totals.expired || 0) + Number(totals.cancelled || 0),
             all: Number(totals.all || 0)
         });
@@ -649,12 +656,21 @@ export default function AbandonedCarts({
         if (mobileStatusFilter === 'all') return journeys;
         return journeys.filter((journey) => getMobileJourneyLifecycleStatus(journey) === mobileStatusFilter);
     }, [journeys, mobileStatusFilter]);
+    const selectedPeriodText = useMemo(() => {
+        if (String(rangeDays || '').trim().toLowerCase() === 'lifetime') return 'Selected period: All time';
+        const resolvedRange = resolveNamedDateRange(rangeDays);
+        if (resolvedRange?.startDate && resolvedRange?.endDate) {
+            return `Selected period: ${formatRangeDate(resolvedRange.startDate)} - ${formatRangeDate(resolvedRange.endDate)}`;
+        }
+        const option = insightRangeOptions.find((entry) => String(entry.value) === String(rangeDays));
+        return option?.label ? `Selected period: ${option.label}` : '';
+    }, [rangeDays]);
     const fallbackMobileJourneyStatusCounts = useMemo(() => {
         const rows = Array.isArray(journeys) ? journeys : [];
         const counts = {
             new: 0,
             attempted: 0,
-            completed: 0,
+            recovered: 0,
             expired: 0,
             all: rows.length
         };
@@ -1198,7 +1214,9 @@ export default function AbandonedCarts({
                     <div className="flex items-center justify-between gap-3 md:block">
                         <h1 className={`${mobilePageHeaderActive ? 'hidden md:block' : ''} text-2xl md:text-3xl font-serif text-primary font-bold`}>Abandoned Cart Recovery</h1>
                     </div>
-                    <p className={`${mobilePageHeaderActive ? 'hidden md:block' : ''} text-sm text-gray-500 mt-1`}>Campaign settings, recovery insights, journeys and timelines.</p>
+                    {selectedPeriodText && (
+                        <p className={`${mobilePageHeaderActive ? 'hidden md:block' : ''} text-sm text-gray-500 mt-1`}>{selectedPeriodText}</p>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     <button
@@ -1220,7 +1238,7 @@ export default function AbandonedCarts({
                     </button>
                     <select
                         value={rangeDays}
-                        onChange={(e) => setRangeDays(normalizeUnifiedRangeDays(e.target.value, 30))}
+                        onChange={(e) => setRangeDays(normalizeUnifiedRangeDays(e.target.value, DEFAULT_ADMIN_ABANDONED_RANGE))}
                         className="hidden md:block px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm"
                     >
                         {insightRangeOptions.map((option) => (
@@ -1283,7 +1301,7 @@ export default function AbandonedCarts({
                             type="button"
                             onClick={() => setIsMobileRangeModalOpen(true)}
                             className={`inline-flex shrink-0 items-center rounded-full border px-3 py-2 text-xs font-semibold leading-none tracking-normal whitespace-nowrap shadow-sm transition ${
-                                rangeDays !== 30 ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700' : 'border-gray-200 bg-white text-gray-600'
+                                rangeDays !== DEFAULT_ADMIN_ABANDONED_RANGE ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700' : 'border-gray-200 bg-white text-gray-600'
                             }`}
                             title="Duration"
                             aria-label="Duration"
@@ -1607,7 +1625,7 @@ export default function AbandonedCarts({
                         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-gray-200" />
                         <h3 className="text-lg font-bold text-gray-900">Duration</h3>
                         <p className="mt-1 text-sm text-gray-500">Apply the same time range to recovery insights and the journey list.</p>
-                        <select value={rangeDays} onChange={(e) => setRangeDays(normalizeUnifiedRangeDays(e.target.value, 30))} className="mt-4 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:border-accent">
+                        <select value={rangeDays} onChange={(e) => setRangeDays(normalizeUnifiedRangeDays(e.target.value, DEFAULT_ADMIN_ABANDONED_RANGE))} className="mt-4 w-full rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:border-accent">
                             {insightRangeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                         </select>
                         <button type="button" onClick={() => setIsMobileRangeModalOpen(false)} className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent shadow-sm transition hover:bg-primary-light">

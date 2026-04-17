@@ -1,3 +1,5 @@
+const { DEFAULT_ADMIN_QUICK_RANGE, normalizeAdminQuickRange } = require('./adminDateRanges');
+
 const computeChange = (currentValue, previousValue) => {
     const current = Number(currentValue || 0);
     const previous = Number(previousValue || 0);
@@ -12,7 +14,7 @@ const toSafeEnum = (value, allowed = [], fallback = '') => {
 };
 
 const buildDashboardCacheKey = (query = {}) => JSON.stringify({
-    quickRange: String(query.quickRange || 'last_30_days'),
+    quickRange: normalizeAdminQuickRange(query.quickRange || DEFAULT_ADMIN_QUICK_RANGE),
     startDate: String(query.startDate || ''),
     endDate: String(query.endDate || ''),
     comparisonMode: String(query.comparisonMode || 'previous_period'),

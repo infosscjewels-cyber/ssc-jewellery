@@ -2,6 +2,10 @@ const AbandonedCart = require('../models/AbandonedCart');
 const { runDueAbandonedCartRecoveriesUntilClear, runAbandonedCartMaintenanceOnce } = require('../services/abandonedCartRecoveryService');
 const { listCommunicationDeliveryLogs } = require('../services/communications/communicationRetryService');
 const CompanyProfile = require('../models/CompanyProfile');
+const {
+    DEFAULT_ADMIN_ABANDONED_RANGE,
+    normalizeAbandonedRange
+} = require('../utils/adminDateRanges');
 
 const parseIntegerArrayStrict = (value, field) => {
     if (value == null) return undefined;
@@ -85,9 +89,7 @@ const listAbandonedCartJourneys = async (req, res) => {
         const sortBy = req.query.sortBy || 'newest';
         const limit = Number(req.query.limit || 50);
         const offset = Number(req.query.offset || 0);
-        const rangeDays = String(req.query.rangeDays || '').toLowerCase() === 'lifetime'
-            ? 'lifetime'
-            : Number(req.query.rangeDays || 90);
+        const rangeDays = normalizeAbandonedRange(req.query.rangeDays || DEFAULT_ADMIN_ABANDONED_RANGE);
         if (status !== 'pending') {
             const result = await AbandonedCart.listJourneysAdvanced({ status, search, sortBy, limit, offset, rangeDays });
             return res.json({ journeys: result.journeys, total: result.total });
@@ -124,9 +126,7 @@ const getAbandonedCartJourneyTimeline = async (req, res) => {
 
 const getAbandonedCartInsights = async (req, res) => {
     try {
-        const rangeDays = String(req.query.rangeDays || '').toLowerCase() === 'lifetime'
-            ? 'lifetime'
-            : Math.max(1, Math.min(90, Number(req.query.rangeDays || 30)));
+        const rangeDays = normalizeAbandonedRange(req.query.rangeDays || DEFAULT_ADMIN_ABANDONED_RANGE);
         const insights = await AbandonedCart.getInsights({ rangeDays });
         return res.json({ insights });
     } catch (error) {

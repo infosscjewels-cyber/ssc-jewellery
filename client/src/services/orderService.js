@@ -1,5 +1,6 @@
 import { dispatchSessionExpired, getAuthHeaders, shouldTreatAsExpiredSession } from '../utils/authSession';
 import { fetchWithRetry } from '../utils/fetchRetry';
+import { DEFAULT_ADMIN_QUICK_RANGE, normalizeAdminQuickRange, resolveNamedDateRange } from '../utils/adminDateRanges';
 
 const API_URL = import.meta.env.PROD
   ? '/api/orders'
@@ -227,23 +228,16 @@ const normalizeOrderForCache = (order) => {
 };
 
 const matchesAdminQuickRange = (createdAt, query = {}) => {
-    const quickRange = String(query.quickRange || 'last_90_days');
+    const quickRange = normalizeAdminQuickRange(query.quickRange || DEFAULT_ADMIN_QUICK_RANGE);
     if (quickRange === 'latest_10' || quickRange === 'custom') return true;
     const created = new Date(createdAt);
     if (Number.isNaN(created.getTime())) return true;
-    const now = new Date();
-    if (quickRange === 'last_7_days') {
-        const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        return created >= cutoff;
-    }
-    if (quickRange === 'last_1_month' || quickRange === 'last_30_days') {
-        const cutoff = new Date(now);
-        cutoff.setMonth(cutoff.getMonth() - 1);
-        return created >= cutoff;
-    }
-    if (quickRange === 'last_90_days') {
-        const cutoff = new Date(now.getTime() - MAX_FETCH_RANGE_DAYS * 24 * 60 * 60 * 1000);
-        return created >= cutoff;
+    const resolved = resolveNamedDateRange(quickRange);
+    if (resolved) {
+        const start = resolved.startDate;
+        const end = new Date(resolved.endDate);
+        end.setUTCHours(23, 59, 59, 999);
+        return created >= start && created <= end;
     }
     return true;
 };
@@ -671,12 +665,13 @@ export const orderService = {
         search = '',
         startDate = '',
         endDate = '',
-        quickRange = 'last_90_days',
+        quickRange = DEFAULT_ADMIN_QUICK_RANGE,
         sortBy = 'newest',
         sourceChannel = 'all'
     }) => {
-        const queryMeta = { page, limit, status, search, startDate, endDate, quickRange, sortBy, sourceChannel };
-        const cacheKey = `${page}_${limit}_${status}_${search}_${startDate}_${endDate}_${quickRange}_${sortBy}_${sourceChannel}`;
+        const normalizedQuickRange = normalizeAdminQuickRange(quickRange || DEFAULT_ADMIN_QUICK_RANGE);
+        const queryMeta = { page, limit, status, search, startDate, endDate, quickRange: normalizedQuickRange, sortBy, sourceChannel };
+        const cacheKey = `${page}_${limit}_${status}_${search}_${startDate}_${endDate}_${normalizedQuickRange}_${sortBy}_${sourceChannel}`;
         const cached = adminOrdersCache[cacheKey];
         const shouldDebug = typeof window !== 'undefined' && window.location?.search?.includes('debugOrders=1');
         if (cached && Date.now() - cached.ts < ADMIN_CACHE_TTL) {
@@ -697,7 +692,7 @@ export const orderService = {
                 orders: filteredOrders
             };
         }
-        const query = `?page=${page}&limit=${limit}&status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&quickRange=${encodeURIComponent(quickRange)}&sortBy=${encodeURIComponent(sortBy)}&sourceChannel=${encodeURIComponent(sourceChannel)}`;
+        const query = `?page=${page}&limit=${limit}&status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&quickRange=${encodeURIComponent(normalizedQuickRange)}&sortBy=${encodeURIComponent(sortBy)}&sourceChannel=${encodeURIComponent(sourceChannel)}`;
         const res = await getWithRetry(`${API_URL}/admin${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         data.orders = sortAdminOrders(

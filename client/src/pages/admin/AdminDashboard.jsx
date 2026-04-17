@@ -16,6 +16,7 @@ import CompanyInfo from './CompanyInfo';
 import LoyaltySettings from './LoyaltySettings';
 import DashboardInsights from './DashboardInsights';
 import { AdminKPIProvider } from '../../context/AdminKPIContext';
+import { DEFAULT_ADMIN_QUICK_RANGE } from '../../utils/adminDateRanges';
 import orderIllustration from '../../assets/order.svg';
 import courierIllustration from '../../assets/courier.svg';
 import receivedOrderAudio from '../../assets/received_order.mp3';
@@ -245,7 +246,7 @@ export default function AdminDashboard() {
         if (target.tab === 'orders') {
             setActiveTab('orders');
             setOrdersInitialStatusFilter(target.status || '');
-            setOrdersInitialQuickRange(target.quickRange || 'last_30_days');
+            setOrdersInitialQuickRange(target.quickRange || DEFAULT_ADMIN_QUICK_RANGE);
             setOrdersInitialStartDate(target.startDate || '');
             setOrdersInitialEndDate(target.endDate || '');
             setOrdersInitialSortBy(target.sortBy || '');

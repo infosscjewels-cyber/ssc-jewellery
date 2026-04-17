@@ -13,14 +13,14 @@ import EmptyState from '../../components/EmptyState';
 import Modal from '../../components/Modal';
 import TierBadge from '../../components/TierBadge';
 import { formatAdminDateTime } from '../../utils/dateFormat';
+import {
+    ADMIN_QUICK_RANGES,
+    DEFAULT_ADMIN_QUICK_RANGE,
+    normalizeAdminQuickRange,
+    resolveNamedDateRange
+} from '../../utils/adminDateRanges';
 
-const QUICK_RANGES = [
-    { value: 'latest_10', label: 'Latest Orders (10)' },
-    { value: 'last_7_days', label: 'Last 7 Days' },
-    { value: 'last_30_days', label: 'Last 30 Days' },
-    { value: 'last_90_days', label: 'Last 90 Days' },
-    { value: 'custom', label: 'Custom Range' }
-];
+const QUICK_RANGES = ADMIN_QUICK_RANGES;
 const DAILY_TREND_PAGE_SIZE = 6;
 const DASHBOARD_CUSTOM_RANGE_MAX_DAYS = 90;
 const DASHBOARD_TREND_GRANULARITY_STORAGE_KEY = 'dashboard_trend_granularity_v1';
@@ -121,10 +121,11 @@ const applyKpiThemeRotation = (cards = []) => cards.map((card, index) => ({
     ...card,
     theme: card.theme || KPI_THEME_SEQUENCE[index % KPI_THEME_SEQUENCE.length]
 }));
-const toRangeDays = ({ quickRange = 'last_30_days', startDate = '', endDate = '' } = {}) => {
-    if (quickRange === 'last_7_days') return 7;
-    if (quickRange === 'last_90_days') return 90;
-    if (quickRange === 'latest_10') return 30;
+const toRangeDays = ({ quickRange = DEFAULT_ADMIN_QUICK_RANGE, startDate = '', endDate = '' } = {}) => {
+    const normalizedQuickRange = normalizeAdminQuickRange(quickRange || DEFAULT_ADMIN_QUICK_RANGE);
+    const resolved = resolveNamedDateRange(normalizedQuickRange);
+    if (resolved) return resolved.periodDays;
+    if (normalizedQuickRange === 'latest_10') return 30;
     if (quickRange === 'custom') {
         const start = startDate ? new Date(`${startDate}T00:00:00`) : null;
         const end = endDate ? new Date(`${endDate}T00:00:00`) : null;
@@ -254,7 +255,7 @@ const buildLifetimeOrderTarget = ({ status = 'all', count = 0, oldestDate = '', 
     return {
         tab: 'orders',
         status,
-        quickRange: canUseCustom ? 'custom' : 'latest_10',
+        quickRange: canUseCustom ? 'custom' : DEFAULT_ADMIN_QUICK_RANGE,
         startDate: canUseCustom ? String(oldestDate || '') : '',
         endDate: canUseCustom ? String(endDate || '') : ''
     };
@@ -266,7 +267,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const installAppLabel = showIosHint ? 'Add to Home Screen' : 'Install app';
     const toastRef = useRef(toast);
     const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
-    const [quickRange, setQuickRange] = useState('last_30_days');
+    const [quickRange, setQuickRange] = useState(DEFAULT_ADMIN_QUICK_RANGE);
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [comparisonMode, setComparisonMode] = useState('previous_period');
@@ -312,7 +313,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     const [isAlertSettingsOpen, setIsAlertSettingsOpen] = useState(false);
     const [isStoreIntroOpen, setIsStoreIntroOpen] = useState(false);
     const [isSalesRangeOpen, setIsSalesRangeOpen] = useState(false);
-    const [draftQuickRange, setDraftQuickRange] = useState('last_30_days');
+    const [draftQuickRange, setDraftQuickRange] = useState(DEFAULT_ADMIN_QUICK_RANGE);
     const [draftStartDate, setDraftStartDate] = useState('');
     const [draftEndDate, setDraftEndDate] = useState('');
     const [goalCelebration, setGoalCelebration] = useState({ active: false, title: '' });
@@ -1041,7 +1042,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
     }, [isSalesRangeOpen, quickRange, startDate, endDate]);
 
     const handleDashboardQuickRangeChange = (nextRange) => {
-        const resolved = String(nextRange || 'last_30_days');
+        const resolved = normalizeAdminQuickRange(nextRange || DEFAULT_ADMIN_QUICK_RANGE);
         if (resolved === 'custom') {
             const today = toLocalIsoDate(new Date());
             const fallbackEnd = String(draftEndDate || endDate || data?.filter?.endDate || today || '').trim();
@@ -1087,7 +1088,7 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         ? ((startDate && endDate)
             ? `${formatPrettyDate(startDate)} - ${formatPrettyDate(endDate)}`
             : 'Custom Range')
-        : (QUICK_RANGES.find((range) => range.value === quickRange)?.label || 'Last 30 Days');
+        : (QUICK_RANGES.find((range) => range.value === quickRange)?.label || 'Current Month');
 
     return (
         <div className="space-y-6">

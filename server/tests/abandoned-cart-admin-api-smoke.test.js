@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const AbandonedCart = require('../models/AbandonedCart');
+const CompanyProfile = require('../models/CompanyProfile');
 const recoveryService = require('../services/abandonedCartRecoveryService');
 const { createMockRes, withPatched, requireFresh } = require('./testUtils');
 
@@ -66,7 +67,7 @@ test('admin abandoned-cart insights endpoint returns insights payload', async ()
 
     await withPatched(AbandonedCart, {
         getInsights: async ({ rangeDays }) => {
-            assert.equal(rangeDays, 30);
+            assert.equal(rangeDays, 'current_month');
             return { totals: { totalJourneys: 10 } };
         }
     }, async () => {
@@ -99,19 +100,23 @@ test('admin abandoned-cart process-now endpoint triggers maintenance + due proce
     const res = createMockRes();
     let maintenanceCalled = false;
 
-    await withPatched(recoveryService, {
-        runAbandonedCartMaintenanceOnce: async ({ onJourneyUpdate }) => {
-            maintenanceCalled = true;
-            onJourneyUpdate?.({ event: 'created', journeyId: 9 });
-            return { ok: true };
-        },
-        runDueAbandonedCartRecoveriesUntilClear: async ({ limit }) => {
-            assert.equal(limit, 15);
-            return { ok: true, stats: { due: 0, processed: 0 } };
-        }
+    await withPatched(CompanyProfile, {
+        get: async () => ({ storefrontOpen: true })
     }, async () => {
-        const controller = loadController();
-        await controller.processAbandonedCartRecoveriesNow(req, res);
+        await withPatched(recoveryService, {
+            runAbandonedCartMaintenanceOnce: async ({ onJourneyUpdate }) => {
+                maintenanceCalled = true;
+                onJourneyUpdate?.({ event: 'created', journeyId: 9 });
+                return { ok: true };
+            },
+            runDueAbandonedCartRecoveriesUntilClear: async ({ limit }) => {
+                assert.equal(limit, 15);
+                return { ok: true, stats: { due: 0, processed: 0 } };
+            }
+        }, async () => {
+            const controller = loadController();
+            await controller.processAbandonedCartRecoveriesNow(req, res);
+        });
     });
 
     assert.equal(maintenanceCalled, true);

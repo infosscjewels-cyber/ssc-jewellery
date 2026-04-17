@@ -17,6 +17,12 @@ import { useAdminKPI } from '../../context/AdminKPIContext';
 import { useAuth } from '../../context/AuthContext';
 import WhatsAppIcon from '../../components/WhatsAppIcon';
 import {
+    ADMIN_QUICK_RANGES,
+    DEFAULT_ADMIN_QUICK_RANGE,
+    normalizeAdminQuickRange,
+    resolveNamedDateRange
+} from '../../utils/adminDateRanges';
+import {
     configurePreferredPrinter,
     getPreferredPrinterTransport,
     getPrinterSupportState,
@@ -27,13 +33,7 @@ import {
     validateToLabelData
 } from '../../utils/thermalLabelPrint';
 
-const QUICK_RANGES = [
-    { value: 'latest_10', label: 'Latest Orders (10)' },
-    { value: 'last_7_days', label: 'Last 7 Days' },
-    { value: 'last_30_days', label: 'Last 30 Days' },
-    { value: 'last_90_days', label: 'Last 90 Days' },
-    { value: 'custom', label: 'Custom Range' }
-];
+const QUICK_RANGES = ADMIN_QUICK_RANGES;
 
 const MAX_RANGE_DAYS = 90;
 const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
@@ -832,8 +832,8 @@ export function Orders({
     const [searchInput, setSearchInput] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
-    const [quickRange, setQuickRange] = useState('last_30_days');
-    const [draftQuickRange, setDraftQuickRange] = useState('last_30_days');
+    const [quickRange, setQuickRange] = useState(DEFAULT_ADMIN_QUICK_RANGE);
+    const [draftQuickRange, setDraftQuickRange] = useState(DEFAULT_ADMIN_QUICK_RANGE);
     const [draftStartDate, setDraftStartDate] = useState('');
     const [draftEndDate, setDraftEndDate] = useState('');
     const [sourceChannel, setSourceChannel] = useState('all');
@@ -1036,7 +1036,16 @@ export function Orders({
     };
     const formatRangeDate = (value) => {
         if (!value) return '—';
-        return formatAdminDate(`${value}T00:00:00`);
+        if (value instanceof Date) {
+            if (Number.isNaN(value.getTime())) return '—';
+            return formatAdminDate(value.toISOString());
+        }
+        const raw = String(value || '').trim();
+        if (!raw) return '—';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+            return formatAdminDate(`${raw}T00:00:00`);
+        }
+        return formatAdminDate(raw);
     };
     const isFailedRow = (order) => String(order?.status || '').toLowerCase() === 'failed';
     const getRowKey = (order) => {
@@ -1563,7 +1572,9 @@ export function Orders({
     }, [initialStatusFilter, normalizeStatusSelection, onInitialStatusApplied, page, statusFilter]);
 
     useEffect(() => {
-        const nextRange = String(initialQuickRange || '').trim().toLowerCase();
+        const rawInitialQuickRange = String(initialQuickRange || '').trim();
+        if (!rawInitialQuickRange) return;
+        const nextRange = normalizeAdminQuickRange(rawInitialQuickRange);
         if (!nextRange) return;
         setDraftQuickRange(nextRange);
         if (quickRange !== nextRange) {
@@ -1588,10 +1599,10 @@ export function Orders({
         const nextEndDate = toDateOnly(nextEnd);
         const span = (nextStartDate && nextEndDate) ? diffInDays(nextStartDate, nextEndDate) : 0;
         if (nextStartDate && nextEndDate && span > MAX_RANGE_DAYS) {
-            setDraftQuickRange('last_30_days');
+            setDraftQuickRange(DEFAULT_ADMIN_QUICK_RANGE);
             setDraftStartDate('');
             setDraftEndDate('');
-            setQuickRange('last_30_days');
+            setQuickRange(DEFAULT_ADMIN_QUICK_RANGE);
             setStartDate('');
             setEndDate('');
             shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
@@ -1642,10 +1653,10 @@ export function Orders({
         setSelectedStatusCountKey(normalizedStatus);
         setStatusCountCache((prev) => ({ ...prev, [normalizedStatus]: nextDisplayedCount }));
         if (shouldResetDashboardRangeOnNextStatusChangeRef.current && quickRange === 'custom') {
-            setDraftQuickRange('last_30_days');
+            setDraftQuickRange(DEFAULT_ADMIN_QUICK_RANGE);
             setDraftStartDate('');
             setDraftEndDate('');
-            setQuickRange('last_30_days');
+            setQuickRange(DEFAULT_ADMIN_QUICK_RANGE);
             setStartDate('');
             setEndDate('');
             shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
@@ -1691,6 +1702,27 @@ export function Orders({
         }
         if (!hasChanges) {
             fetchOrders();
+        }
+    };
+
+    const handleQuickRangeDraftChange = (nextValue) => {
+        const next = normalizeAdminQuickRange(nextValue || DEFAULT_ADMIN_QUICK_RANGE);
+        setDraftQuickRange(next);
+        if (next === 'custom') return;
+        setDraftStartDate('');
+        setDraftEndDate('');
+        shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
+        if (quickRange !== next) {
+            setQuickRange(next);
+        }
+        if (startDate) {
+            setStartDate('');
+        }
+        if (endDate) {
+            setEndDate('');
+        }
+        if (page !== 1) {
+            setPage(1);
         }
     };
 
@@ -2888,6 +2920,10 @@ export function Orders({
         if (quickRange === 'custom' && startDate && endDate) {
             return `${formatRangeDate(startDate)} - ${formatRangeDate(endDate)}`;
         }
+        const resolvedRange = resolveNamedDateRange(quickRange);
+        if (resolvedRange?.startDate && resolvedRange?.endDate) {
+            return `${formatRangeDate(resolvedRange.startDate)} - ${formatRangeDate(resolvedRange.endDate)}`;
+        }
         const option = QUICK_RANGES.find((entry) => entry.value === quickRange);
         return option?.label || '';
     }, [endDate, quickRange, startDate]);
@@ -2976,12 +3012,7 @@ export function Orders({
                         <select
                             value={draftQuickRange}
                             onChange={(e) => {
-                                const next = e.target.value;
-                                setDraftQuickRange(next);
-                                if (next !== 'custom') {
-                                    setDraftStartDate('');
-                                    setDraftEndDate('');
-                                }
+                                handleQuickRangeDraftChange(e.target.value);
                             }}
                             className="w-full md:w-auto pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer"
                         >
@@ -3071,12 +3102,7 @@ export function Orders({
                                 <select
                                     value={draftQuickRange}
                                     onChange={(e) => {
-                                        const next = e.target.value;
-                                        setDraftQuickRange(next);
-                                        if (next !== 'custom') {
-                                            setDraftStartDate('');
-                                            setDraftEndDate('');
-                                        }
+                                        handleQuickRangeDraftChange(e.target.value);
                                     }}
                                     className="w-full pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer"
                                 >

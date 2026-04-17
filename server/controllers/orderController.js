@@ -26,6 +26,11 @@ const { emitProductEvent } = require('./productController');
 const { normalizeAndValidateAddress } = require('../utils/addressValidation');
 const { billingAddressEnabled, resolveBillingAddress } = require('../utils/billingAddressConfig');
 const { sendToAdmins } = require('../services/pushNotificationService');
+const {
+    DEFAULT_ADMIN_QUICK_RANGE,
+    normalizeAdminQuickRange,
+    resolveNamedRange
+} = require('../utils/adminDateRanges');
 
 const toSubunit = (amount) => Math.round(Number(amount || 0) * 100);
 const JWT_SECRET = String(process.env.JWT_SECRET || '').trim();
@@ -2691,12 +2696,18 @@ const getAdminOrders = async (req, res) => {
         const limit = parseInt(req.query.limit) || 20;
         const status = req.query.status || 'all';
         const search = normalizeAdminOrderSearch(req.query.search || '');
-        const startDate = req.query.startDate || '';
-        const endDate = req.query.endDate || '';
-        const quickRangeRaw = String(req.query.quickRange || 'last_90_days').trim().toLowerCase();
-        const quickRange = quickRangeRaw === 'last_30_days' ? 'last_1_month' : quickRangeRaw;
+        let startDate = req.query.startDate || '';
+        let endDate = req.query.endDate || '';
+        const quickRange = normalizeAdminQuickRange(req.query.quickRange || DEFAULT_ADMIN_QUICK_RANGE);
         const sortBy = req.query.sortBy || 'newest';
         const sourceChannel = String(req.query.sourceChannel || 'all').trim().toLowerCase();
+        if (quickRange !== 'custom' && quickRange !== 'latest_10') {
+            const resolvedRange = resolveNamedRange(quickRange);
+            if (resolvedRange) {
+                startDate = resolvedRange.startDateText;
+                endDate = resolvedRange.endDateText;
+            }
+        }
         if (quickRange === 'custom') {
             const now = new Date();
             const start = startDate ? new Date(`${startDate}T00:00:00`) : null;

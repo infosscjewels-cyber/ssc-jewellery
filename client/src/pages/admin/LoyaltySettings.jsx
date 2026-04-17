@@ -267,6 +267,7 @@ const normalizeCategoryOptions = (value) => {
 
 export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
     const toast = useToast();
+    const loyaltyFailureToastCooldownRef = useRef(0);
     const [rows, setRows] = useState([]);
     const [activeTier, setActiveTier] = useState('regular');
     const [editingTier, setEditingTier] = useState(null);
@@ -340,6 +341,19 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
         }));
     };
 
+    const notifyLoyaltyFetchError = useCallback((error, fallbackMessage) => {
+        const cooldownUntil = Number(error?.cooldownUntil || 0);
+        if (error?.code === 'FETCH_RETRY_COOLDOWN') {
+            if (cooldownUntil > Number(loyaltyFailureToastCooldownRef.current || 0)) {
+                loyaltyFailureToastCooldownRef.current = cooldownUntil;
+                toast.error(error?.message || 'Server unavailable. Retry paused briefly.');
+            }
+            return;
+        }
+        loyaltyFailureToastCooldownRef.current = cooldownUntil;
+        toast.error(error?.message || fallbackMessage);
+    }, [toast]);
+
     const loadPopupAdminState = useCallback(async () => {
         const [popupData, templateData, popupCouponsData] = await Promise.all([
             adminService.getLoyaltyPopupConfig().catch(() => ({ popup: null })),
@@ -349,9 +363,7 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
 
         const templates = Array.isArray(templateData?.templates) ? templateData.templates : [];
         setPopupTemplates(templates);
-        if (!popupTemplateName) {
-            setPopupTemplateName(getDefaultTemplateName());
-        }
+        setPopupTemplateName((prev) => prev || getDefaultTemplateName());
 
         const popupCouponRows = Array.isArray(popupCouponsData?.coupons) ? popupCouponsData.coupons : [];
         const popupEligible = popupCouponRows
@@ -387,7 +399,7 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
             ...sanitizedPopup,
             isActive: Boolean(sanitizedPopup?.isActive)
         });
-    }, [popupTemplateName]);
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -408,12 +420,12 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
             const resolved = normalizeCategoryOptions(statRows);
             setCategories(resolved.length ? resolved : normalizeCategoryOptions(categoryRows));
         }).catch((error) => {
-            toast.error(error?.message || 'Failed to load loyalty settings');
+            notifyLoyaltyFetchError(error, 'Failed to load loyalty settings');
         }).finally(() => {
             if (!cancelled) setLoading(false);
         });
         return () => { cancelled = true; };
-    }, [loadPopupAdminState, toast]);
+    }, [loadPopupAdminState, notifyLoyaltyFetchError]);
 
     useEffect(() => {
         let cancelled = false;
@@ -424,14 +436,18 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
                 setCouponList(Array.isArray(data?.coupons) ? data.coupons : []);
                 setCouponTotalPages(Number(data?.pagination?.totalPages || 1));
             })
-            .catch(() => {
-                if (!cancelled) setCouponList([]);
+            .catch((error) => {
+                if (!cancelled) {
+                    setCouponList([]);
+                    setCouponTotalPages(1);
+                    notifyLoyaltyFetchError(error, 'Failed to load loyalty coupons');
+                }
             })
             .finally(() => {
                 if (!cancelled) setCouponLoading(false);
             });
         return () => { cancelled = true; };
-    }, [couponPage, couponSearch, couponRefreshKey]);
+    }, [couponPage, couponSearch, couponRefreshKey, notifyLoyaltyFetchError]);
 
     useEffect(() => {
         const visible = new Set((couponList || []).map((cp) => String(cp.id ?? cp.code ?? '')));
@@ -462,7 +478,9 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
                         return { ...prev, couponCode: '' };
                     });
                 })
-                .catch(() => {});
+                .catch((error) => {
+                    notifyLoyaltyFetchError(error, 'Failed to refresh loyalty coupons');
+                });
         },
         'loyalty:config_update': ({ config } = {}) => {
             if (Array.isArray(config)) {
@@ -471,10 +489,14 @@ export default function LoyaltySettings({ onBack, storefrontOpen = true }) {
             }
             adminService.getLoyaltyConfig()
                 .then((data) => applyConfigRows(Array.isArray(data?.config) ? data.config : []))
-                .catch(() => {});
+                .catch((error) => {
+                    notifyLoyaltyFetchError(error, 'Failed to refresh loyalty settings');
+                });
         },
         'loyalty:popup_update': () => {
-            loadPopupAdminState().catch(() => {});
+            loadPopupAdminState().catch((error) => {
+                notifyLoyaltyFetchError(error, 'Failed to refresh loyalty popup settings');
+            });
         }
     });
 

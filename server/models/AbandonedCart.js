@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { normalizeAbandonedRange, resolveNamedRange } = require('../utils/adminDateRanges');
 
 const DEFAULT_CAMPAIGN = Object.freeze({
     enabled: true,
@@ -1117,8 +1118,14 @@ class AbandonedCart {
     } = {}) {
         const campaign = await AbandonedCart.getCampaign();
         const inactivityMinutes = Math.max(1, Number(campaign?.inactivityMinutes || DEFAULT_CAMPAIGN.inactivityMinutes));
-        const isLifetimeRange = String(rangeDays || '').toLowerCase() === 'lifetime';
-        const safeRangeDays = isLifetimeRange ? null : Math.max(1, Math.min(90, Number(rangeDays || 90)));
+        const normalizedRange = normalizeAbandonedRange(rangeDays);
+        const isLifetimeRange = normalizedRange === 'lifetime';
+        const resolvedNamedRange = (!isLifetimeRange && typeof normalizedRange === 'string')
+            ? resolveNamedRange(normalizedRange)
+            : null;
+        const safeRangeDays = (!isLifetimeRange && !resolvedNamedRange)
+            ? Math.max(1, Math.min(90, Number(normalizedRange || 90)))
+            : null;
         const params = [];
         let where = "WHERE LOWER(COALESCE(u.role, 'customer')) = 'customer' AND COALESCE(u.is_active, 0) = 1";
         where += ` AND (
@@ -1127,7 +1134,10 @@ class AbandonedCart {
             OR COALESCE(j.last_activity_at, j.updated_at, j.created_at) <= DATE_SUB(NOW(), INTERVAL ? MINUTE)
         )`;
         params.push(inactivityMinutes);
-        if (!isLifetimeRange) {
+        if (resolvedNamedRange) {
+            where += ' AND DATE(j.created_at) BETWEEN ? AND ?';
+            params.push(resolvedNamedRange.startDateText, resolvedNamedRange.endDateText);
+        } else if (!isLifetimeRange) {
             where += ' AND j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)';
             params.push(safeRangeDays);
         }
@@ -1270,12 +1280,23 @@ class AbandonedCart {
     }
 
     static async getInsights({ rangeDays = 30 } = {}) {
-        const isLifetimeRange = String(rangeDays || '').toLowerCase() === 'lifetime';
-        const safeDays = isLifetimeRange ? null : Math.max(1, Math.min(90, Number(rangeDays || 30)));
+        const normalizedRange = normalizeAbandonedRange(rangeDays);
+        const isLifetimeRange = normalizedRange === 'lifetime';
+        const resolvedNamedRange = (!isLifetimeRange && typeof normalizedRange === 'string')
+            ? resolveNamedRange(normalizedRange)
+            : null;
+        const safeDays = (!isLifetimeRange && !resolvedNamedRange)
+            ? Math.max(1, Math.min(90, Number(normalizedRange || 30)))
+            : null;
         const summaryParams = [];
         let summaryWhere = `WHERE LOWER(COALESCE(u.role, 'customer')) = 'customer'
                AND COALESCE(u.is_active, 0) = 1`;
-        if (!isLifetimeRange) {
+        if (resolvedNamedRange) {
+            summaryWhere = `WHERE DATE(j.created_at) BETWEEN ? AND ?
+               AND LOWER(COALESCE(u.role, 'customer')) = 'customer'
+               AND COALESCE(u.is_active, 0) = 1`;
+            summaryParams.push(resolvedNamedRange.startDateText, resolvedNamedRange.endDateText);
+        } else if (!isLifetimeRange) {
             summaryWhere = `WHERE j.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
                AND LOWER(COALESCE(u.role, 'customer')) = 'customer'
                AND COALESCE(u.is_active, 0) = 1`;
@@ -1339,7 +1360,7 @@ class AbandonedCart {
         const recoveredJourneys = Number(summary.recovered_journeys || 0);
 
         return {
-            rangeDays: isLifetimeRange ? 'lifetime' : safeDays,
+            rangeDays: isLifetimeRange ? 'lifetime' : (resolvedNamedRange?.quickRange || safeDays),
             totals: {
                 totalJourneys,
                 activeJourneys: Number(summary.active_journeys || 0),

@@ -44,3 +44,19 @@ test('buildDashboardCacheKey remains stable for semantically same input', () => 
     });
     assert.equal(a, b);
 });
+
+test('buildDashboardCacheKey normalizes legacy and canonical quick ranges to the same key', () => {
+    const legacy = buildDashboardCacheKey({
+        quickRange: 'last_30_days',
+        status: 'all',
+        paymentMode: 'all',
+        sourceChannel: 'all'
+    });
+    const canonical = buildDashboardCacheKey({
+        quickRange: 'current_month',
+        status: 'all',
+        paymentMode: 'all',
+        sourceChannel: 'all'
+    });
+    assert.equal(legacy, canonical);
+});

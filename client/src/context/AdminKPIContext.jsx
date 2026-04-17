@@ -2,6 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { orderService } from '../services/orderService';
 import { adminService } from '../services/adminService';
 import { useSocket } from './SocketContext';
+import {
+    DEFAULT_ADMIN_ABANDONED_RANGE,
+    DEFAULT_ADMIN_QUICK_RANGE,
+    normalizeAbandonedRangeValue,
+    normalizeAdminQuickRange
+} from '../utils/adminDateRanges';
 
 const AdminKPIContext = createContext(null);
 
@@ -14,17 +20,12 @@ const toOrderMetricsKey = (query = {}) => [
     String(query.search || ''),
     String(query.startDate || ''),
     String(query.endDate || ''),
-    String(query.quickRange || 'last_90_days'),
+    String(normalizeAdminQuickRange(query.quickRange || DEFAULT_ADMIN_QUICK_RANGE)),
     String(query.sourceChannel || 'all'),
     String(query.status || 'all')
 ].join('::');
 
-const normalizeAbandonedRangeValue = (rangeDays = 30) => {
-    const raw = String(rangeDays ?? '').trim().toLowerCase();
-    if (raw === 'lifetime') return 'lifetime';
-    return Math.max(1, Math.min(90, Number(rangeDays || 30)));
-};
-const toAbandonedInsightsKey = (rangeDays = 30) => String(normalizeAbandonedRangeValue(rangeDays));
+const toAbandonedInsightsKey = (rangeDays = DEFAULT_ADMIN_ABANDONED_RANGE) => String(normalizeAbandonedRangeValue(rangeDays));
 
 export const AdminKPIProvider = ({ children }) => {
     const { socket } = useSocket();
@@ -69,7 +70,7 @@ export const AdminKPIProvider = ({ children }) => {
         return key;
     }, []);
 
-    const registerAbandonedInsightsRange = useCallback((rangeDays = 30) => {
+    const registerAbandonedInsightsRange = useCallback((rangeDays = DEFAULT_ADMIN_ABANDONED_RANGE) => {
         const key = toAbandonedInsightsKey(rangeDays);
         registeredAbandonedRangesRef.current[key] = normalizeAbandonedRangeValue(rangeDays);
         return key;
@@ -94,7 +95,7 @@ export const AdminKPIProvider = ({ children }) => {
                 search: query.search || '',
                 startDate: query.startDate || '',
                 endDate: query.endDate || '',
-                quickRange: query.quickRange || 'last_90_days',
+                quickRange: normalizeAdminQuickRange(query.quickRange || DEFAULT_ADMIN_QUICK_RANGE),
                 sourceChannel: query.sourceChannel || 'all',
                 sortBy: 'newest'
             });
@@ -107,7 +108,7 @@ export const AdminKPIProvider = ({ children }) => {
         }
     }, [orderMetricsByKey, setOrderMetricsSnapshot]);
 
-    const fetchAbandonedInsights = useCallback(async (rangeDays = 30, { force = false, bypassCooldown = false } = {}) => {
+    const fetchAbandonedInsights = useCallback(async (rangeDays = DEFAULT_ADMIN_ABANDONED_RANGE, { force = false, bypassCooldown = false } = {}) => {
         const key = toAbandonedInsightsKey(rangeDays);
         const existing = abandonedInsightsByKey[key];
         const now = Date.now();
@@ -193,7 +194,7 @@ export const AdminKPIProvider = ({ children }) => {
             abandonedEntries.forEach(([key, entry]) => {
                 const stale = !entry?.ts || now - entry.ts >= ABANDONED_TTL_MS;
                 if (!stale && !entry?.dirty) return;
-                const rangeDays = registeredAbandonedRangesRef.current[key] || entry?.rangeDays || 30;
+                const rangeDays = registeredAbandonedRangesRef.current[key] || entry?.rangeDays || DEFAULT_ADMIN_ABANDONED_RANGE;
                 fetchAbandonedInsights(rangeDays, { force: true }).catch(() => {});
             });
         }, RECONCILE_INTERVAL_MS);

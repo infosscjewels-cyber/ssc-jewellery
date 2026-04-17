@@ -20,6 +20,11 @@ const {
 } = require('../services/communications/communicationService');
 const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded, reassessActiveCustomersForConfigChange } = require('../services/loyaltyService');
 const { computeChange, toSafeEnum, buildDashboardCacheKey, normalizeDashboardEventType } = require('../utils/dashboardUtils');
+const {
+    DEFAULT_ADMIN_QUICK_RANGE,
+    normalizeAdminQuickRange,
+    resolveNamedRange
+} = require('../utils/adminDateRanges');
 const { emitToUserAudiences } = require('../utils/socketAudience');
 const { resolveUploadedAssetPath } = require('../utils/uploadsRoot');
 const { cleanupBrandingDerivedAssetsForLogo } = require('../utils/brandingDerivedAssets');
@@ -249,11 +254,8 @@ const buildOrderFilterFragments = (query = {}, alias = 'o') => {
 };
 
 const buildDashboardScope = (query = {}) => {
-    const requestedQuickRange = String(query.quickRange || 'last_30_days').trim().toLowerCase();
-    const allowedQuickRanges = new Set(['latest_10', 'last_7_days', 'last_30_days', 'last_90_days', 'custom']);
-    const quickRange = allowedQuickRanges.has(requestedQuickRange) ? requestedQuickRange : 'last_30_days';
+    const quickRange = normalizeAdminQuickRange(query.quickRange || DEFAULT_ADMIN_QUICK_RANGE);
     const comparisonMode = toSafeEnum(query.comparisonMode, ['previous_period', 'same_period_last_month'], 'previous_period');
-    const now = new Date();
     const orderFilters = buildOrderFilterFragments(query, 'o');
 
     let periodDays = 30;
@@ -261,8 +263,6 @@ const buildDashboardScope = (query = {}) => {
     let endDate = null;
 
     if (quickRange === 'latest_10') periodDays = 10;
-    if (quickRange === 'last_7_days') periodDays = 7;
-    if (quickRange === 'last_90_days') periodDays = 90;
 
     if (quickRange === 'custom') {
         const start = toDateOnlyInput(query.startDate);
@@ -273,9 +273,17 @@ const buildDashboardScope = (query = {}) => {
             startDate = start;
             endDate = addDaysUTC(start, periodDays - 1);
         }
+    } else if (quickRange !== 'latest_10') {
+        const resolved = resolveNamedRange(quickRange);
+        if (resolved) {
+            periodDays = resolved.periodDays;
+            startDate = resolved.startDate;
+            endDate = resolved.endDate;
+        }
     }
 
     if (!startDate || !endDate) {
+        const now = new Date();
         endDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
         startDate = addDaysUTC(endDate, -(periodDays - 1));
     }
@@ -1470,7 +1478,7 @@ const executeDashboardAlerts = async ({ trigger = 'manual', actorUserId = null, 
         return { ok: true, sent: 0, skipped: true, reason: 'alerts_disabled' };
     }
     const payload = await getDashboardInsightsPayloadCached({
-        quickRange: 'last_7_days',
+        quickRange: 'current_week',
         comparisonMode: 'previous_period',
         status: 'all',
         paymentMode: 'all',

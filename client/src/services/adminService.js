@@ -1,5 +1,11 @@
 import { dispatchSessionExpired, getAuthHeaders, getStoredToken, shouldTreatAsExpiredSession } from '../utils/authSession';
 import { fetchWithRetry } from '../utils/fetchRetry';
+import {
+    DEFAULT_ADMIN_ABANDONED_RANGE,
+    DEFAULT_ADMIN_QUICK_RANGE,
+    normalizeAbandonedRangeValue,
+    normalizeAdminQuickRange
+} from '../utils/adminDateRanges';
 
 const API_URL = import.meta.env.PROD 
   ? '/api/admin' 
@@ -272,10 +278,8 @@ export const adminService = {
         return data;
     },
 
-    getAbandonedCartInsights: async (rangeDays = 30) => {
-        const safeRangeDays = String(rangeDays || '').toLowerCase() === 'lifetime'
-            ? 'lifetime'
-            : Math.max(1, Math.min(90, Number(rangeDays || 30)));
+    getAbandonedCartInsights: async (rangeDays = DEFAULT_ADMIN_ABANDONED_RANGE) => {
+        const safeRangeDays = normalizeAbandonedRangeValue(rangeDays || DEFAULT_ADMIN_ABANDONED_RANGE);
         const cacheKey = String(safeRangeDays);
         const cached = abandonedCache.insights[cacheKey];
         if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
@@ -291,10 +295,8 @@ export const adminService = {
         return data;
     },
 
-    getAbandonedCartJourneys: async ({ status = 'all', search = '', sortBy = 'newest', rangeDays = 30, limit = 50, offset = 0 } = {}) => {
-        const safeRangeDays = String(rangeDays || '').toLowerCase() === 'lifetime'
-            ? 'lifetime'
-            : Math.max(1, Math.min(90, Number(rangeDays || 30)));
+    getAbandonedCartJourneys: async ({ status = 'all', search = '', sortBy = 'newest', rangeDays = DEFAULT_ADMIN_ABANDONED_RANGE, limit = 50, offset = 0 } = {}) => {
+        const safeRangeDays = normalizeAbandonedRangeValue(rangeDays || DEFAULT_ADMIN_ABANDONED_RANGE);
         const cacheKey = `${status}::${search}::${sortBy}::${safeRangeDays}::${limit}::${offset}`;
         const cached = abandonedCache.journeys[cacheKey];
         if (cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
@@ -553,7 +555,7 @@ export const adminService = {
         loyaltyCouponCache = {};
     },
     getDashboardInsights: async ({
-        quickRange = 'last_30_days',
+        quickRange = DEFAULT_ADMIN_QUICK_RANGE,
         startDate = '',
         endDate = '',
         comparisonMode = 'previous_period',
@@ -562,12 +564,13 @@ export const adminService = {
         sourceChannel = 'all',
         forceRefresh = false
     } = {}) => {
-        const cacheKey = `${quickRange}::${startDate}::${endDate}::${comparisonMode}::${status}::${paymentMode}::${sourceChannel}`;
+        const normalizedQuickRange = normalizeAdminQuickRange(quickRange || DEFAULT_ADMIN_QUICK_RANGE);
+        const cacheKey = `${normalizedQuickRange}::${startDate}::${endDate}::${comparisonMode}::${status}::${paymentMode}::${sourceChannel}`;
         const cached = dashboardCache[cacheKey];
         if (!forceRefresh && cached && Date.now() - cached.ts < ABANDONED_CACHE_TTL) {
             return cached.data;
         }
-        const query = `?quickRange=${encodeURIComponent(quickRange)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&comparisonMode=${encodeURIComponent(comparisonMode)}&status=${encodeURIComponent(status)}&paymentMode=${encodeURIComponent(paymentMode)}&sourceChannel=${encodeURIComponent(sourceChannel)}&force=${forceRefresh ? '1' : '0'}`;
+        const query = `?quickRange=${encodeURIComponent(normalizedQuickRange)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&comparisonMode=${encodeURIComponent(comparisonMode)}&status=${encodeURIComponent(status)}&paymentMode=${encodeURIComponent(paymentMode)}&sourceChannel=${encodeURIComponent(sourceChannel)}&force=${forceRefresh ? '1' : '0'}`;
         const res = await getWithRetry(`${API_URL}/dashboard/insights${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
         dashboardCache[cacheKey] = { ts: Date.now(), data };
@@ -598,12 +601,13 @@ export const adminService = {
     getDashboardProductPurchases: async ({
         productId,
         variantId = '',
-        quickRange = 'last_30_days',
+        quickRange = DEFAULT_ADMIN_QUICK_RANGE,
         startDate = '',
         endDate = ''
     } = {}) => {
         const safeProductId = encodeURIComponent(String(productId || '').trim());
-        const query = `?variantId=${encodeURIComponent(String(variantId || '').trim())}&quickRange=${encodeURIComponent(quickRange)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
+        const normalizedQuickRange = normalizeAdminQuickRange(quickRange || DEFAULT_ADMIN_QUICK_RANGE);
+        const query = `?variantId=${encodeURIComponent(String(variantId || '').trim())}&quickRange=${encodeURIComponent(normalizedQuickRange)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
         const res = await getWithRetry(`${API_URL}/dashboard/products/${safeProductId}/purchases${query}`, { headers: getAuthHeader() });
         return handleResponse(res);
     },

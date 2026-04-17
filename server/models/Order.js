@@ -4,6 +4,11 @@ const Coupon = require('./Coupon');
 const CompanyProfile = require('./CompanyProfile');
 const TaxConfig = require('./TaxConfig');
 const { getUserLoyaltyStatus, calculateOrderLoyaltyAdjustments, reassessUserTier } = require('../services/loyaltyService');
+const {
+    DEFAULT_ADMIN_QUICK_RANGE,
+    normalizeAdminQuickRange,
+    resolveNamedRange
+} = require('../utils/adminDateRanges');
 
 const ORDER_REF_TIME_ZONE = 'Asia/Kolkata';
 const ORDER_REF_SEQUENCE_PAD = 3;
@@ -866,7 +871,13 @@ const buildAdminStatusClause = ({ status = 'all', alias = 'o', params = [] } = {
     return ` AND (${conditions.join(' OR ')})`;
 };
 
-const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days', sourceChannel = 'all', includeStatus = true } = {}) => {
+const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', endDate = '', quickRange = DEFAULT_ADMIN_QUICK_RANGE, sourceChannel = 'all', includeStatus = true } = {}) => {
+    const normalizedQuickRange = normalizeAdminQuickRange(quickRange, { fallback: DEFAULT_ADMIN_QUICK_RANGE });
+    const resolvedNamedRange = ['current_week', 'current_month', 'last_3_months'].includes(normalizedQuickRange)
+        ? resolveNamedRange(normalizedQuickRange)
+        : null;
+    const effectiveStartDate = String(startDate || resolvedNamedRange?.startDateText || '').trim();
+    const effectiveEndDate = String(endDate || resolvedNamedRange?.endDateText || '').trim();
     const normalizedSearch = normalizeAdminOrderSearch(search);
     const params = [];
     let where = 'WHERE 1=1';
@@ -894,31 +905,21 @@ const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', e
         }
     }
 
-    switch (quickRange) {
-        case 'last_7_days':
-            where += ' AND o.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
-            break;
-        case 'last_30_days':
-        case 'last_1_month':
-            where += ' AND o.created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)';
-            break;
-        case 'last_90_days':
-            where += ` AND o.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
-            break;
+    switch (normalizedQuickRange) {
         case 'latest_10':
             where += ` AND o.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
             latestLimit = 10;
             break;
         default:
-            if (startDate) {
+            if (effectiveStartDate) {
                 where += ' AND DATE(o.created_at) >= ?';
-                params.push(startDate);
+                params.push(effectiveStartDate);
             }
-            if (endDate) {
+            if (effectiveEndDate) {
                 where += ' AND DATE(o.created_at) <= ?';
-                params.push(endDate);
+                params.push(effectiveEndDate);
             }
-            if (!startDate && !endDate) {
+            if (!effectiveStartDate && !effectiveEndDate) {
                 where += ` AND o.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
             }
             break;
@@ -927,8 +928,8 @@ const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', e
     return { where, params, latestLimit };
 };
 
-const resolveAdminOrderSort = ({ sortBy = 'newest', quickRange = 'last_90_days' } = {}) => {
-    if (quickRange === 'latest_10') return 'o.created_at DESC';
+const resolveAdminOrderSort = ({ sortBy = 'newest', quickRange = DEFAULT_ADMIN_QUICK_RANGE } = {}) => {
+    if (normalizeAdminQuickRange(quickRange, { fallback: DEFAULT_ADMIN_QUICK_RANGE }) === 'latest_10') return 'o.created_at DESC';
     switch (sortBy) {
         case 'priority':
             return `CASE LOWER(COALESCE(o.loyalty_tier, 'regular'))
@@ -2608,7 +2609,7 @@ class Order {
         search = '',
         startDate = '',
         endDate = '',
-        quickRange = 'last_90_days',
+        quickRange = DEFAULT_ADMIN_QUICK_RANGE,
         sortBy = 'newest',
         sourceChannel = 'all'
     }) {
@@ -2616,33 +2617,32 @@ class Order {
         const safeLimit = Math.max(1, Number(limit) || 20);
         const safePage = Math.max(1, Number(page) || 1);
         const offset = (safePage - 1) * safeLimit;
-        const latestLimit = quickRange === 'latest_10' ? 10 : null;
+        const normalizedQuickRange = normalizeAdminQuickRange(quickRange, { fallback: DEFAULT_ADMIN_QUICK_RANGE });
+        const resolvedNamedRange = ['current_week', 'current_month', 'last_3_months'].includes(normalizedQuickRange)
+            ? resolveNamedRange(normalizedQuickRange)
+            : null;
+        const effectiveStartDate = String(startDate || resolvedNamedRange?.startDateText || '').trim();
+        const effectiveEndDate = String(endDate || resolvedNamedRange?.endDateText || '').trim();
+        const latestLimit = normalizedQuickRange === 'latest_10' ? 10 : null;
         const normalizedListStatus = String(status || 'all').trim().toLowerCase();
         const includeAttemptRows = ['all', 'failed', 'attempted'].includes(normalizedListStatus) && String(sourceChannel || 'all').toLowerCase() === 'all';
         const attemptedAttemptStatuses = ['attempted', 'verification_pending', 'paid_unverified', 'reconciliation_pending', 'authorized'];
 
         const buildDateClause = (alias, params) => {
-            switch (quickRange) {
-                case 'last_7_days':
-                    return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`;
-                case 'last_30_days':
-                case 'last_1_month':
-                    return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)`;
-                case 'last_90_days':
-                    return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
+            switch (normalizedQuickRange) {
                 case 'latest_10':
                     return ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
                 default: {
                     let clause = '';
-                    if (startDate) {
+                    if (effectiveStartDate) {
                         clause += ` AND DATE(${alias}.created_at) >= ?`;
-                        params.push(startDate);
+                        params.push(effectiveStartDate);
                     }
-                    if (endDate) {
+                    if (effectiveEndDate) {
                         clause += ` AND DATE(${alias}.created_at) <= ?`;
-                        params.push(endDate);
+                        params.push(effectiveEndDate);
                     }
-                    if (!startDate && !endDate) {
+                    if (!effectiveStartDate && !effectiveEndDate) {
                         clause += ` AND ${alias}.created_at >= DATE_SUB(NOW(), INTERVAL ${MAX_FETCH_RANGE_DAYS} DAY)`;
                     }
                     return clause;
@@ -3351,7 +3351,7 @@ class Order {
         };
     }
 
-    static async getMetrics({ status = 'all', search = '', startDate = '', endDate = '', quickRange = 'last_90_days', sourceChannel = 'all' } = {}) {
+    static async getMetrics({ status = 'all', search = '', startDate = '', endDate = '', quickRange = DEFAULT_ADMIN_QUICK_RANGE, sourceChannel = 'all' } = {}) {
         search = normalizeAdminOrderSearch(search);
         const { where, params, latestLimit } = buildAdminOrderFilters({
             status,
