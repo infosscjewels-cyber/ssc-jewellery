@@ -7,7 +7,7 @@ import { useToast } from '../context/ToastContext';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { orderService } from '../services/orderService';
 import ordersIllustration from '../assets/orders.svg';
-import { getGstDisplayDetails } from '../utils/gst';
+import { getGstDisplayDetails, getOrderGstContext } from '../utils/gst';
 import { buildWhatsAppChatLink } from '../utils/publicContact';
 import WhatsAppIcon from '../components/WhatsAppIcon';
 import { computeInvoiceAlignedSummary, computeInvoiceStyleItemRows } from '../utils/orderTotalsComputation';
@@ -216,12 +216,12 @@ const getInvoiceNumber = (order) => {
     const ref = order?.order_ref || order?.orderRef || order?.id || 'N/A';
     return `INV-${ref}`;
 };
-const getPaymentStatusLabel = (order) => {
+    const getPaymentStatusLabel = (order) => {
     const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
     if (!status) return '—';
     return status.charAt(0).toUpperCase() + status.slice(1);
 };
-const isRetryablePaymentStatus = (order) => {
+    const isRetryablePaymentStatus = (order) => {
     const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
     return status === 'failed' || status === 'expired';
 };
@@ -237,7 +237,7 @@ const hasRefundInitiated = (order) => Boolean(
 const canCheckRefundStatus = (order) => hasRefundInitiated(order)
     && Boolean(order?.razorpay_order_id || order?.razorpayOrderId || order?.razorpay_payment_id || order?.razorpayPaymentId);
 const isCancelledWithoutRefund = (order) => String(order?.status || '').toLowerCase() === 'cancelled' && !hasRefundInitiated(order);
-const getOrderSupportLink = (order) => {
+    const getOrderSupportLink = (order) => {
     const orderRef = order?.order_ref || order?.orderRef || order?.id || 'N/A';
     const text = `Hi, I need support for my Order ID ${orderRef}. I have a query regarding this order.`;
     return buildWhatsAppChatLink({ text });
@@ -282,6 +282,10 @@ export default function Orders() {
     const selectedOrderInvoiceItems = useMemo(
         () => computeInvoiceStyleItemRows(selectedOrder, selectedOrderTotals?.taxRegime),
         [selectedOrder, selectedOrderTotals]
+    );
+    const selectedOrderGstContext = useMemo(
+        () => getOrderGstContext(selectedOrder || {}),
+        [selectedOrder]
     );
     const selectedOrderCouponCode = useMemo(
         () => String(selectedOrder?.coupon_code || selectedOrder?.couponCode || selectedOrderTotals?.couponCode || '').trim(),
@@ -650,8 +654,8 @@ export default function Orders() {
                                     const displayTaxAmount = toNumber(invoiceItem?.displayTaxAmount, getItemTaxAmount(item));
                                     const displayLineTotal = toNumber(invoiceItem?.displayLineTotal, (isInclusiveOrder(selectedOrder) ? getItemLineTotalBase(item) : getItemLineTotal(item)));
                                     return (
-                                    <div key={item.id} className="flex items-center gap-3 p-4">
-                                        <div className="w-12 h-12 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden">
+                                    <div key={item.id} className="flex items-start gap-3 p-4">
+                                        <div className="w-12 h-12 shrink-0 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden">
                                             {getItemImage(item) && <img src={getItemImage(item)} alt={getItemTitle(item)} className="w-full h-full object-cover" />}
                                         </div>
                                         <div className="flex-1 min-w-0">
@@ -672,17 +676,18 @@ export default function Orders() {
                                                 <p className="text-[11px] text-emerald-700 mt-1">Discount: ₹{displayDiscount.toLocaleString()}</p>
                                             )}
                                         </div>
-                                        <div className="text-sm font-semibold text-gray-800">
+                                        <div className="w-24 shrink-0 self-start text-right text-sm font-semibold text-gray-800">
                                             ₹{displayLineTotal.toLocaleString()}
                                             {displayTaxAmount > 0 && (
-                                                <p className="text-[11px] text-gray-500 font-medium">
+                                                <p className="mt-1 text-[11px] text-gray-500 font-medium leading-4">
                                                     {(() => {
                                                         const gst = getGstDisplayDetails({
                                                             taxAmount: displayTaxAmount,
                                                             taxRatePercent: getItemTaxRate(item),
-                                                            taxLabel: getItemTaxLabel(item)
+                                                            taxLabel: getItemTaxLabel(item),
+                                                            ...selectedOrderGstContext
                                                         });
-                                                        return `${gst.title}: ${gst.totalAmountLabel}`;
+                                                        return `${gst.title}: ${gst.totalAmountLabel} (${gst.componentAmountLabel})`;
                                                     })()}
                                                 </p>
                                             )}
@@ -863,10 +868,10 @@ export default function Orders() {
                                 )}
                                 {toNumber(selectedOrderTotals.gstTotal) > 0 && (
                                     <div className="flex items-start justify-between text-gray-400 text-xs">
-                                        <span>
-                                            {selectedOrderTotals.taxRegime === 'inclusive' ? 'GST Breakdown' : 'GST'}
-                                            <span className="block text-[11px] text-gray-400">
-                                                {getGstDisplayDetails({ taxAmount: toNumber(selectedOrderTotals.gstTotal) }).splitAmountLabel}
+                                                <span>
+                                                    {selectedOrderTotals.taxRegime === 'inclusive' ? 'GST Breakdown' : 'GST'}
+                                                    <span className="block text-[11px] text-gray-400">
+                                                {getGstDisplayDetails({ taxAmount: toNumber(selectedOrderTotals.gstTotal), ...selectedOrderGstContext }).componentAmountLabel}
                                             </span>
                                         </span>
                                         <span>₹{toNumber(selectedOrderTotals.gstTotal).toLocaleString()}</span>

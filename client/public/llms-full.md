@@ -4,34 +4,34 @@
 
 SSC Jewellery is the public ecommerce storefront for Sree Sai Collections. The site focuses on imitation and fashion jewellery, including category collections, best sellers, new arrivals, offers, and product detail pages.
 
-Primary domain: https://www.sscjewels.com/
+Primary domain: https://sscjewels.com/
 
 ## Useful Public URLs
 
-- Home: https://www.sscjewels.com/
-- Shop: https://www.sscjewels.com/shop
-- About: https://www.sscjewels.com/about
-- Contact: https://www.sscjewels.com/contact
-- FAQ: https://www.sscjewels.com/faq
-- Shipping Policy: https://www.sscjewels.com/shipping
-- Refund Policy: https://www.sscjewels.com/refund
-- Terms: https://www.sscjewels.com/terms
-- Privacy Policy: https://www.sscjewels.com/privacy
-- Site Credits: https://www.sscjewels.com/site-credits
-- XML Sitemap: https://www.sscjewels.com/sitemap.xml
+- Home: https://sscjewels.com/
+- Shop: https://sscjewels.com/shop
+- About: https://sscjewels.com/about
+- Contact: https://sscjewels.com/contact
+- FAQ: https://sscjewels.com/faq
+- Shipping Policy: https://sscjewels.com/shipping
+- Refund Policy: https://sscjewels.com/refund
+- Terms: https://sscjewels.com/terms
+- Privacy Policy: https://sscjewels.com/privacy
+- Site Credits: https://sscjewels.com/site-credits
+- XML Sitemap: https://sscjewels.com/sitemap.xml
 
 ## Markdown Mirrors
 
-- Markdown index: https://www.sscjewels.com/markdown/
-- Home: https://www.sscjewels.com/markdown/home.md
-- Shop: https://www.sscjewels.com/markdown/shop.md
-- About: https://www.sscjewels.com/markdown/about.md
-- Contact: https://www.sscjewels.com/markdown/contact.md
-- FAQ: https://www.sscjewels.com/markdown/faq.md
-- Shipping Policy: https://www.sscjewels.com/markdown/shipping.md
-- Refund Policy: https://www.sscjewels.com/markdown/refund.md
-- Terms: https://www.sscjewels.com/markdown/terms.md
-- Privacy Policy: https://www.sscjewels.com/markdown/privacy.md
+- Markdown index: https://sscjewels.com/markdown/
+- Home: https://sscjewels.com/markdown/home.md
+- Shop: https://sscjewels.com/markdown/shop.md
+- About: https://sscjewels.com/markdown/about.md
+- Contact: https://sscjewels.com/markdown/contact.md
+- FAQ: https://sscjewels.com/markdown/faq.md
+- Shipping Policy: https://sscjewels.com/markdown/shipping.md
+- Refund Policy: https://sscjewels.com/markdown/refund.md
+- Terms: https://sscjewels.com/markdown/terms.md
+- Privacy Policy: https://sscjewels.com/markdown/privacy.md
 
 ## What The Site Offers
 
@@ -74,6 +74,6 @@ The site generates SEO metadata and structured data for public pages. AI crawler
 
 Use the Contact page as the canonical place for current support email, WhatsApp, phone, and social profile links:
 
-https://www.sscjewels.com/contact
+https://sscjewels.com/contact
 
 Brand names used on the site may include SSC Jewellery, Sree Sai Collections, and SSC Impon Jewellery.

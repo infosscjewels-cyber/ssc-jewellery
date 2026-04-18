@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import successDing from '../assets/success_ding.mp3';
 import { burstConfetti, playCue } from '../utils/celebration';
 import CheckoutFlowHeader from '../components/CheckoutFlowHeader';
-import { getGstDisplayDetails } from '../utils/gst';
+import { getGstDisplayDetails, getOrderGstContext } from '../utils/gst';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 
 export default function PaymentSuccess() {
@@ -101,6 +101,7 @@ export default function PaymentSuccess() {
     }, [attemptId, orderId, paymentRef, toast, user]);
 
     const items = useMemo(() => Array.isArray(order?.items) ? order.items : [], [order?.items]);
+    const orderGstContext = useMemo(() => getOrderGstContext(order || {}), [order]);
     const isRecoveryOrder = Boolean(order?.is_abandoned_recovery || order?.isAbandonedRecovery);
     const orderRef = order?.order_ref || order?.orderRef || null;
     const getItemImage = (item) => (
@@ -223,7 +224,7 @@ export default function PaymentSuccess() {
                                                     <p>
                                                         GST Breakdown: ₹{tax.toLocaleString()}
                                                         <span className="block text-[11px] text-gray-500">
-                                                            {getGstDisplayDetails({ taxAmount: tax }).splitAmountLabel}
+                                                            {getGstDisplayDetails({ taxAmount: tax, ...orderGstContext }).componentAmountLabel}
                                                         </span>
                                                     </p>
                                                 )}

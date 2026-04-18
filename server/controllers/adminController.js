@@ -2483,6 +2483,10 @@ const updateCompanyInfo = async (req, res) => {
         if (mergedPayload.gstNumber && !/^[0-9A-Za-z]{15}$/.test(String(mergedPayload.gstNumber || '').trim())) {
             return res.status(400).json({ message: 'GST number must be 15 alphanumeric characters' });
         }
+        if ((mergedPayload.taxEnabled === true || mergedPayload.taxEnabled === 1 || String(mergedPayload.taxEnabled || '').toLowerCase() === 'true')
+            && !String(mergedPayload.state || '').trim()) {
+            return res.status(400).json({ message: 'Company state is required when GST is enabled' });
+        }
         if (supportEmail && !isValidEmail(supportEmail)) {
             return res.status(400).json({ message: 'Support email is invalid' });
         }

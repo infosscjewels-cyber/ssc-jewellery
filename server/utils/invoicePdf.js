@@ -3,6 +3,7 @@ const path = require('path');
 const PDFDocument = require('pdfkit');
 const { resolvePublicAssetPath } = require('./publicAssetResolver');
 const { computeInvoiceComputation } = require('../domain/computation/orderComputation');
+const { getGstDisplayDetails, getOrderGstContext } = require('./gst');
 
 const DEFAULT_SUPPORT_EMAIL = 'support@sscjewellery.com';
 const TAMIL_REGEX = /[\u0B80-\u0BFF]/;
@@ -60,21 +61,6 @@ const formatPercent = (value) => `${roundToTwo(value).toLocaleString('en-IN', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2
 })}%`;
-const getGstAmountSplit = (totalTaxAmount = 0) => {
-    const totalTax = Math.max(0, toNumber(totalTaxAmount, 0));
-    const totalPaise = Math.round(totalTax * 100);
-    const evenPaise = totalPaise % 2 === 0 ? totalPaise : totalPaise + 1;
-    const halfPaise = Math.max(0, evenPaise / 2);
-    const sgst = roundToTwo(halfPaise / 100);
-    const cgst = roundToTwo(halfPaise / 100);
-    return {
-        totalTax,
-        halfTax: sgst,
-        sgst,
-        cgst,
-        label: `SGST ${inr(sgst)} + CGST ${inr(cgst)}`
-    };
-};
 const deriveDisplayedGstAmount = (taxAmount = 0) => {
     const safeTax = Math.max(0, toNumber(taxAmount, 0));
     const paise = Math.round(safeTax * 100);
@@ -107,14 +93,19 @@ const buildDiscountCellParts = (item = {}) => {
         breakdown
     };
 };
-const buildGstCellParts = (item = {}) => {
-    const split = getGstAmountSplit(item.taxAmount);
+const buildGstCellParts = (item = {}, gstContext = {}) => {
+    const gst = getGstDisplayDetails({
+        taxAmount: item.taxAmount,
+        taxRatePercent: item.taxRatePercent || item?.taxSnapshot?.ratePercent || 0,
+        taxLabel: item.taxCode || item.taxName || '',
+        ...gstContext
+    });
     const breakdown = [];
-    if (split.totalTax > 0) {
-        breakdown.push(split.label);
+    if (gst.totalAmount > 0) {
+        breakdown.push(gst.componentAmountLabel);
     }
     return {
-        total: inr(split.totalTax),
+        total: inr(gst.totalAmount),
         breakdown
     };
 };
@@ -635,7 +626,7 @@ const drawTableHeader = (doc, y, { showTaxColumns = false, showDiscountColumn = 
     return { left, tableWidth, cols, nextY: y + headerHeight, showTaxColumns };
 };
 
-const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false, showDiscountColumn = true, taxPriceMode = 'exclusive' } = {}) => {
+const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false, showDiscountColumn = true, taxPriceMode = 'exclusive', gstContext = {} } = {}) => {
     const pageBottom = doc.page.height - doc.page.margins.bottom - 24;
     const table = drawTableHeader(doc, startY, { showTaxColumns, showDiscountColumn, taxPriceMode });
     let y = table.nextY;
@@ -665,7 +656,7 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
         const discountTextHeight = showDiscountColumn
             ? getBreakdownCellHeight(doc, table.cols.discount.width, discountParts, fonts)
             : 0;
-        const gstParts = showTaxColumns ? buildGstCellParts(item) : null;
+        const gstParts = showTaxColumns ? buildGstCellParts(item, gstContext) : null;
         const gstTextHeight = showTaxColumns
             ? getBreakdownCellHeight(doc, table.cols.gstAmount.width, gstParts, fonts)
             : 0;
@@ -731,7 +722,7 @@ const drawItemsTable = (doc, fonts, startY, items = [], { showTaxColumns = false
             shippingBenefitShare: tableTotals.shippingBenefitShare
         })
         : null;
-    const totalsGstParts = showTaxColumns ? buildGstCellParts({ taxAmount: tableTotals.gstAmount }) : null;
+    const totalsGstParts = showTaxColumns ? buildGstCellParts({ taxAmount: tableTotals.gstAmount }, gstContext) : null;
     const totalsRowHeight = showTaxColumns
         ? Math.max(
             30,
@@ -794,7 +785,8 @@ const estimateTotalsBlockHeight = (doc, {
     tierLabel = 'Basic',
     roundOffAmount = 0,
     total = 0,
-    showTaxTotals = false
+    showTaxTotals = false,
+    gstContext = {}
 } = {}) => {
     let height = 0;
     height += measureTotalsRowHeight(doc, 'Subtotal', inr(computation.subtotalBaseExShipping));
@@ -819,10 +811,13 @@ const estimateTotalsBlockHeight = (doc, {
         height += measureTotalsRowHeight(doc, 'Price After Discounts', inr(computation.priceAfterDiscounts));
     }
     if (showTaxTotals) {
-        const taxSplit = getGstAmountSplit(computation.tableGstTotal);
+        const taxSplit = getGstDisplayDetails({
+            taxAmount: computation.tableGstTotal,
+            ...gstContext
+        });
         height += measureTotalsRowHeight(doc, 'GST Breakdown', inr(computation.tableGstTotal), false, { rowGap: 3 });
         doc.font('Helvetica').fontSize(8);
-        height += doc.heightOfString(taxSplit.label, { width: 215, align: 'right' }) + 4;
+        height += doc.heightOfString(taxSplit.componentAmountLabel, { width: 215, align: 'right' }) + 4;
     }
     if (roundOffAmount !== 0) {
         height += measureTotalsRowHeight(doc, 'Round Off', inr(roundOffAmount));
@@ -899,6 +894,10 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     const companySnapshot = parseObject(order.company_snapshot || order.companySnapshot) || {};
     const billing = parseObject(order.billing_address || order.billingAddress) || {};
     const shipping = parseObject(order.shipping_address || order.shippingAddress) || {};
+    const orderGstContext = getOrderGstContext({
+        company_snapshot: companySnapshot,
+        shipping_address: shipping
+    });
     const items = getItems(order);
     const shippingRow = buildShippingRow(order, items);
     const tableItems = shippingRow ? [...items, shippingRow] : items;
@@ -1007,7 +1006,7 @@ const buildInvoicePdfBuffer = async (order = {}) => {
     doc.font('Helvetica').fontSize(9).fillColor('#6B7280').text('Membership:', 42, infoY + 16, { continued: true });
     doc.font('Helvetica-Bold').fillColor(tierTheme.color).text(` ${tierTheme.label}`);
 
-    let cursorY = drawItemsTable(doc, fonts, infoY + 34, tableItems, { showTaxColumns, showDiscountColumn, taxPriceMode });
+    let cursorY = drawItemsTable(doc, fonts, infoY + 34, tableItems, { showTaxColumns, showDiscountColumn, taxPriceMode, gstContext: orderGstContext });
 
     doc.y = cursorY + 12;
     ensureSpace(doc, estimateTotalsBlockHeight(doc, {
@@ -1016,7 +1015,8 @@ const buildInvoicePdfBuffer = async (order = {}) => {
         tierLabel: tierTheme.label,
         roundOffAmount,
         total,
-        showTaxTotals
+        showTaxTotals,
+        gstContext: orderGstContext
     }), 52);
 
     const totalsX = 350;
@@ -1067,10 +1067,13 @@ const buildInvoicePdfBuffer = async (order = {}) => {
         runningY = writeTotal('Price After Discounts', inr(computation.priceAfterDiscounts), runningY);
     }
     if (showTaxTotals) {
-        const taxSplit = getGstAmountSplit(computation.tableGstTotal);
+        const taxSplit = getGstDisplayDetails({
+            taxAmount: computation.tableGstTotal,
+            ...orderGstContext
+        });
         runningY = writeTotal('GST Breakdown', inr(computation.tableGstTotal), runningY, false, { rowGap: 3 });
-        doc.font('Helvetica').fontSize(8).fillColor('#6B7280').text(taxSplit.label, totalsX, runningY, { width: 215, align: 'right' });
-        runningY += doc.heightOfString(taxSplit.label, { width: 215, align: 'right' }) + 4;
+        doc.font('Helvetica').fontSize(8).fillColor('#6B7280').text(taxSplit.componentAmountLabel, totalsX, runningY, { width: 215, align: 'right' });
+        runningY += doc.heightOfString(taxSplit.componentAmountLabel, { width: 215, align: 'right' }) + 4;
     }
     if (roundOffAmount !== 0) {
         runningY = writeTotal('Round Off', inr(roundOffAmount), runningY);

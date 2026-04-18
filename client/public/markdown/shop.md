@@ -1,6 +1,6 @@
 # Shop
 
-Canonical URL: https://www.sscjewels.com/shop
+Canonical URL: https://sscjewels.com/shop
 
 The shop page lists public SSC Jewellery products and supports browsing by product collections and filters.
 
@@ -15,4 +15,3 @@ Typical product information includes:
 - Category and collection context.
 
 Prices, discounts, and availability are dynamic. Use the live product and shop pages for final purchase decisions.
-

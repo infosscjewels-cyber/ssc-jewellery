@@ -12,5 +12,4 @@ AI-friendly Markdown mirrors for public SSC Jewellery pages.
 - [Terms](./terms.md)
 - [Privacy Policy](./privacy.md)
 
-Canonical site: https://www.sscjewels.com/
-
+Canonical site: https://sscjewels.com/

@@ -27,7 +27,7 @@ const DASHBOARD_TREND_GRANULARITY_STORAGE_KEY = 'dashboard_trend_granularity_v1'
 const KPI_THEME_SEQUENCE = ['green', 'red', 'sky', 'brown', 'pink'];
 
 const formatCurrency = (value) => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
-const STORE_SHARE_URL = 'https://www.sscjewels.com';
+const STORE_SHARE_URL = 'https://sscjewels.com';
 const STORE_SHARE_TEXT = `SSC Jewels is now Online 🏪
 Order 24x7 - Click on the link to place an order
 

@@ -8,7 +8,7 @@ import orderWaitIllustration from '../../assets/order_wait.svg';
 import { useToast } from '../../context/ToastContext';
 import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { formatAdminDate, formatAdminDateTime } from '../../utils/dateFormat';
-import { getGstAmountSplit, getGstDisplayDetails } from '../../utils/gst';
+import { getGstDisplayDetails, getOrderGstContext, resolveGstJurisdiction } from '../../utils/gst';
 import { billingAddressEnabled } from '../../utils/billingAddressConfig';
 import { computeInvoiceAlignedSummary, computeInvoiceStyleItemRows, computeOrderTotalsDisplay } from '../../utils/orderTotalsComputation';
 import Modal from '../../components/Modal';
@@ -318,6 +318,70 @@ const getPaymentHeaderBadgeClasses = (status) => {
     if (PAYMENT_SESSION_PENDING_STATUSES.has(normalized) || normalized === 'pending') return 'bg-amber-50/95 text-amber-900 border border-amber-100';
     if (normalized === 'refunded') return 'bg-sky-50/95 text-sky-900 border border-sky-100';
     return 'bg-fuchsia-50/95 text-fuchsia-900 border border-fuchsia-100';
+};
+const parseJsonObject = (value) => {
+    if (!value) return null;
+    if (typeof value === 'object') return value;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return null;
+    }
+};
+const formatRatePercent = (value) => {
+    const rate = Number(value);
+    if (!Number.isFinite(rate) || rate <= 0) return '';
+    return `${rate.toLocaleString('en-IN', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+    })}%`;
+};
+const getOrderTaxRates = (order = {}) => {
+    const rates = new Set();
+    const items = Array.isArray(order?.items) ? order.items : [];
+    items.forEach((item) => {
+        const snapshot = parseJsonObject(item?.item_snapshot || item?.itemSnapshot || item?.snapshot) || {};
+        const taxSnapshot = parseJsonObject(item?.tax_snapshot_json || item?.taxSnapshot || item?.tax_snapshot || snapshot?.taxSnapshot) || {};
+        const candidates = [
+            item?.tax_rate_percent,
+            item?.taxRatePercent,
+            snapshot?.taxRatePercent,
+            taxSnapshot?.ratePercent
+        ];
+        candidates.forEach((candidate) => {
+            const rate = Number(candidate);
+            if (Number.isFinite(rate) && rate > 0) {
+                rates.add(Math.round(rate * 100) / 100);
+            }
+        });
+    });
+    const orderTaxBreakup = Array.isArray(order?.tax_breakup_json)
+        ? order.tax_breakup_json
+        : Array.isArray(order?.taxBreakup)
+            ? order.taxBreakup
+            : [];
+    orderTaxBreakup.forEach((entry) => {
+        const rate = Number(entry?.ratePercent ?? entry?.rate_percent);
+        if (Number.isFinite(rate) && rate > 0) {
+            rates.add(Math.round(rate * 100) / 100);
+        }
+    });
+    return Array.from(rates).sort((a, b) => a - b);
+};
+const getOrderTaxRateLabel = (order = {}, jurisdictionKind = 'unknown') => {
+    const rates = getOrderTaxRates(order);
+    if (rates.length === 0) return jurisdictionKind === 'inter_state' ? 'IGST' : jurisdictionKind === 'intra_state' ? 'CGST + SGST' : 'GST';
+    if (jurisdictionKind === 'inter_state') {
+        return rates.map((rate) => `IGST ${formatRatePercent(rate)}`).join(' | ');
+    }
+    if (jurisdictionKind === 'intra_state') {
+        return rates.map((rate) => {
+            const halfRate = Math.round((rate / 2) * 100) / 100;
+            const halfRateLabel = formatRatePercent(halfRate);
+            return `SGST ${halfRateLabel} + CGST ${halfRateLabel}`;
+        }).join(' | ');
+    }
+    return rates.map((rate) => `GST ${formatRatePercent(rate)}`).join(' | ');
 };
 const toPaymentMethodInfoLabel = (method = '') => {
     const normalized = String(method || '').trim().toLowerCase();
@@ -1248,6 +1312,10 @@ export function Orders({
         () => computeInvoiceStyleItemRows(selectedOrder, selectedOrderTotals?.taxRegime),
         [selectedOrder, selectedOrderTotals]
     );
+    const selectedOrderGstContext = useMemo(
+        () => getOrderGstContext(selectedOrder || {}),
+        [selectedOrder]
+    );
     const selectedOrderCouponCode = useMemo(
         () => String(selectedOrder?.coupon_code || selectedOrder?.couponCode || selectedOrderTotals?.couponCode || '').trim(),
         [selectedOrder, selectedOrderTotals]
@@ -1260,6 +1328,10 @@ export function Orders({
         () => computeOrderTotalsDisplay(effectiveManualSummary),
         [effectiveManualSummary]
     );
+    const manualGstContext = useMemo(() => ({
+        shippingState: String(manualOrderForm.shippingAddress?.state || '').trim(),
+        companyState: String(companyProfile?.state || '').trim()
+    }), [companyProfile?.state, manualOrderForm.shippingAddress?.state]);
     const selectedOrderShippingPresentation = useMemo(
         () => getShippingPresentation(selectedOrder, selectedOrderTotals),
         [selectedOrder, selectedOrderTotals]
@@ -1808,8 +1880,13 @@ export function Orders({
                 'Total Savings',
                 'Price After Discounts',
                 'GST',
+                'Tax Type',
+                'Tax Rate',
+                'IGST',
                 'SGST',
                 'CGST',
+                'Company State',
+                'Shipping State',
                 'Round Off',
                 'Grand Total',
                 'Tax Regime',
@@ -1819,7 +1896,13 @@ export function Orders({
 
             const lines = detailedOrders.map((order) => {
                 const totals = computeInvoiceAlignedSummary(order);
-                const gstSplit = getGstAmountSplit(Number(totals?.gstTotal || 0));
+                const gstContext = getOrderGstContext(order || {});
+                const gst = getGstDisplayDetails({
+                    taxAmount: Number(totals?.gstTotal || 0),
+                    ...gstContext
+                });
+                const jurisdiction = resolveGstJurisdiction(gstContext);
+                const taxRateLabel = getOrderTaxRateLabel(order, jurisdiction.kind);
                 return ([
                     toCsvCell(order.order_ref),
                     toCsvCell(formatAdminDate(order.created_at)),
@@ -1841,8 +1924,13 @@ export function Orders({
                     toCsvCell(formatReportAmount(totals?.discounts?.totalSavings)),
                     toCsvCell(formatReportAmount(totals?.priceAfterDiscounts)),
                     toCsvCell(formatReportAmount(totals?.gstTotal)),
-                    toCsvCell(formatReportAmount(gstSplit?.sgstAmount)),
-                    toCsvCell(formatReportAmount(gstSplit?.cgstAmount)),
+                    toCsvCell(gst.taxTypeLabel),
+                    toCsvCell(taxRateLabel),
+                    toCsvCell(formatReportAmount(jurisdiction.kind === 'inter_state' ? gst.igstAmount : 0)),
+                    toCsvCell(formatReportAmount(jurisdiction.kind === 'intra_state' ? gst.sgstAmount : 0)),
+                    toCsvCell(formatReportAmount(jurisdiction.kind === 'intra_state' ? gst.cgstAmount : 0)),
+                    toCsvCell(gstContext.companyState || ''),
+                    toCsvCell(gstContext.shippingState || ''),
                     toCsvCell(formatReportAmount(totals?.roundOffAmount)),
                     toCsvCell(formatReportAmount(totals?.grandTotal)),
                     toCsvCell(String(totals?.taxRegime || 'exclusive')),
@@ -4012,8 +4100,8 @@ export function Orders({
                                                                     {itemTax > 0 && (
                                                                         <p className="text-[11px] text-gray-500 font-medium">
                                                                             {(() => {
-                                                                                const gst = getGstDisplayDetails({ taxAmount: itemTax, taxRatePercent: itemTaxRate, taxLabel: itemTaxCode });
-                                                                                return `${gst.title}: ${gst.totalAmountLabel}`;
+                                                                                const gst = getGstDisplayDetails({ taxAmount: itemTax, taxRatePercent: itemTaxRate, taxLabel: itemTaxCode, ...selectedOrderGstContext });
+                                                                                return `${gst.title}: ${gst.totalAmountLabel} (${gst.componentAmountLabel})`;
                                                                             })()}
                                                                         </p>
                                                                     )}
@@ -4084,7 +4172,7 @@ export function Orders({
                                                         <span>
                                                             {selectedOrderTotals.taxRegime === 'inclusive' ? 'GST Breakdown' : 'GST'}
                                                             <span className="block text-[11px] text-gray-400">
-                                                                {getGstDisplayDetails({ taxAmount: Number(selectedOrderTotals.gstTotal || 0) }).splitAmountLabel}
+                                                                {getGstDisplayDetails({ taxAmount: Number(selectedOrderTotals.gstTotal || 0), ...selectedOrderGstContext }).componentAmountLabel}
                                                             </span>
                                                         </span>
                                                         <span>₹{Number(selectedOrderTotals.gstTotal || 0).toLocaleString()}</span>
@@ -4695,9 +4783,10 @@ export function Orders({
                                                                         const gst = getGstDisplayDetails({
                                                                             taxAmount: Number(item.taxAmount || 0),
                                                                             taxRatePercent: Number(item.taxRatePercent || 0),
-                                                                            taxLabel: item.taxCode || item.taxName || ''
+                                                                            taxLabel: item.taxCode || item.taxName || '',
+                                                                            ...manualGstContext
                                                                         });
-                                                                        return `${gst.title}: ${gst.totalAmountLabel} (${gst.splitAmountLabel})`;
+                                                                        return `${gst.title}: ${gst.totalAmountLabel} (${gst.componentAmountLabel})`;
                                                                     })()}
                                                                 </p>
                                                             )}
@@ -4755,7 +4844,7 @@ export function Orders({
                                                     <span>
                                                         {manualTotals.taxRegime === 'inclusive' ? 'GST Breakdown' : 'GST'}
                                                         <span className="block text-[10px] text-gray-400">
-                                                            {getGstDisplayDetails({ taxAmount: Number(manualTotals.gstTotal || 0) }).splitAmountLabel}
+                                                            {getGstDisplayDetails({ taxAmount: Number(manualTotals.gstTotal || 0), ...manualGstContext }).componentAmountLabel}
                                                         </span>
                                                     </span>
                                                     <span>{formatInrOrDash(manualTotals.gstTotal)}</span>

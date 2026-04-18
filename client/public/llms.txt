@@ -4,21 +4,21 @@
 
 ## Key Pages
 
-- Home: https://www.sscjewels.com/
-- Shop: https://www.sscjewels.com/shop
-- About: https://www.sscjewels.com/about
-- Contact: https://www.sscjewels.com/contact
-- FAQ: https://www.sscjewels.com/faq
-- Shipping Policy: https://www.sscjewels.com/shipping
-- Refund Policy: https://www.sscjewels.com/refund
-- Terms: https://www.sscjewels.com/terms
-- Privacy Policy: https://www.sscjewels.com/privacy
-- Sitemap: https://www.sscjewels.com/sitemap.xml
+- Home: https://sscjewels.com/
+- Shop: https://sscjewels.com/shop
+- About: https://sscjewels.com/about
+- Contact: https://sscjewels.com/contact
+- FAQ: https://sscjewels.com/faq
+- Shipping Policy: https://sscjewels.com/shipping
+- Refund Policy: https://sscjewels.com/refund
+- Terms: https://sscjewels.com/terms
+- Privacy Policy: https://sscjewels.com/privacy
+- Sitemap: https://sscjewels.com/sitemap.xml
 
 ## AI-Friendly Reference
 
-- Full site summary: https://www.sscjewels.com/llms-full.md
-- Markdown mirrors index: https://www.sscjewels.com/markdown/
+- Full site summary: https://sscjewels.com/llms-full.md
+- Markdown mirrors index: https://sscjewels.com/markdown/
 
 ## Crawl Guidance
 

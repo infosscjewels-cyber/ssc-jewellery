@@ -280,6 +280,9 @@ export default function CompanyInfo() {
         if (form.taxEnabled && !gstRaw) {
             errors.gstNumber = 'GST number is required to enable GST';
         }
+        if (form.taxEnabled && !String(form.state || '').trim()) {
+            errors.state = 'Company state is required to determine GST split';
+        }
         if (!String(form.whatsappNumber || '').trim()) {
             errors.whatsappNumber = 'WhatsApp number is required';
         } else if (!isValidWhatsApp(form.whatsappNumber)) {

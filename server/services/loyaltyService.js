@@ -843,6 +843,14 @@ const issueBirthdayCouponForUser = async (userId, { sendEmail = true } = {}) => 
         const status = await getUserLoyaltyStatus(user.id);
         const tierLabel = status?.profile?.label || 'Basic';
         const birthdayDiscountPct = Number(status?.profile?.birthdayDiscountPct ?? 10);
+        if (!Number.isFinite(birthdayDiscountPct) || birthdayDiscountPct <= 0) {
+            return {
+                created: false,
+                coupon: null,
+                reason: 'birthday_discount_disabled',
+                tier: String(status?.tier || 'regular').toLowerCase()
+            };
+        }
         coupon = await Coupon.createCoupon({
             prefix: 'BDAY',
             name: `${tierLabel} Birthday ${year}`,
@@ -956,13 +964,24 @@ const issueBirthdayCouponsForEligibleUsersToday = async () => {
     );
     let created = 0;
     let processed = 0;
+    let skippedDisabled = 0;
+    let failed = 0;
     for (const row of rows) {
         if (!isUserBirthdayToday(row.dob)) continue;
         processed += 1;
-        const result = await issueBirthdayCouponForUser(row.id, { sendEmail: true });
-        if (result?.created) created += 1;
+        try {
+            const result = await issueBirthdayCouponForUser(row.id, { sendEmail: true });
+            if (result?.created) {
+                created += 1;
+            } else if (result?.reason === 'birthday_discount_disabled') {
+                skippedDisabled += 1;
+            }
+        } catch (error) {
+            failed += 1;
+            console.error(`Birthday coupon job skipped user ${row.id}:`, error?.message || error);
+        }
     }
-    return { processed, created };
+    return { processed, created, skippedDisabled, failed };
 };
 
 const getLoyaltyConfigForAdmin = async () => {

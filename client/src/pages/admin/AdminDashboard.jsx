@@ -810,60 +810,6 @@ export default function AdminDashboard() {
                                                 Total Order Value: ₹{Number(incomingPrimaryTotals.grandTotal || 0).toLocaleString()}
                                             </p>
                                             <p className="mt-1 text-sm text-gray-700">
-                                                Subtotal: ₹{Number(incomingPrimaryTotals.subtotal || 0).toLocaleString()}
-                                            </p>
-                                            <p className="mt-1 text-sm text-gray-700">
-                                                Shipping: ₹{Number(incomingPrimaryTotals.shipping || 0).toLocaleString()}
-                                            </p>
-                                            {incomingPrimaryTotals.hasAnyDiscount && (
-                                                <p className="mt-1 text-sm text-gray-700">
-                                                    Price Before Discounts: ₹{Number(incomingPrimaryTotals.priceBeforeDiscounts || 0).toLocaleString()}
-                                                </p>
-                                            )}
-                                            {incomingPrimaryTotals.discounts.coupon > 0 && (
-                                                <p className="mt-1 text-sm text-gray-700">
-                                                    Coupon Discount: - ₹{Number(incomingPrimaryTotals.discounts.coupon || 0).toLocaleString()}
-                                                </p>
-                                            )}
-                                            {incomingPrimaryTotals.discounts.member > 0 && (
-                                                <p className="mt-1 text-sm text-gray-700">
-                                                    Member Discount: - ₹{Number(incomingPrimaryTotals.discounts.member || 0).toLocaleString()}
-                                                </p>
-                                            )}
-                                            {incomingPrimaryTotals.discounts.memberShippingBenefit > 0 && (
-                                                <p className="mt-1 text-sm text-gray-700">
-                                                    Member Shipping Benefit: - ₹{Number(incomingPrimaryTotals.discounts.memberShippingBenefit || 0).toLocaleString()}
-                                                </p>
-                                            )}
-                                            {incomingPrimaryTotals.hasAnyDiscount && incomingPrimaryTotals.discounts.totalSavings > 0 && (
-                                                <p className="mt-1 text-sm text-emerald-700">
-                                                    Total Savings: ₹{Number(incomingPrimaryTotals.discounts.totalSavings || 0).toLocaleString()}
-                                                </p>
-                                            )}
-                                            {incomingPrimaryHasAppliedCoupon && (
-                                                <p className="mt-1 text-sm text-gray-700">
-                                                    Coupon Code: <span className="font-semibold">{incomingPrimaryCouponCode}</span>
-                                                </p>
-                                            )}
-                                            {incomingPrimaryTotals.hasAnyDiscount && (
-                                                <p className="mt-1 text-sm text-gray-700">
-                                                    Price After Discounts: ₹{Number(incomingPrimaryTotals.priceAfterDiscounts || 0).toLocaleString()}
-                                                </p>
-                                            )}
-                                            {incomingPrimaryTotals.gstTotal > 0 && (
-                                                <p className="mt-1 text-sm text-gray-700">
-                                                    {incomingPrimaryTotals.taxRegime === 'inclusive' ? 'GST Breakdown' : 'GST'}: ₹{Number(incomingPrimaryTotals.gstTotal || 0).toLocaleString()}
-                                                    <span className="block text-[11px] text-gray-500">
-                                                        {getGstDisplayDetails({ taxAmount: Number(incomingPrimaryTotals.gstTotal || 0) }).splitAmountLabel}
-                                                    </span>
-                                                </p>
-                                            )}
-                                            {Number(incomingPrimaryTotals.roundOffAmount || 0) !== 0 && (
-                                                <p className="mt-1 text-sm text-gray-700">
-                                                    Round Off: ₹{Number(incomingPrimaryTotals.roundOffAmount || 0).toLocaleString()}
-                                                </p>
-                                            )}
-                                            <p className="mt-1 text-sm text-gray-700">
                                                 Ship To: {formatAddressPreview(incomingPrimaryOrder?.shipping_address || incomingPrimaryOrder?.shippingAddress)}
                                             </p>
                                             <p className="mt-1 text-sm text-gray-700">

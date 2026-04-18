@@ -4,48 +4,13 @@ const toFiniteNumber = (value, fallback = 0) => {
 };
 
 const roundToTwo = (value) => Math.round(toFiniteNumber(value, 0) * 100) / 100;
-const formatMoney = (value, locale = 'en-IN') => `₹${formatNumber(value, locale)}`;
 
-const formatNumber = (value, locale = 'en-IN') => {
-    return roundToTwo(value).toLocaleString(locale, {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 2
-    });
-};
+const formatNumber = (value, locale = 'en-IN') => roundToTwo(value).toLocaleString(locale, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+});
 
-export const getGstRateSplit = (ratePercent = 0, locale = 'en-IN') => {
-    const totalRate = Math.max(0, toFiniteNumber(ratePercent, 0));
-    const halfRate = roundToTwo(totalRate / 2);
-    return {
-        totalRate,
-        sgstRate: halfRate,
-        cgstRate: halfRate,
-        totalRateLabel: `${formatNumber(totalRate, locale)}%`,
-        sgstRateLabel: `${formatNumber(halfRate, locale)}%`,
-        cgstRateLabel: `${formatNumber(halfRate, locale)}%`,
-        splitRateLabel: `SGST ${formatNumber(halfRate, locale)}% + CGST ${formatNumber(halfRate, locale)}%`
-    };
-};
-
-export const getGstAmountSplit = (taxAmount = 0, locale = 'en-IN') => {
-    const totalAmount = Math.max(0, toFiniteNumber(taxAmount, 0));
-    const totalPaise = Math.max(0, Math.round(totalAmount * 100));
-    const sgstPaise = Math.floor(totalPaise / 2);
-    const cgstPaise = totalPaise - sgstPaise;
-    const sgstAmount = roundToTwo(sgstPaise / 100);
-    const cgstAmount = roundToTwo(cgstPaise / 100);
-    return {
-        totalAmount,
-        sgstAmount,
-        cgstAmount,
-        igstAmount: totalAmount,
-        totalAmountLabel: formatMoney(totalAmount, locale),
-        sgstAmountLabel: formatMoney(sgstAmount, locale),
-        cgstAmountLabel: formatMoney(cgstAmount, locale),
-        igstAmountLabel: formatMoney(totalAmount, locale),
-        splitAmountLabel: `SGST ${formatMoney(sgstAmount, locale)} + CGST ${formatMoney(cgstAmount, locale)}`
-    };
-};
+const formatMoney = (value, locale = 'en-IN') => `INR ${formatNumber(value, locale)}`;
 
 const parseObject = (value) => {
     if (!value) return null;
@@ -82,8 +47,8 @@ const normalizeStateKey = (value = '') => {
         DADRAANDNAGARHAVELIANDDAMANANDDIU: 'DADRAANDNAGARHAVELIANDDAMANANDDIU',
         DL: 'DELHI',
         DELHI: 'DELHI',
-        GOA: 'GOA',
         GA: 'GOA',
+        GOA: 'GOA',
         GJ: 'GUJARAT',
         GUJARAT: 'GUJARAT',
         HR: 'HARYANA',
@@ -117,11 +82,11 @@ const normalizeStateKey = (value = '') => {
         OD: 'ODISHA',
         OR: 'ODISHA',
         ODISHA: 'ODISHA',
+        PB: 'PUNJAB',
+        PUNJAB: 'PUNJAB',
         PY: 'PUDUCHERRY',
         PONDICHERRY: 'PUDUCHERRY',
         PUDUCHERRY: 'PUDUCHERRY',
-        PB: 'PUNJAB',
-        PUNJAB: 'PUNJAB',
         RJ: 'RAJASTHAN',
         RAJASTHAN: 'RAJASTHAN',
         SK: 'SIKKIM',
@@ -132,54 +97,90 @@ const normalizeStateKey = (value = '') => {
         TELANGANA: 'TELANGANA',
         TR: 'TRIPURA',
         TRIPURA: 'TRIPURA',
-        UP: 'UTTARPRADESH',
-        UTTARPRADESH: 'UTTARPRADESH',
         UK: 'UTTARAKHAND',
+        UP: 'UTTARPRADESH',
         UT: 'UTTARAKHAND',
         UTTARAKHAND: 'UTTARAKHAND',
+        UTTARPRADESH: 'UTTARPRADESH',
         WB: 'WESTBENGAL',
         WESTBENGAL: 'WESTBENGAL'
     };
     return aliases[compact] || compact;
 };
 
-export const resolveGstJurisdiction = ({ shippingState = '', companyState = '' } = {}) => {
-    const shippingKey = normalizeStateKey(shippingState);
-    const companyKey = normalizeStateKey(companyState);
-    if (!shippingKey || !companyKey) {
+const getGstRateSplit = (ratePercent = 0, locale = 'en-IN') => {
+    const totalRate = Math.max(0, toFiniteNumber(ratePercent, 0));
+    const halfRate = roundToTwo(totalRate / 2);
+    return {
+        totalRate,
+        sgstRate: halfRate,
+        cgstRate: halfRate,
+        igstRate: totalRate,
+        totalRateLabel: `${formatNumber(totalRate, locale)}%`,
+        sgstRateLabel: `${formatNumber(halfRate, locale)}%`,
+        cgstRateLabel: `${formatNumber(halfRate, locale)}%`,
+        igstRateLabel: `${formatNumber(totalRate, locale)}%`,
+        splitRateLabel: `SGST ${formatNumber(halfRate, locale)}% + CGST ${formatNumber(halfRate, locale)}%`
+    };
+};
+
+const getGstAmountSplit = (taxAmount = 0, locale = 'en-IN') => {
+    const totalAmount = Math.max(0, toFiniteNumber(taxAmount, 0));
+    const totalPaise = Math.max(0, Math.round(totalAmount * 100));
+    const sgstPaise = Math.floor(totalPaise / 2);
+    const cgstPaise = totalPaise - sgstPaise;
+    const sgstAmount = roundToTwo(sgstPaise / 100);
+    const cgstAmount = roundToTwo(cgstPaise / 100);
+    return {
+        totalAmount,
+        sgstAmount,
+        cgstAmount,
+        igstAmount: totalAmount,
+        totalAmountLabel: formatMoney(totalAmount, locale),
+        sgstAmountLabel: formatMoney(sgstAmount, locale),
+        cgstAmountLabel: formatMoney(cgstAmount, locale),
+        igstAmountLabel: formatMoney(totalAmount, locale),
+        splitAmountLabel: `SGST ${formatMoney(sgstAmount, locale)} + CGST ${formatMoney(cgstAmount, locale)}`
+    };
+};
+
+const resolveGstJurisdiction = ({ shippingState = '', companyState = '' } = {}) => {
+    const shippingStateKey = normalizeStateKey(shippingState);
+    const companyStateKey = normalizeStateKey(companyState);
+    if (!shippingStateKey || !companyStateKey) {
         return {
             kind: 'unknown',
-            shippingStateKey: shippingKey,
-            companyStateKey: companyKey,
+            shippingStateKey,
+            companyStateKey,
             taxTypeLabel: 'GST'
         };
     }
-    if (shippingKey === companyKey) {
+    if (shippingStateKey === companyStateKey) {
         return {
             kind: 'intra_state',
-            shippingStateKey: shippingKey,
-            companyStateKey: companyKey,
+            shippingStateKey,
+            companyStateKey,
             taxTypeLabel: 'CGST + SGST'
         };
     }
     return {
         kind: 'inter_state',
-        shippingStateKey: shippingKey,
-        companyStateKey: companyKey,
+        shippingStateKey,
+        companyStateKey,
         taxTypeLabel: 'IGST'
     };
 };
 
-export const getOrderGstContext = (order = {}) => {
-    const shipping = parseObject(order?.shipping_address || order?.shippingAddress) || {};
-    const company = parseObject(order?.company_snapshot || order?.companySnapshot) || {};
+const getOrderGstContext = (order = {}) => {
+    const shipping = parseObject(order.shipping_address || order.shippingAddress) || {};
+    const company = parseObject(order.company_snapshot || order.companySnapshot) || {};
     return {
-        shippingState: String(shipping?.state || '').trim(),
-        companyState: String(company?.state || '').trim()
+        shippingState: String(shipping.state || '').trim(),
+        companyState: String(company.state || '').trim()
     };
 };
 
-export const getGstDisplayDetails = ({
+const getGstDisplayDetails = ({
     taxAmount = 0,
     taxRatePercent = 0,
     taxLabel = '',
@@ -220,4 +221,12 @@ export const getGstDisplayDetails = ({
         splitAmountLabel: componentAmountLabel,
         title
     };
+};
+
+module.exports = {
+    getGstRateSplit,
+    getGstAmountSplit,
+    resolveGstJurisdiction,
+    getOrderGstContext,
+    getGstDisplayDetails
 };

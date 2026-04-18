@@ -6,6 +6,7 @@ const {
 const { buildInvoiceShareUrl } = require('../invoiceShareService');
 const { queueCommunicationFailure } = require('./communicationRetryService');
 const { computeInvoiceComputation } = require('../../domain/computation/orderComputation');
+const { getGstDisplayDetails, getOrderGstContext } = require('../../utils/gst');
 
 const normalizeCustomer = (customer = {}) => ({
     name: String(customer?.name || 'Customer').trim(),
@@ -501,11 +502,6 @@ const formatTier = (value) => {
     if (!tier || tier === 'regular') return 'Basic';
     return `${tier.charAt(0).toUpperCase()}${tier.slice(1)}`;
 };
-const formatSplitTaxLabel = (amount) => {
-    const total = Math.max(0, Number(amount || 0));
-    const half = total / 2;
-    return `SGST ${formatCurrency(half)} + CGST ${formatCurrency(half)}`;
-};
 const roundCurrency = (value) => Math.round(Number(value || 0) * 100) / 100;
 const buildDiscountCellHtml = (item = {}) => {
     const totalDiscount = Math.max(
@@ -523,11 +519,16 @@ const buildDiscountCellHtml = (item = {}) => {
     }
     return lines.join('');
 };
-const buildTaxCellHtml = (item = {}) => {
+const buildTaxCellHtml = (item = {}, gstContext = {}) => {
     const totalTax = Math.max(0, Number(item.taxAmount || 0));
     const lines = [`<div style="font-size:12px;color:#111827;">${formatCurrency(totalTax)}</div>`];
     if (totalTax > 0) {
-        lines.push(`<div style="font-size:11px;color:#6b7280;">${formatSplitTaxLabel(totalTax)}</div>`);
+        const gst = getGstDisplayDetails({
+            taxAmount: totalTax,
+            taxRatePercent: Number(item.taxRatePercent || 0),
+            ...gstContext
+        });
+        lines.push(`<div style="font-size:11px;color:#6b7280;">${gst.componentAmountLabel}</div>`);
     }
     return lines.join('');
 };
@@ -542,6 +543,7 @@ const parseSnapshotSafe = (value) => {
 };
 const buildOrderSnapshotLine = (order = {}) => {
     const items = Array.isArray(order?.items) ? order.items : [];
+    const gstContext = getOrderGstContext(order || {});
     const displayPricing = order?.display_pricing && typeof order.display_pricing === 'object'
         ? order.display_pricing
         : order?.displayPricing && typeof order.displayPricing === 'object'
@@ -648,6 +650,10 @@ const buildOrderSnapshotLine = (order = {}) => {
     const basePriceBeforeDiscounts = Number(computation?.priceBeforeDiscounts || 0);
     const taxableValueAfterDiscounts = Number(computation?.priceAfterDiscounts || 0);
     const computedTaxTotal = Number(computation?.tableGstTotal || taxTotal);
+    const computedGst = getGstDisplayDetails({
+        taxAmount: computedTaxTotal,
+        ...gstContext
+    });
     const roundOffAmount = Number(computation?.roundOffAmount ?? order?.round_off_amount ?? order?.roundOffAmount ?? displayPricing?.roundOffAmount ?? 0);
     const totalDiscount = Number(computation?.discounts?.totalSavings || 0);
     const summaryParts = [
@@ -659,7 +665,7 @@ const buildOrderSnapshotLine = (order = {}) => {
         loyaltyShippingDiscount > 0 ? `Member shipping discount: <strong>${formatCurrency(loyaltyShippingDiscount)}</strong>` : null,
         totalDiscount > 0 ? `Total savings: <strong>${formatCurrency(totalDiscount)}</strong>` : null,
         `${taxPriceMode === 'inclusive' ? 'Value After Discounts' : 'Taxable Value After Discounts'}: <strong>${formatCurrency(taxableValueAfterDiscounts)}</strong>`,
-        computedTaxTotal > 0 ? `${taxPriceMode === 'inclusive' ? 'GST Breakdown' : 'GST'}: <strong>${formatCurrency(computedTaxTotal)}</strong> (${formatSplitTaxLabel(computedTaxTotal)})` : null,
+        computedTaxTotal > 0 ? `${taxPriceMode === 'inclusive' ? 'GST Breakdown' : 'GST'}: <strong>${formatCurrency(computedTaxTotal)}</strong> (${computedGst.componentAmountLabel})` : null,
         roundOffAmount !== 0 ? `Round Off: <strong>${formatCurrency(roundOffAmount)}</strong>` : null
     ].filter(Boolean);
     const visibleItems = tableItems.slice(0, 8);
@@ -673,7 +679,7 @@ const buildOrderSnapshotLine = (order = {}) => {
             <td style="padding:10px 8px;border-top:1px solid #e5e7eb;font-size:12px;color:#111827;text-align:right;vertical-align:top;">${formatCurrency(item.mrpUnit)}</td>
             <td style="padding:10px 8px;border-top:1px solid #e5e7eb;font-size:12px;color:#111827;text-align:right;vertical-align:top;">${item.quantity}</td>
             <td style="padding:10px 8px;border-top:1px solid #e5e7eb;font-size:11px;color:#111827;text-align:right;vertical-align:top;">${buildDiscountCellHtml(item)}</td>
-            <td style="padding:10px 8px;border-top:1px solid #e5e7eb;font-size:11px;color:#111827;text-align:right;vertical-align:top;">${buildTaxCellHtml(item)}</td>
+            <td style="padding:10px 8px;border-top:1px solid #e5e7eb;font-size:11px;color:#111827;text-align:right;vertical-align:top;">${buildTaxCellHtml(item, gstContext)}</td>
             <td style="padding:10px 8px;border-top:1px solid #e5e7eb;font-size:12px;color:#111827;text-align:right;vertical-align:top;font-weight:600;">${formatCurrency(item.lineTotalInclTax)}</td>
         </tr>
     `).join('');
@@ -708,7 +714,7 @@ const buildOrderSnapshotLine = (order = {}) => {
                     <td style="padding:10px 8px;border-top:1px solid #d1d5db;font-size:12px;color:#374151;text-align:right;font-weight:700;">${formatCurrency(tableTotals.unitPriceMrp)}</td>
                     <td style="padding:10px 8px;border-top:1px solid #d1d5db;font-size:12px;color:#374151;text-align:right;font-weight:700;">${Math.round(tableTotals.qty)}</td>
                     <td style="padding:10px 8px;border-top:1px solid #d1d5db;font-size:11px;color:#374151;text-align:right;font-weight:700;">${buildDiscountCellHtml(tableTotals)}</td>
-                    <td style="padding:10px 8px;border-top:1px solid #d1d5db;font-size:11px;color:#374151;text-align:right;font-weight:700;">${buildTaxCellHtml({ taxAmount: tableTotals.taxAmount })}</td>
+                    <td style="padding:10px 8px;border-top:1px solid #d1d5db;font-size:11px;color:#374151;text-align:right;font-weight:700;">${buildTaxCellHtml({ taxAmount: tableTotals.taxAmount }, gstContext)}</td>
                     <td style="padding:10px 8px;border-top:1px solid #d1d5db;font-size:12px;color:#374151;text-align:right;font-weight:700;">${formatCurrency(tableTotals.lineTotalInclTax)}</td>
                 </tr>
             </tbody>

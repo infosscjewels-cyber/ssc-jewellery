@@ -184,8 +184,41 @@ io.on('connection', (socket) => {
 app.set('io', io);
 
 const PORT = process.env.PORT || 5000;
+const normalizeBaseUrl = (value = '') => String(value || '').trim().replace(/\/+$/, '');
+const canonicalOrigin = normalizeBaseUrl(
+    process.env.APP_BASE_URL
+    || process.env.CLIENT_BASE_URL
+    || process.env.FRONTEND_URL
+    || ''
+);
+let canonicalUrl = null;
+try {
+    canonicalUrl = canonicalOrigin ? new URL(canonicalOrigin) : null;
+} catch {
+    canonicalUrl = null;
+}
 
 app.use(cors());
+app.use((req, res, next) => {
+    if (!isProduction || !canonicalUrl) {
+        return next();
+    }
+    const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+    const requestProtocol = forwardedProto || String(req.protocol || canonicalUrl.protocol.replace(':', '')).trim().toLowerCase();
+    const hostHeader = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+    if (!hostHeader) {
+        return next();
+    }
+    const requestHost = hostHeader.replace(/:\d+$/, '').toLowerCase();
+    const canonicalHost = String(canonicalUrl.hostname || '').toLowerCase();
+    const wwwHost = `www.${canonicalHost}`;
+    const shouldRedirectHost = requestHost === wwwHost;
+    const shouldRedirectProtocol = requestHost === canonicalHost && requestProtocol === 'http' && canonicalUrl.protocol === 'https:';
+    if (!shouldRedirectHost && !shouldRedirectProtocol) {
+        return next();
+    }
+    return res.redirect(301, `${canonicalUrl.protocol}//${canonicalHost}${req.originalUrl || '/'}`);
+});
 app.use((req, _res, next) => {
     setKnownPublicOriginFromRequest(req);
     next();

@@ -1,6 +1,6 @@
 # Contact
 
-Canonical URL: https://www.sscjewels.com/contact
+Canonical URL: https://sscjewels.com/contact
 
 The Contact page is the canonical place for current SSC Jewellery support details.
 
@@ -13,4 +13,3 @@ It may include:
 - Registered address or company display name.
 
 Contact details may change. Verify from the live Contact page before using them.
-
