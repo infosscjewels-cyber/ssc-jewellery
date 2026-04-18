@@ -260,18 +260,20 @@ export default function Footer() {
                 </div>
 
                 <div className="mt-10 border-t border-white/10 pt-8 grid grid-cols-1 md:grid-cols-4 gap-6 text-sm text-white/70">
-                    <div className="md:col-span-4 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mb-2">
+                    <div className="md:col-span-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mb-2">
                         {TRUST_ITEMS.map((item) => {
                             const Icon = item.icon;
                             return (
                                 <div
                                     key={item.title}
-                                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 flex items-start gap-3"
+                                    className="flex items-stretch gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-3 sm:px-4"
                                 >
-                                    <div className="shrink-0 rounded-xl bg-accent/10 p-2 text-accent">
-                                        <Icon size={18} />
+                                    <div className="flex aspect-square h-14 shrink-0 items-center justify-center self-center rounded-xl bg-accent/10 p-2.5 text-accent sm:h-auto sm:self-stretch sm:p-3">
+                                        <div className="flex h-full w-full items-center justify-center">
+                                            <Icon className="h-full w-full" />
+                                        </div>
                                     </div>
-                                    <div>
+                                    <div className="min-w-0 flex-1">
                                         <p className="text-sm font-semibold text-white">{item.title}</p>
                                         <p className="mt-1 text-xs text-white/60">{item.description}</p>
                                     </div>

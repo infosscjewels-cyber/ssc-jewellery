@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const db = require('../config/db');
 const fs = require('fs');
+const jwt = require('jsonwebtoken');
 const cmsController = require('../controllers/cmsController');
 const CompanyProfile = require('../models/CompanyProfile');
 const { createMockRes, requireFresh, withPatched } = require('./testUtils');
@@ -266,4 +267,94 @@ test('deleteCarouselCard removes uploaded carousel image', async () => {
 
     assert.equal(res.statusCode, 200);
     assert.match(String(removedPath || ''), /uploads\/carousel\/deleted-image\.jpg$/);
+});
+
+test('getFeaturedCategory autopilot excludes home-visible smart categories when choosing recommendations', async () => {
+    const req = {
+        query: { admin: 'false' },
+        headers: { authorization: 'Bearer test-token' }
+    };
+    const res = createMockRes();
+    const previousSecret = process.env.JWT_SECRET;
+    process.env.JWT_SECRET = 'test-secret';
+
+    try {
+        await withPatched(jwt, {
+            verify: () => ({ id: 'user-1', role: 'customer' })
+        }, async () => withPatched(db, {
+            execute: async (query) => {
+                const sql = String(query);
+                if (sql.includes('FROM home_featured_category')) {
+                    return [[{ id: 1, category_id: 3, title: '', subtitle: '', category_name: 'Offers' }]];
+                }
+                if (sql.includes('FROM cms_autopilot_config')) {
+                    return [[{ is_enabled: 1 }]];
+                }
+                if (sql.includes('GROUP BY c.id, c.name, c.system_key')) {
+                    return [[
+                        { id: 3, name: 'Offers', system_key: 'offers', product_count: 8 },
+                        { id: 7, name: 'Rings', system_key: null, product_count: 5 }
+                    ]];
+                }
+                if (sql.includes('SELECT DISTINCT c.id')) {
+                    return [[{ id: 3 }]];
+                }
+                return [[]];
+            }
+        }, async () => {
+            await cmsController.getFeaturedCategory(req, res);
+        }));
+    } finally {
+        process.env.JWT_SECRET = previousSecret;
+    }
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.category_id, 7);
+    assert.equal(res.body.category_name, 'Rings');
+    assert.equal(res.body.autopilot_applied, true);
+});
+
+test('getFeaturedCategory autopilot falls back to a purchased non-home category before duplicating visible home sections', async () => {
+    const req = {
+        query: { admin: 'false' },
+        headers: { authorization: 'Bearer test-token' }
+    };
+    const res = createMockRes();
+    const previousSecret = process.env.JWT_SECRET;
+    process.env.JWT_SECRET = 'test-secret';
+
+    try {
+        await withPatched(jwt, {
+            verify: () => ({ id: 'user-2', role: 'customer' })
+        }, async () => withPatched(db, {
+            execute: async (query) => {
+                const sql = String(query);
+                if (sql.includes('FROM home_featured_category')) {
+                    return [[{ id: 1, category_id: 3, title: '', subtitle: '', category_name: 'Offers' }]];
+                }
+                if (sql.includes('FROM cms_autopilot_config')) {
+                    return [[{ is_enabled: 1 }]];
+                }
+                if (sql.includes('GROUP BY c.id, c.name, c.system_key')) {
+                    return [[
+                        { id: 3, name: 'Offers', system_key: 'offers', product_count: 11 },
+                        { id: 9, name: 'Bracelets', system_key: null, product_count: 4 }
+                    ]];
+                }
+                if (sql.includes('SELECT DISTINCT c.id')) {
+                    return [[{ id: 9 }]];
+                }
+                return [[]];
+            }
+        }, async () => {
+            await cmsController.getFeaturedCategory(req, res);
+        }));
+    } finally {
+        process.env.JWT_SECRET = previousSecret;
+    }
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.category_id, 9);
+    assert.equal(res.body.category_name, 'Bracelets');
+    assert.equal(res.body.autopilot_applied, true);
 });

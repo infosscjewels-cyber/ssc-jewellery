@@ -119,6 +119,50 @@ const parseId = (value) => {
     return Number.isFinite(n) && n > 0 ? n : null;
 };
 
+const normalizeCategoryText = (value = '') => String(value || '').trim().toLowerCase();
+const HOME_VISIBLE_CATEGORY_SYSTEM_KEYS = new Set(['best_sellers', 'new_arrivals', 'offers']);
+const HOME_VISIBLE_CATEGORY_NAMES = new Set(['best sellers', 'new arrivals', 'offers']);
+
+const isHomeVisibleCategory = (category = {}) => {
+    const systemKey = normalizeCategoryText(category?.system_key);
+    if (HOME_VISIBLE_CATEGORY_SYSTEM_KEYS.has(systemKey)) return true;
+    return HOME_VISIBLE_CATEGORY_NAMES.has(normalizeCategoryText(category?.name));
+};
+
+const pickRotatingCategory = (categories = [], { userId = null } = {}) => {
+    if (!Array.isArray(categories) || categories.length === 0) return null;
+    const rotationBase = getWeekKey();
+    const personalizedOffset = userId ? (hashText(userId) % categories.length) : 0;
+    const index = (rotationBase + personalizedOffset) % categories.length;
+    return categories[index] || null;
+};
+
+const selectFeaturedAutopilotCategory = ({
+    allCategories = [],
+    seenCategoryIds = [],
+    userId = null
+} = {}) => {
+    const nonVisibleCategories = (Array.isArray(allCategories) ? allCategories : []).filter((category) => !isHomeVisibleCategory(category));
+    if (nonVisibleCategories.length === 0) {
+        return null;
+    }
+
+    const seenSet = new Set(
+        (Array.isArray(seenCategoryIds) ? seenCategoryIds : [])
+            .map((id) => Number(id))
+            .filter((id) => Number.isFinite(id))
+    );
+
+    const unseenCategories = userId
+        ? nonVisibleCategories.filter((category) => !seenSet.has(Number(category.id)))
+        : nonVisibleCategories;
+
+    return pickRotatingCategory(
+        unseenCategories.length > 0 ? unseenCategories : nonVisibleCategories,
+        { userId }
+    );
+};
+
 const ensureRowExists = async ({ table, id, idColumn = 'id' } = {}) => {
     const entityId = parseId(id);
     if (!entityId) throw new Error('Invalid id');
@@ -346,17 +390,17 @@ const getFeaturedCategory = async (req, res) => {
 
         if (shouldApplyAutopilot) {
             const [categoryRows] = await db.execute(
-                `SELECT c.id, c.name, COUNT(pc.product_id) AS product_count
+                `SELECT c.id, c.name, c.system_key, COUNT(pc.product_id) AS product_count
                  FROM categories c
                  JOIN product_categories pc ON pc.category_id = c.id
-                 GROUP BY c.id, c.name
+                 GROUP BY c.id, c.name, c.system_key
                  HAVING COUNT(pc.product_id) > 0
                  ORDER BY c.name ASC`
             );
             const allCategories = Array.isArray(categoryRows) ? categoryRows : [];
             if (allCategories.length > 0) {
                 const userId = auth.userId;
-                let candidateCategories = allCategories;
+                let seenCategoryIds = [];
                 if (userId) {
                     const [seenRows] = await db.execute(
                         `SELECT DISTINCT c.id
@@ -368,17 +412,14 @@ const getFeaturedCategory = async (req, res) => {
                            AND o.payment_status = 'paid'`,
                         [userId]
                     );
-                    const seenSet = new Set(
-                        seenRows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id))
-                    );
-                    const unseen = allCategories.filter((row) => !seenSet.has(Number(row.id)));
-                    if (unseen.length > 0) candidateCategories = unseen;
+                    seenCategoryIds = seenRows.map((row) => Number(row.id));
                 }
 
-                const rotationBase = getWeekKey();
-                const personalizedOffset = userId ? (hashText(userId) % candidateCategories.length) : 0;
-                const index = (rotationBase + personalizedOffset) % candidateCategories.length;
-                const selected = candidateCategories[index];
+                const selected = selectFeaturedAutopilotCategory({
+                    allCategories,
+                    seenCategoryIds,
+                    userId
+                });
                 if (selected) {
                     config = {
                         ...(config || {}),
@@ -387,7 +428,8 @@ const getFeaturedCategory = async (req, res) => {
                         title: config?.title || '',
                         subtitle: config?.subtitle || '',
                         autopilot_enabled: true,
-                        autopilot_applied: true
+                        autopilot_applied: true,
+                        autopilot_selection_source: userId ? 'personalized_category_rotation' : 'category_rotation'
                     };
                 }
             }

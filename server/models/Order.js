@@ -2280,6 +2280,22 @@ class Order {
                 type: coupon?.type || null,
                 discountSubunits: toSubunits(couponDiscountTotal)
             } : null;
+            const inferredJourneyId = Number(
+                notes?.journeyId
+                ?? notes?.journey_id
+                ?? coupon?.journeyId
+                ?? coupon?.journey_id
+                ?? snapshot?.journeyId
+                ?? snapshot?.journey_id
+                ?? 0
+            ) || null;
+            const normalizedRequestedSource = String(sourceChannel || '').trim().toLowerCase();
+            const inferredRecoverySource = normalizedRequestedSource === 'abandoned_recovery'
+                || inferredJourneyId
+                || String(coupon?.source || '').trim().toLowerCase() === 'abandoned_recovery';
+            const persistedSourceChannel = inferredRecoverySource
+                ? 'abandoned_recovery'
+                : (normalizedRequestedSource || 'checkout');
             const hasTaxDataInSnapshot = orderItems.some((item) => {
                 const snap = item?.snapshot && typeof item.snapshot === 'object' ? item.snapshot : null;
                 return Number(item?.taxAmount || 0) > 0 || Number(snap?.taxAmount || 0) > 0 || Number(snap?.taxRatePercent || 0) > 0;
@@ -2354,9 +2370,9 @@ class Order {
                     loyaltyDiscountTotal,
                     loyaltyShippingDiscountTotal,
                     JSON.stringify(loyaltyMeta),
-                    String(sourceChannel || 'admin_attempt_conversion').slice(0, 30),
-                    0,
-                    null,
+                    String(persistedSourceChannel).slice(0, 30),
+                    inferredRecoverySource ? 1 : 0,
+                    inferredJourneyId,
                     subtotal,
                     shippingFee,
                     discountTotal,

@@ -642,47 +642,47 @@ export default function Navbar() {
         // - 'shadow-none' -> 'shadow-md': Adds depth
         <nav ref={navRef} className={`sticky top-0 w-full z-[80] bg-white/90 backdrop-blur-2xl transition-all duration-300 ease-in-out py-2 md:py-4 shadow-sm border-b border-white/70`}>
             <div className="container mx-auto px-4 md:px-8">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-2.5">
                     
                     
-                    <Link to="/" className="group flex min-w-0 flex-1 items-center gap-1.5 md:hidden">
+                    <Link to="/" className="group flex min-w-0 flex-1 items-center gap-1.5 pr-1 md:hidden">
                         <img 
                             src={BRAND_LOGO_URL} 
                             alt="Logo" 
-                            className="h-12 w-auto shrink-0 object-contain transition-all duration-300"
+                            className="h-10 w-auto shrink-0 object-contain transition-all duration-300 min-[390px]:h-11"
                             decoding="async"
                             fetchPriority="high"
                         />
-                        <span className="flex min-w-0 flex-col items-start justify-center leading-tight">
-                            <span className="max-w-[116px] whitespace-normal break-words font-serif text-[0.83rem] font-bold tracking-[0.02em] text-primary transition-all duration-300 min-[390px]:max-w-[138px] sm:max-w-[180px] sm:text-[0.95rem]">
+                        <span className="flex min-w-0 flex-col items-start justify-center gap-0.5 leading-tight">
+                            <span className="max-w-[118px] overflow-hidden text-ellipsis whitespace-nowrap font-serif text-[clamp(0.7rem,3.15vw,0.92rem)] font-bold tracking-[0.01em] text-primary leading-none transition-all duration-300 min-[390px]:max-w-[142px] sm:max-w-[190px]">
                                 Sree Sai Collections
                             </span>
-                            <span className="mt-0.5 inline-flex w-fit max-w-full items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[6px] font-semibold uppercase tracking-[0.1em] text-amber-800 whitespace-nowrap sm:px-2 sm:text-[7px]">
+                            <span className="inline-flex max-w-[118px] overflow-hidden text-ellipsis rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[5.5px] font-semibold uppercase tracking-[0.08em] text-amber-800 whitespace-nowrap min-[390px]:max-w-[142px] min-[390px]:text-[6px] sm:max-w-full sm:px-2 sm:text-[7px]">
                                 1 gm Imitiation Jewellery
                             </span>
                         </span>
                     </Link>
 
-                    <Link to="/" className="group hidden min-w-0 items-center gap-2.5 md:flex">
+                    <Link to="/" className="group hidden min-w-0 items-center gap-1.5 md:flex lg:gap-2.5">
                         <img
                             src={BRAND_LOGO_URL}
                             alt="Logo"
-                            className="h-10 w-auto shrink-0 object-contain transition-all duration-300"
+                            className="h-9 w-auto shrink-0 object-contain transition-all duration-300 lg:h-10"
                             decoding="async"
                             fetchPriority="high"
                         />
                         <span className="flex min-w-0 flex-col items-start justify-center leading-tight">
-                            <span className="whitespace-normal break-words font-serif text-[1.2rem] font-bold tracking-[0.08em] text-primary transition-all duration-300">
+                            <span className="whitespace-nowrap font-serif text-[1rem] font-bold tracking-[0.03em] text-primary transition-all duration-300 lg:text-[1.2rem] lg:tracking-[0.08em]">
                                 Sree Sai Collections
                             </span>
-                            <span className="mt-1 inline-flex max-w-none items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-800 whitespace-nowrap">
+                            <span className="mt-1 inline-flex max-w-none items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[8px] font-semibold uppercase tracking-[0.12em] text-amber-800 whitespace-nowrap lg:text-[10px] lg:tracking-[0.18em]">
                                 1 gm Imitiation Jewellery
                             </span>
                         </span>
                     </Link>
 
                     {/* Desktop Links */}
-                    <div className="hidden md:flex items-center gap-8">
+                    <div className="hidden md:flex items-center gap-5 lg:gap-8">
                         {navLinks.slice(0, 1).map((link) => (
                             <Link key={link.name} to={link.path} className={`text-sm font-medium tracking-wide transition-colors relative group ${isActive(link.path) ? 'text-accent-deep' : 'text-gray-600 hover:text-accent-deep'}`}>
                                 {link.name}
@@ -894,10 +894,17 @@ export default function Navbar() {
                     </div>
 
                     {/* Actions */}
-                    <div className="hidden md:flex items-center gap-4 relative" ref={userMenuRef}>
+                    <div className="hidden md:flex items-center gap-2 lg:gap-4 relative" ref={userMenuRef}>
                         {showTierBadge && (
-                            <TierBadge tier={tier} label={tierLabel} className="px-3.5 py-1.5 text-sm font-semibold" iconSize={16} hideRegular />
+                            <TierBadge tier={tier} label={tierLabel} className="px-2.5 py-1 text-xs font-semibold lg:px-3.5 lg:py-1.5 lg:text-sm" iconSize={14} hideRegular />
                         )}
+                        <Link
+                            to="/wishlist"
+                            className="p-2 rounded-full hover:bg-gray-100 text-gray-600 hover:text-primary transition-colors"
+                            aria-label="Wishlist"
+                        >
+                            <Heart size={22} strokeWidth={2} />
+                        </Link>
                         <button 
                             type="button"
                             onClick={handleCartClick}
@@ -947,25 +954,25 @@ export default function Navbar() {
                     </div>
 
                     {/* Mobile Actions */}
-                    <div className="flex shrink-0 items-center gap-2 md:hidden">
+                    <div className="ml-1 flex shrink-0 items-center gap-1.5 md:hidden">
                         {showTierBadge && (
-                            <TierBadge tier={tier} label={tierLabel} className="px-3 py-1 text-xs font-semibold" iconSize={14} hideRegular />
+                            <TierBadge tier={tier} label={tierLabel} className="max-w-[84px] px-2.5 py-1 text-[11px] font-semibold leading-none" iconSize={13} hideRegular />
                         )}
                         <button
                             type="button"
-                            className="rounded-full border border-gray-200 bg-white p-2 text-primary shadow-sm transition-colors hover:border-accent/30 hover:bg-accent/5"
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-primary shadow-sm transition-colors hover:border-accent/30 hover:bg-accent/5"
                             onClick={handleMobileSearchClick}
                             aria-label="Open search"
                         >
-                            <Search size={18} />
+                            <Search size={17} />
                         </button>
                         <button 
                             type="button"
-                            className="p-2 text-primary"
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-transparent text-primary transition-colors hover:bg-gray-100"
                             onClick={() => setIsOpen(!isOpen)}
                             aria-label={isOpen ? 'Close menu' : 'Open menu'}
                         >
-                            {isOpen ? <X size={28} /> : <Menu size={28} />}
+                            {isOpen ? <X size={26} /> : <Menu size={26} />}
                         </button>
                     </div>
                 </div>

@@ -1893,6 +1893,14 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
     }
 
     const preOrderCartItems = attempt?.user_id ? await Cart.getByUser(attempt.user_id).catch(() => []) : [];
+    const attemptNotes = attempt?.notes && typeof attempt.notes === 'object' ? attempt.notes : {};
+    const inferredRecoveryJourneyId = Number(
+        attemptNotes?.journeyId
+        ?? attemptNotes?.journey_id
+        ?? attemptNotes?.attemptSnapshot?.journeyId
+        ?? attemptNotes?.attemptSnapshot?.journey_id
+        ?? 0
+    ) || null;
 
     const order = await Order.createManualOrderFromAttempt({
         attempt,
@@ -1905,7 +1913,7 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
         razorpaySignature: razorpaySignature || null,
         settlementId: settlementId || null,
         settlementSnapshot: settlementSnapshot || null,
-        sourceChannel: 'checkout_webhook_recovery'
+        sourceChannel: inferredRecoveryJourneyId ? 'abandoned_recovery' : 'checkout'
     });
     if (order) {
         await reconcilePostOrderCartState(req, {
