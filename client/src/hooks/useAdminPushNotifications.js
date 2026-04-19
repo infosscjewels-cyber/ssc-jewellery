@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { getMessaging, getToken, isSupported } from 'firebase/messaging';
+import { getMessaging, getToken, isSupported, onMessage } from 'firebase/messaging';
 import { firebaseApp } from '../firebase';
 import { authService } from '../services/authService';
 
@@ -9,11 +9,30 @@ const VAPID_KEY = String(import.meta.env.VITE_FIREBASE_VAPID_KEY || '').trim();
 const PUSH_PROMPTED_KEY = 'admin_push_notifications_prompted_v1';
 const PUSH_SW_URL = '/firebase-messaging-sw.js';
 const PUSH_SW_SCOPE = '/firebase-push-scope/';
+const DEFAULT_ADMIN_LINK = '/admin/dashboard';
 
 const buildDeviceLabel = () => {
     if (typeof navigator === 'undefined') return 'Admin Browser';
     const platform = String(navigator.platform || '').trim();
     return platform ? `Admin Browser (${platform})` : 'Admin Browser';
+};
+
+const normalizeForegroundNotification = (payload = {}) => {
+    const notification = payload?.notification || {};
+    const webpush = payload?.webpush?.notification || {};
+    const data = payload?.data || {};
+    return {
+        title: notification.title || webpush.title || 'SSC Jewels',
+        options: {
+            body: notification.body || webpush.body || '',
+            icon: webpush.icon || '/logo.webp',
+            badge: webpush.badge || '/logo.webp',
+            tag: webpush.tag || data.tag || undefined,
+            data: {
+                link: data.link || data.url || DEFAULT_ADMIN_LINK
+            }
+        }
+    };
 };
 
 export const useAdminPushNotifications = (user = null) => {
@@ -26,6 +45,7 @@ export const useAdminPushNotifications = (user = null) => {
         if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
 
         let cancelled = false;
+        let unsubscribeOnMessage = null;
 
         const registerAdminPush = async () => {
             try {
@@ -45,6 +65,22 @@ export const useAdminPushNotifications = (user = null) => {
                 if (!registration || cancelled) return;
 
                 const messaging = getMessaging(firebaseApp);
+                unsubscribeOnMessage = onMessage(messaging, async (payload) => {
+                    if (cancelled || Notification.permission !== 'granted') return;
+
+                    const { title, options } = normalizeForegroundNotification(payload);
+                    try {
+                        await registration.showNotification(title, options);
+                    } catch {
+                        const notification = new Notification(title, options);
+                        notification.onclick = () => {
+                            const target = String(options?.data?.link || DEFAULT_ADMIN_LINK).trim() || DEFAULT_ADMIN_LINK;
+                            window.focus();
+                            window.location.assign(target);
+                        };
+                    }
+                });
+
                 const fcmToken = await getToken(messaging, {
                     vapidKey: VAPID_KEY,
                     serviceWorkerRegistration: registration
@@ -68,6 +104,9 @@ export const useAdminPushNotifications = (user = null) => {
         void registerAdminPush();
         return () => {
             cancelled = true;
+            if (typeof unsubscribeOnMessage === 'function') {
+                unsubscribeOnMessage();
+            }
         };
     }, [user?.id, user?.role]);
 };

@@ -6,7 +6,7 @@ import Customers from './Customers';
 import Products from './Products';
 import Categories from './Categories';
 import { Users, ShoppingBag, LayoutDashboard, LogOut, Package, Truck, ShoppingCart, Settings, Sparkles, X, Eye } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Images } from 'lucide-react'; // Add 'Images' icon
 import HeroCMS from './HeroCMS'; // Import the new component
 import ShippingSettings from './ShippingSettings';
@@ -123,6 +123,7 @@ export default function AdminDashboard() {
     const shippingCooldownTimerRef = useRef(null);
     const lastTrackedTabRef = useRef(getInitialAdminTab());
     const navigate = useNavigate();
+    const location = useLocation();
     const toast = useToast();
     const { logout, user } = useAuth();
     const { isDownloading = false, progress = 0 } = useProducts() || {};
@@ -142,6 +143,22 @@ export default function AdminDashboard() {
     useEffect(() => {
         loadStorefrontState();
     }, [loadStorefrontState]);
+
+    useEffect(() => {
+        const params = new URLSearchParams(location.search || '');
+        const nextTab = String(params.get('tab') || '').trim();
+        const nextFocusOrderId = String(params.get('focusOrderId') || '').trim();
+
+        if (nextTab && ADMIN_PERSISTABLE_TABS.has(nextTab)) {
+            setActiveTab(nextTab);
+        }
+        if (nextFocusOrderId) {
+            setFocusOrderId(nextFocusOrderId);
+            if (!nextTab) {
+                setActiveTab('orders');
+            }
+        }
+    }, [location.search]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;

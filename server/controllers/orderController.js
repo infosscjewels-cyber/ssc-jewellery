@@ -227,7 +227,7 @@ const notifyAdminsOfNewOrder = (order = null, { source = 'order' } = {}) => {
     void sendToAdmins({
         title: 'New order received',
         body: `${orderRef} · ${customerName} · ${totalLabel}`,
-        link: `/admin?tab=orders&focusOrderId=${encodeURIComponent(String(order?.id || ''))}`,
+        link: `/admin/dashboard?tab=orders&focusOrderId=${encodeURIComponent(String(order?.id || ''))}`,
         tag: `admin-order-${String(order?.id || '')}`,
         data: {
             type: 'order_create',

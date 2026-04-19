@@ -675,8 +675,8 @@ export const orderService = {
         const cached = adminOrdersCache[cacheKey];
         const shouldDebug = typeof window !== 'undefined' && window.location?.search?.includes('debugOrders=1');
         if (cached && Date.now() - cached.ts < ADMIN_CACHE_TTL) {
-            const filteredOrders = sortAdminOrders(
-                (Array.isArray(cached?.data?.orders) ? cached.data.orders : []).filter((order) => orderMatchesAdminQuery(order, queryMeta)),
+            const cachedOrders = sortAdminOrders(
+                Array.isArray(cached?.data?.orders) ? cached.data.orders : [],
                 queryMeta
             );
             if (shouldDebug) {
@@ -684,21 +684,18 @@ export const orderService = {
                     query: queryMeta,
                     totalOrders: cached?.data?.pagination?.totalOrders,
                     ordersCount: Array.isArray(cached?.data?.orders) ? cached.data.orders.length : 0,
-                    filteredCount: filteredOrders.length
+                    returnedCount: cachedOrders.length
                 });
             }
             return {
                 ...cached.data,
-                orders: filteredOrders
+                orders: cachedOrders
             };
         }
         const query = `?page=${page}&limit=${limit}&status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&quickRange=${encodeURIComponent(normalizedQuickRange)}&sortBy=${encodeURIComponent(sortBy)}&sourceChannel=${encodeURIComponent(sourceChannel)}`;
         const res = await getWithRetry(`${API_URL}/admin${query}`, { headers: getAuthHeader() });
         const data = await handleResponse(res);
-        data.orders = sortAdminOrders(
-            (Array.isArray(data?.orders) ? data.orders : []).filter((order) => orderMatchesAdminQuery(order, queryMeta)),
-            queryMeta
-        );
+        data.orders = sortAdminOrders(Array.isArray(data?.orders) ? data.orders : [], queryMeta);
         if (shouldDebug) {
             console.debug('[admin orders] api response', {
                 query: queryMeta,
