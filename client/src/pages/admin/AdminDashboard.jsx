@@ -31,6 +31,7 @@ import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
 import { BRAND_LOGO_URL } from '../../utils/branding.js';
 import { useAdminPushNotifications } from '../../hooks/useAdminPushNotifications';
 import AdminMobilePageHeader from '../../components/admin/AdminMobilePageHeader';
+import { BUILD_VERSION } from '../../generated/buildInfo.js';
 import {
     isTrackedAdminMobilePageTab,
     readPreviousAdminMobilePageTab,
@@ -604,9 +605,10 @@ export default function AdminDashboard() {
                         <LogOut size={20} />
                         <span>Logout</span>
                     </button>
-                    
-                    {/* Sidebar Footer */}
-                    
+
+                    <div className="px-4 text-[10px] tracking-wide text-center text-white/35">
+                        Build {BUILD_VERSION}
+                    </div>
                 </div>
             </aside>
 
@@ -779,17 +781,12 @@ export default function AdminDashboard() {
                     )}
                     {activeTab === 'loyalty' && <LoyaltySettings onBack={() => setActiveTab('dashboard')} storefrontOpen={storefrontOpen} />}
                     {activeTab === 'companyInfo' && <CompanyInfo />}
+
+                    <div className="md:hidden pt-2 pb-2 text-center">
+                        <p className="text-[10px] tracking-wide text-gray-400">Build {BUILD_VERSION}</p>
+                    </div>
                 </div>
 
-                {/* Mobile Footer Credit (Visible only on mobile at bottom of content) */}
-                {/* <div className="md:hidden text-center py-6 pb-24 text-gray-400">
-                    <p className="text-[10px] flex items-center justify-center gap-1">
-                        Powered by 
-                        <a href="https://creativecodz.com" target="_blank" rel="noopener noreferrer" className="text-accent-deep hover:underline font-bold">
-                            Creativecodz
-                        </a>
-                    </p>
-                </div> */}
             </main>
 
             {/* --- MOBILE BOTTOM NAV --- */}
