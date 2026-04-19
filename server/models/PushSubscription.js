@@ -4,6 +4,25 @@ const normalizeScope = (value = []) => {
     const source = Array.isArray(value) ? value : [];
     return [...new Set(source.map((entry) => String(entry || '').trim()).filter(Boolean))];
 };
+let activeUserColumnPromise = null;
+
+const detectActiveUserColumn = async () => {
+    if (!activeUserColumnPromise) {
+        activeUserColumnPromise = (async () => {
+            const [snakeRows] = await db.execute(`SHOW COLUMNS FROM users LIKE 'is_active'`);
+            if (Array.isArray(snakeRows) && snakeRows.length > 0) return 'is_active';
+
+            const [camelRows] = await db.execute(`SHOW COLUMNS FROM users LIKE 'isActive'`);
+            if (Array.isArray(camelRows) && camelRows.length > 0) return 'isActive';
+
+            return null;
+        })().catch((error) => {
+            activeUserColumnPromise = null;
+            throw error;
+        });
+    }
+    return activeUserColumnPromise;
+};
 
 class PushSubscription {
     static async upsert({
@@ -83,12 +102,14 @@ class PushSubscription {
         const normalized = [...new Set((userIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
         if (!normalized.length) return [];
         const placeholders = normalized.map(() => '?').join(',');
+        const activeUserColumn = await detectActiveUserColumn();
+        const activeFilter = activeUserColumn ? ` AND COALESCE(u.${activeUserColumn}, 1) <> 0` : '';
         const [rows] = await db.execute(
-            `SELECT ps.*, u.role, u.isActive
+            `SELECT ps.*, u.role${activeUserColumn ? `, u.${activeUserColumn} AS user_active` : ''}
              FROM push_subscriptions ps
              INNER JOIN users u ON u.id = ps.user_id
              WHERE ps.notifications_enabled = 1
-               AND u.isActive <> 0
+              ${activeFilter}
                AND ps.user_id IN (${placeholders})`,
             normalized
         );
@@ -96,12 +117,14 @@ class PushSubscription {
     }
 
     static async listAdminTokens() {
+        const activeUserColumn = await detectActiveUserColumn();
+        const activeFilter = activeUserColumn ? ` AND COALESCE(u.${activeUserColumn}, 1) <> 0` : '';
         const [rows] = await db.execute(
-            `SELECT ps.*, u.role, u.isActive
+            `SELECT ps.*, u.role${activeUserColumn ? `, u.${activeUserColumn} AS user_active` : ''}
              FROM push_subscriptions ps
              INNER JOIN users u ON u.id = ps.user_id
              WHERE ps.notifications_enabled = 1
-               AND u.isActive <> 0
+              ${activeFilter}
                AND LOWER(COALESCE(u.role, '')) IN ('admin', 'staff')`
         );
         return rows || [];

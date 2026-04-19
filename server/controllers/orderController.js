@@ -225,8 +225,8 @@ const notifyAdminsOfNewOrder = (order = null, { source = 'order' } = {}) => {
     const customerName = String(order?.customer_name || order?.customerName || 'Customer').trim() || 'Customer';
     const totalLabel = `₹${Number(order?.total || 0).toLocaleString('en-IN')}`;
     void sendToAdmins({
-        title: 'New order received',
-        body: `${orderRef} · ${customerName} · ${totalLabel}`,
+        title: '🛍️ New order received',
+        body: `🧾 ${orderRef} · ${customerName} · ${totalLabel}`,
         link: `/admin/dashboard?tab=orders&focusOrderId=${encodeURIComponent(String(order?.id || ''))}`,
         tag: `admin-order-${String(order?.id || '')}`,
         data: {

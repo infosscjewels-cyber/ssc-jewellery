@@ -2165,12 +2165,12 @@ export default function Checkout() {
                                                 ? `Only ${Number(item.availableQuantity || 0)} left. Complete payment soon.`
                                                 : '';
                                             return (
-                                                <div key={item.key} className={`flex gap-4 items-center ${item.isOutOfStock ? 'grayscale opacity-80' : ''}`}>
-                                                    <div className="w-16 h-16 rounded-xl bg-gray-100 border border-gray-200 overflow-hidden">
+                                                <div key={item.key} className={`flex items-start gap-3 sm:items-center sm:gap-4 ${item.isOutOfStock ? 'grayscale opacity-80' : ''}`}>
+                                                    <div className="h-14 w-14 shrink-0 rounded-xl bg-gray-100 border border-gray-200 overflow-hidden sm:h-16 sm:w-16">
                                                         {item.imageUrl && <img src={item.imageUrl} alt={item.title} className="w-full h-full object-cover" />}
                                                     </div>
                                                     <div className="flex-1 min-w-0">
-                                                        <p className="text-sm font-semibold text-gray-800 line-clamp-1">{item.title}</p>
+                                                        <p className="text-sm font-semibold leading-tight text-gray-800 line-clamp-2 sm:line-clamp-1">{item.title}</p>
                                                         {item.variantTitle && <p className="text-xs text-gray-500 line-clamp-1">{item.variantTitle}</p>}
                                                         {subCategoriesEnabled && item.subCategory && (
                                                             <p className="text-[11px] text-gray-400 line-clamp-1">Sub Category: {item.subCategory}</p>
@@ -2189,8 +2189,8 @@ export default function Checkout() {
                                                             ₹{displayUnitPrice.toLocaleString()} x {item.quantity}
                                                         </p>
                                                     </div>
-                                                    <div className="text-right">
-                                                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                                    <div className="w-24 shrink-0 text-right sm:w-auto">
+                                                        <div className="flex flex-col items-end gap-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-1.5">
                                                             <p className="text-sm font-semibold text-gray-800">₹{displayUnitPrice.toLocaleString()}</p>
                                                             {hasDiscount && (
                                                                 <>
@@ -2215,18 +2215,18 @@ export default function Checkout() {
                                     </div>
                                 )}
 
-                                <div className="border-t border-gray-100 mt-6 pt-4 space-y-2 text-sm">
+                                <div className="border-t border-gray-100 mt-6 pt-4 space-y-1.5 text-[13px] sm:space-y-2 sm:text-sm">
                                     {isSummaryLoading && !isPreparingVerifiedCheckout && (
                                         <div className="text-[11px] text-gray-500 flex items-center gap-1">
                                             <TrendingUp size={12} /> Refreshing member pricing...
                                         </div>
                                     )}
-                                    <div className="flex items-center justify-between text-gray-500">
-                                        <span>Subtotal</span>
+                                    <div className="flex items-start justify-between gap-3 text-gray-500">
+                                        <span className="pr-3 leading-tight">Subtotal</span>
                                         <span className="font-semibold text-gray-800">₹{summarySubtotalDisplay.toLocaleString()}</span>
                                     </div>
-                                    <div className="flex items-center justify-between text-gray-500">
-                                        <span>{shouldUseTentativeShippingPreview ? 'Tentative shipping' : 'Shipping'}</span>
+                                    <div className="flex items-start justify-between gap-3 text-gray-500">
+                                        <span className="pr-3 leading-tight">{shouldUseTentativeShippingPreview ? 'Tentative shipping' : 'Shipping'}</span>
                                         {isShippingUnavailable ? (
                                             <span className="font-semibold text-amber-700">Unavailable for this state</span>
                                         ) : Number(summaryShippingDisplay || 0) <= 0 ? (
@@ -2250,58 +2250,58 @@ export default function Checkout() {
                                             {shippingHelperMessage}
                                         </p>
                                     )}
-                                    <div className="flex items-start justify-between text-gray-500">
-                                        <span>{taxPriceMode === 'inclusive' ? 'Price Before Discounts (Incl. GST)' : 'Base Price (Before Discounts)'}</span>
-                                        <span className="font-semibold text-gray-800">₹{basePriceBeforeDiscounts.toLocaleString()}</span>
+                                    <div className="flex items-start justify-between gap-3 text-gray-500">
+                                        <span className="pr-3 leading-tight">{taxPriceMode === 'inclusive' ? 'Price Before Discounts (Incl. GST)' : 'Base Price (Before Discounts)'}</span>
+                                        <span className="shrink-0 font-semibold text-gray-800">₹{basePriceBeforeDiscounts.toLocaleString()}</span>
                                     </div>
                                     {resolvedProductDiscount > 0 && (
-                                        <div className="flex items-center justify-between text-emerald-700">
-                                            <span>Product Discount (MRP)</span>
-                                            <span className="font-semibold">- ₹{Number(resolvedProductDiscount || 0).toLocaleString()}</span>
+                                        <div className="flex items-start justify-between gap-3 text-emerald-700">
+                                            <span className="pr-3 leading-tight">Product Discount (MRP)</span>
+                                            <span className="shrink-0 font-semibold">- ₹{Number(resolvedProductDiscount || 0).toLocaleString()}</span>
                                         </div>
                                     )}
                                     {couponDiscount > 0 && (
-                                        <div className="flex items-center justify-between text-emerald-700">
-                                            <span>Coupon ({appliedCoupon?.code || 'Applied'})</span>
-                                            <span className="font-semibold">- ₹{Number(couponDiscount || 0).toLocaleString()}</span>
+                                        <div className="flex items-start justify-between gap-3 text-emerald-700">
+                                            <span className="pr-3 leading-tight">Coupon ({appliedCoupon?.code || 'Applied'})</span>
+                                            <span className="shrink-0 font-semibold">- ₹{Number(couponDiscount || 0).toLocaleString()}</span>
                                         </div>
                                     )}
                                     {loyaltyDiscount > 0 && (
-                                        <div className="flex items-center justify-between text-blue-700">
-                                            <span>{isEstimatedLoyaltyDiscount ? 'Estimated Member Discount' : 'Member Discount'} ({formatTierLabel(loyaltyStatus?.profile?.label || tier)})</span>
-                                            <span className="font-semibold">- ₹{Number(loyaltyDiscount || 0).toLocaleString()}</span>
+                                        <div className="flex items-start justify-between gap-3 text-blue-700">
+                                            <span className="pr-3 leading-tight">{isEstimatedLoyaltyDiscount ? 'Estimated Member Discount' : 'Member Discount'} ({formatTierLabel(loyaltyStatus?.profile?.label || tier)})</span>
+                                            <span className="shrink-0 font-semibold">- ₹{Number(loyaltyDiscount || 0).toLocaleString()}</span>
                                         </div>
                                     )}
                                     {loyaltyShippingDiscount > 0 && (
-                                        <div className="flex items-center justify-between text-blue-700">
-                                            <span>{isEstimatedLoyaltyShippingDiscount ? 'Estimated Member Shipping Benefit' : 'Member Shipping Benefit'}</span>
-                                            <span className="font-semibold">- ₹{Number(loyaltyShippingDiscount || 0).toLocaleString()}</span>
+                                        <div className="flex items-start justify-between gap-3 text-blue-700">
+                                            <span className="pr-3 leading-tight">{isEstimatedLoyaltyShippingDiscount ? 'Estimated Member Shipping Benefit' : 'Member Shipping Benefit'}</span>
+                                            <span className="shrink-0 font-semibold">- ₹{Number(loyaltyShippingDiscount || 0).toLocaleString()}</span>
                                         </div>
                                     )}
                                     {freeShippingSavings > 0 && (
-                                        <div className="flex items-center justify-between text-emerald-700">
-                                            <span>Shipping Waived</span>
-                                            <span className="font-semibold">- ₹{Number(freeShippingSavings || 0).toLocaleString()}</span>
+                                        <div className="flex items-start justify-between gap-3 text-emerald-700">
+                                            <span className="pr-3 leading-tight">Shipping Waived</span>
+                                            <span className="shrink-0 font-semibold">- ₹{Number(freeShippingSavings || 0).toLocaleString()}</span>
                                         </div>
                                     )}
                                     {totalSavings > 0 && (
-                                        <div className="flex items-center justify-between text-emerald-700">
-                                            <span>Total Savings</span>
-                                            <span className="font-semibold">₹{Number(totalSavings || 0).toLocaleString()}</span>
+                                        <div className="flex items-start justify-between gap-3 text-emerald-700">
+                                            <span className="pr-3 leading-tight">Total Savings</span>
+                                            <span className="shrink-0 font-semibold">₹{Number(totalSavings || 0).toLocaleString()}</span>
                                         </div>
                                     )}
                                     {totalSavings > 0 && (
-                                        <p className="text-[11px] text-emerald-700/80 pt-1">
+                                        <p className="hidden pt-1 text-[11px] text-emerald-700/80 sm:block">
                                             Savings = Product Discount + Coupon + Member Discount + Shipping Benefit + Shipping Waived.
                                         </p>
                                     )}
-                                    <div className="flex items-start justify-between text-gray-500">
-                                        <span>{taxPriceMode === 'inclusive' ? 'Price After Discounts (Incl. GST)' : 'Taxable Value After Discounts'}</span>
-                                        <span className="font-semibold text-gray-800">₹{summaryValueAfterDiscounts.toLocaleString()}</span>
+                                    <div className="flex items-start justify-between gap-3 text-gray-500">
+                                        <span className="pr-3 leading-tight">{taxPriceMode === 'inclusive' ? 'Price After Discounts (Incl. GST)' : 'Taxable Value After Discounts'}</span>
+                                        <span className="shrink-0 font-semibold text-gray-800">₹{summaryValueAfterDiscounts.toLocaleString()}</span>
                                     </div>
                                     {roundOffAmount !== 0 && (
-                                        <div className="flex items-center justify-between text-gray-500">
-                                            <span>Round Off</span>
+                                        <div className="flex items-start justify-between gap-3 text-gray-500">
+                                            <span className="pr-3 leading-tight">Round Off</span>
                                             <span className="font-semibold text-gray-800">₹{roundOffAmount.toLocaleString()}</span>
                                         </div>
                                     )}

@@ -4058,8 +4058,6 @@ export function Orders({
                                                             : Number(item.line_total ?? snapshot?.lineTotal ?? (unitPrice * quantity))));
                                                         const displayDiscount = Number(invoiceItem?.totalDiscount ?? 0);
                                                         const itemTax = Number(invoiceItem?.displayTaxAmount ?? item.tax_amount ?? snapshot?.taxAmount ?? 0);
-                                                        const itemTaxRate = Number(item.tax_rate_percent ?? snapshot?.taxRatePercent ?? 0);
-                                                        const itemTaxCode = item.tax_code || snapshot?.taxCode || item.tax_name || snapshot?.taxName || '';
                                                         const parsedWarrantyMonths = Number(snapshot?.polishWarrantyMonths ?? 0);
                                                         const itemWarrantyMonths = [6, 7, 8, 9, 12].includes(parsedWarrantyMonths) ? parsedWarrantyMonths : null;
                                                         const itemTitle = getOrderItemTitle(item);
@@ -4067,7 +4065,7 @@ export function Orders({
                                                         const itemCategoryLabel = getOrderItemCategoryLabel(item);
                                                         const itemImageUrl = getOrderItemImageUrl(item);
                                                         return (
-                                                            <div key={item.id} className="flex items-center gap-4 p-4">
+                                                            <div key={item.id} className="flex items-start gap-3 p-3 sm:items-center sm:gap-4 sm:p-4">
                                                                 {itemImageUrl ? (
                                                                     <button
                                                                         type="button"
@@ -4095,15 +4093,10 @@ export function Orders({
                                                                         <p className="text-[11px] text-emerald-700 mt-1">Discount: ₹{displayDiscount.toLocaleString()}</p>
                                                                     )}
                                                                 </div>
-                                                                <div className="text-right text-sm font-semibold text-gray-800">
+                                                                <div className="w-24 shrink-0 text-right text-sm font-semibold text-gray-800 sm:w-auto">
                                                                     ₹{lineTotal.toLocaleString()}
                                                                     {itemTax > 0 && (
-                                                                        <p className="text-[11px] text-gray-500 font-medium">
-                                                                            {(() => {
-                                                                                const gst = getGstDisplayDetails({ taxAmount: itemTax, taxRatePercent: itemTaxRate, taxLabel: itemTaxCode, ...selectedOrderGstContext });
-                                                                                return `${gst.title}: ${gst.totalAmountLabel} (${gst.componentAmountLabel})`;
-                                                                            })()}
-                                                                        </p>
+                                                                        <p className="text-[11px] text-gray-500 font-medium leading-tight">GST: ₹{itemTax.toLocaleString()}</p>
                                                                     )}
                                                                 </div>
                                                             </div>
@@ -4169,12 +4162,7 @@ export function Orders({
                                                 )}
                                                 {selectedOrderTotals.gstTotal > 0 && (
                                                     <div className="flex items-start justify-between text-xs text-gray-400">
-                                                        <span>
-                                                            {selectedOrderTotals.taxRegime === 'inclusive' ? 'GST Breakdown' : 'GST'}
-                                                            <span className="block text-[11px] text-gray-400">
-                                                                {getGstDisplayDetails({ taxAmount: Number(selectedOrderTotals.gstTotal || 0), ...selectedOrderGstContext }).componentAmountLabel}
-                                                            </span>
-                                                        </span>
+                                                        <span>GST</span>
                                                         <span>₹{Number(selectedOrderTotals.gstTotal || 0).toLocaleString()}</span>
                                                     </div>
                                                 )}
@@ -4841,12 +4829,7 @@ export function Orders({
                                             )}
                                             {manualTotals.gstTotal > 0 && (
                                                 <div className="flex items-start justify-between text-xs text-gray-400">
-                                                    <span>
-                                                        {manualTotals.taxRegime === 'inclusive' ? 'GST Breakdown' : 'GST'}
-                                                        <span className="block text-[10px] text-gray-400">
-                                                            {getGstDisplayDetails({ taxAmount: Number(manualTotals.gstTotal || 0), ...manualGstContext }).componentAmountLabel}
-                                                        </span>
-                                                    </span>
+                                                    <span>GST</span>
                                                     <span>{formatInrOrDash(manualTotals.gstTotal)}</span>
                                                 </div>
                                             )}

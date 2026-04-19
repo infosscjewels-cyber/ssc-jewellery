@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { sendToAdmins } = require('../services/pushNotificationService');
 
 const PAYMENT_STATUS = Object.freeze({
     CREATED: 'created',
@@ -90,6 +91,77 @@ const sanitizeFailureReason = (message = '') => {
         return 'Payment session expired.';
     }
     return raw.slice(0, 500);
+};
+const formatInrAmount = (subunits = 0) => {
+    const value = Number(subunits || 0) / 100;
+    try {
+        return new Intl.NumberFormat('en-IN', {
+            style: 'currency',
+            currency: 'INR',
+            maximumFractionDigits: 2
+        }).format(value);
+    } catch {
+        return `₹${value.toFixed(2)}`;
+    }
+};
+const resolveAttemptCustomerName = (attempt = {}) => {
+    const billingAddress = attempt?.billing_address && typeof attempt.billing_address === 'object'
+        ? attempt.billing_address
+        : null;
+    const candidateNames = [
+        billingAddress?.fullName,
+        billingAddress?.name,
+        attempt?.customer_name,
+        attempt?.user_name
+    ];
+    for (const candidate of candidateNames) {
+        const normalized = String(candidate || '').trim();
+        if (normalized) return normalized;
+    }
+    return 'Customer';
+};
+const buildPaymentFailureNotificationBody = (attempt = {}) => {
+    const customerName = resolveAttemptCustomerName(attempt);
+    const amount = formatInrAmount(attempt?.amount_subunits || 0);
+    const reason = String(attempt?.failure_reason || attempt?.last_gateway_error || '').trim();
+    const reasonText = reason ? ` · ${reason.slice(0, 80)}` : '';
+    return `❌ ${customerName} · ${amount}${reasonText}`;
+};
+const notifyAdminsOfFailedPaymentAttempt = async (attemptId) => {
+    const resolvedAttemptId = Number(attemptId || 0);
+    if (!Number.isFinite(resolvedAttemptId) || resolvedAttemptId <= 0) return;
+
+    try {
+        const [rows] = await db.execute(
+            `SELECT
+                pa.id,
+                pa.amount_subunits,
+                pa.failure_reason,
+                pa.last_gateway_error,
+                pa.billing_address,
+                u.name AS user_name
+             FROM payment_attempts pa
+             LEFT JOIN users u ON u.id = pa.user_id
+             WHERE pa.id = ?
+             LIMIT 1`,
+            [resolvedAttemptId]
+        );
+        const attempt = hydrateAttemptRow(rows?.[0] || null);
+        if (!attempt?.id) return;
+
+        await sendToAdmins({
+            title: '💳 Order payment failed',
+            body: buildPaymentFailureNotificationBody(attempt),
+            link: '/admin/dashboard?tab=orders&status=failed',
+            tag: `admin-payment-failed-${String(attempt.id)}`,
+            data: {
+                type: 'order_payment_failed',
+                attemptId: attempt.id
+            }
+        });
+    } catch (error) {
+        console.warn('Payment failure admin notification failed:', error?.message || error);
+    }
 };
 
 class PaymentAttempt {
@@ -306,6 +378,8 @@ class PaymentAttempt {
     }
 
     static async markFailed({ id, paymentId = null, signature = null, errorMessage = null }) {
+        const existingAttempt = await PaymentAttempt.getById(id);
+        const wasAlreadyFailed = String(existingAttempt?.status || '').trim().toLowerCase() === PAYMENT_STATUS.FAILED;
         const resolvedPaymentId = String(paymentId || '').trim();
         if (resolvedPaymentId) {
             const claim = await PaymentAttempt.claimPaymentForAttempt({
@@ -337,6 +411,9 @@ class PaymentAttempt {
                 id
             ]
         );
+        if (!wasAlreadyFailed) {
+            void notifyAdminsOfFailedPaymentAttempt(id);
+        }
         return { failed: true };
     }
 
@@ -454,6 +531,7 @@ class PaymentAttempt {
         if (!resolvedOrderId) return;
         const targetAttempt = await PaymentAttempt.getByRazorpayOrderIdAny(resolvedOrderId);
         if (!targetAttempt?.id) return;
+        const wasAlreadyFailed = String(targetAttempt?.status || '').trim().toLowerCase() === PAYMENT_STATUS.FAILED;
         const resolvedPaymentId = String(paymentId || '').trim();
         if (resolvedPaymentId) {
             const claim = await PaymentAttempt.claimPaymentForAttempt({
@@ -482,6 +560,9 @@ class PaymentAttempt {
                 targetAttempt.id
             ]
         );
+        if (!wasAlreadyFailed) {
+            void notifyAdminsOfFailedPaymentAttempt(targetAttempt.id);
+        }
         return { failed: true };
     }
 

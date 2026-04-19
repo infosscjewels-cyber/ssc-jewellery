@@ -1285,31 +1285,19 @@ export default function AbandonedCarts({
                             <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="pl-9 pr-3 py-2 rounded-lg border border-gray-200 bg-white text-sm w-full md:w-64" placeholder="Search customer / id" />
                         </div>
                     </div>
-                    <div className="flex items-center justify-center gap-2 md:hidden">
+                    <div className="flex items-center gap-2 md:hidden">
                         <button
                             type="button"
                             onClick={() => setIsMobileSortModalOpen(true)}
-                            className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm transition ${
-                                sortBy !== 'newest' ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-gray-200 bg-white text-gray-600'
+                            className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition ${
+                                sortBy !== 'newest' ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-gray-200 bg-white text-gray-500'
                             }`}
                             title="Sort Journeys"
                             aria-label="Sort Journeys"
                         >
-                            <ArrowUpDown size={18} />
+                            <ArrowUpDown size={16} />
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => setIsMobileRangeModalOpen(true)}
-                            className={`inline-flex shrink-0 items-center rounded-full border px-3 py-2 text-xs font-semibold leading-none tracking-normal whitespace-nowrap shadow-sm transition ${
-                                rangeDays !== DEFAULT_ADMIN_ABANDONED_RANGE ? 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700' : 'border-gray-200 bg-white text-gray-600'
-                            }`}
-                            title="Duration"
-                            aria-label="Duration"
-                        >
-                            <CalendarDays size={14} className="mr-1.5" />
-                            {insightRangeOptions.find((option) => String(option.value) === String(rangeDays))?.label || 'Duration'}
-                        </button>
-                        <div className="relative min-w-0 w-full max-w-[220px]">
+                        <div className="relative min-w-0 flex-1">
                             <Search className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 ${searchInput ? 'text-primary' : 'text-gray-400'}`} />
                             <input
                                 value={searchInput}
@@ -1321,6 +1309,17 @@ export default function AbandonedCarts({
                                 aria-label="Search journeys"
                             />
                         </div>
+                        <button
+                            type="button"
+                            onClick={() => setIsMobileRangeModalOpen(true)}
+                            className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition ${
+                                rangeDays !== DEFAULT_ADMIN_ABANDONED_RANGE ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-gray-200 bg-white text-gray-500'
+                            }`}
+                            title="Duration"
+                            aria-label="Duration"
+                        >
+                            <CalendarDays size={16} />
+                        </button>
                     </div>
                     <div className="md:hidden w-full max-w-full overflow-hidden">
                         <div

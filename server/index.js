@@ -91,6 +91,7 @@ const {
     processQueuedCommunicationRetries,
     pruneCommunicationDeliveryLogs
 } = require('./services/communications/communicationRetryService');
+const { sendToAdmins } = require('./services/pushNotificationService');
 const {
     runPaymentAttemptReconciliationPass,
     runSettlementSyncPass
@@ -710,6 +711,34 @@ const scheduleCommunicationRetryMaintenance = () => {
     run();
 };
 
+const schedulePendingOrderReminderJob = () => {
+    const intervalHours = Math.max(1, Number(process.env.PENDING_ORDER_REMINDER_INTERVAL_HOURS || 6));
+    const intervalMs = intervalHours * 60 * 60 * 1000;
+    const run = async () => {
+        try {
+            const metrics = await Order.getMetrics({ status: 'pending' });
+            const pendingCount = Math.max(0, Number(metrics?.pendingOrders || 0));
+            if (pendingCount <= 0) return;
+
+            await sendToAdmins({
+                title: '⏰ Pending orders reminder',
+                body: `📦 ${pendingCount} order${pendingCount === 1 ? '' : 's'} still need attention`,
+                link: '/admin/dashboard?tab=orders&status=pending',
+                tag: 'admin-pending-orders-reminder',
+                data: {
+                    type: 'pending_orders_reminder',
+                    pendingCount,
+                    intervalHours
+                }
+            });
+        } catch (error) {
+            console.error('Pending order reminder scheduler failed:', error?.message || error);
+        }
+    };
+
+    setInterval(run, intervalMs);
+};
+
 const scheduleCategoryAutopilotRefresh = () => {
     const run = async ({ force = false } = {}) => {
         try {
@@ -730,11 +759,44 @@ const scheduleCategoryAutopilotRefresh = () => {
 };
 
 let backgroundJobsStarted = false;
+const formatInrAmount = (subunits = 0) => {
+    const value = Number(subunits || 0) / 100;
+    try {
+        return new Intl.NumberFormat('en-IN', {
+            style: 'currency',
+            currency: 'INR',
+            maximumFractionDigits: 2
+        }).format(value);
+    } catch {
+        return `₹${value.toFixed(2)}`;
+    }
+};
+
+const notifyAdminsOfAbandonedJourney = (payload = {}) => {
+    if (String(payload?.event || '').trim().toLowerCase() !== 'created') return;
+    const journeyId = payload?.journeyId || payload?.journey?.id || null;
+    if (!journeyId) return;
+    const customerName = String(payload?.journey?.customer_name || 'Customer').trim() || 'Customer';
+    const cartValue = formatInrAmount(payload?.journey?.cart_total_subunits || 0);
+    void sendToAdmins({
+        title: '🛒 Abandoned cart identified',
+        body: `⏳ #${journeyId} · ${customerName} · ${cartValue}`,
+        link: '/admin/dashboard?tab=abandoned',
+        tag: `admin-abandoned-journey-${String(journeyId)}`,
+        data: {
+            type: 'abandoned_cart_created',
+            journeyId,
+            userId: payload?.userId || payload?.journey?.user_id || ''
+        }
+    });
+};
+
 const broadcastJourneyUpdate = (payload = {}) => {
     io.to('admin').emit('abandoned_cart:journey:update', {
         ...payload,
         ts: new Date().toISOString()
     });
+    notifyAdminsOfAbandonedJourney(payload);
 };
 
 const initBackgroundJobs = () => {
@@ -759,6 +821,7 @@ const initBackgroundJobs = () => {
     scheduleDashboardAggregatesRefresh();
     scheduleCommunicationRetryProcessing();
     scheduleCommunicationRetryMaintenance();
+    schedulePendingOrderReminderJob();
     scheduleCategoryAutopilotRefresh();
     if (isProduction) {
         startSeoRefreshScheduler();

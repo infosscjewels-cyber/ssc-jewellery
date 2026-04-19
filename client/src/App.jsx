@@ -73,6 +73,7 @@ const RouteFallback = () => (
 const BUILD_SYNC_RELOAD_KEY = 'app_build_reload_target_v1';
 const BUILD_SYNC_LAST_SEEN_KEY = 'app_build_last_seen_v1';
 const BUILD_SYNC_RELOAD_META_KEY = 'app_build_reload_meta_v1';
+const BUILD_SYNC_NOTICE_KEY = 'app_build_notice_target_v1';
 const BUILD_SYNC_MAX_RELOADS_PER_BUILD = 1;
 const BUILD_SYNC_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
 
@@ -210,6 +211,54 @@ function App() {
     const isAdminRoute = () => String(window.location?.pathname || '').startsWith('/admin');
     const shouldShowBuildRefreshBanner = () => isAdminRoute() || isStandalonePwa();
 
+    const notifyAboutAvailableBuild = async ({ serverBuildVersion = '', buildLabel = '' } = {}) => {
+      const targetBuildVersion = String(serverBuildVersion || '').trim();
+      if (!targetBuildVersion) return;
+      if (typeof Notification === 'undefined') return;
+      if (Notification.permission !== 'granted') return;
+
+      try {
+        if (window.sessionStorage.getItem(BUILD_SYNC_NOTICE_KEY) === targetBuildVersion) {
+          return;
+        }
+        window.sessionStorage.setItem(BUILD_SYNC_NOTICE_KEY, targetBuildVersion);
+      } catch {
+        // Ignore storage failures and attempt a best-effort notification once.
+      }
+
+      const title = 'New version available';
+      const body = `Latest build: ${String(buildLabel || targetBuildVersion).trim() || targetBuildVersion}. Refresh to update the app.`;
+      const options = {
+        body,
+        icon: '/logo.webp',
+        badge: '/logo.webp',
+        tag: `build-refresh-${targetBuildVersion}`,
+        data: {
+          link: window.location.pathname + window.location.search + window.location.hash
+        }
+      };
+
+      try {
+        const registration = await navigator.serviceWorker.getRegistration().catch(() => null);
+        if (registration?.showNotification) {
+          await registration.showNotification(title, options);
+          return;
+        }
+      } catch {
+        // Fall back to the Notification constructor below.
+      }
+
+      try {
+        const notification = new Notification(title, options);
+        notification.onclick = () => {
+          window.focus();
+          void handleRefreshToLatestBuild();
+        };
+      } catch {
+        // Ignore foreground notification failures; the in-app banner still covers this.
+      }
+    };
+
     const readReloadMeta = () => {
       try {
         const raw = window.sessionStorage.getItem(BUILD_SYNC_RELOAD_META_KEY);
@@ -296,10 +345,12 @@ function App() {
         const withinCooldown = lastAttemptAt > 0 && (now - lastAttemptAt) < BUILD_SYNC_RETRY_COOLDOWN_MS;
         if (attempts >= BUILD_SYNC_MAX_RELOADS_PER_BUILD || withinCooldown) {
           if (shouldShowBuildRefreshBanner()) {
-            setBuildRefreshNotice({
+            const notice = {
               serverBuildVersion,
               buildLabel: String(payload?.buildLabel || '').trim() || serverBuildVersion
-            });
+            };
+            setBuildRefreshNotice(notice);
+            void notifyAboutAvailableBuild(notice);
           }
           return;
         }
