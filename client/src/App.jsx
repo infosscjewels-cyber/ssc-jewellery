@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet, Link, useLocation, useParams } from 'react-router-dom';
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { ToastProvider } from './context/ToastContext';
 import { AuthProvider } from './context/AuthContext';
 import { ProductProvider } from './context/ProductContext';
@@ -27,6 +27,7 @@ import ComingSoon from './pages/ComingSoon';
 import { canAccessAdminDashboard, shouldRedirectAdminToDashboard } from './utils/authRoutePolicy';
 import { BRAND_APPLE_TOUCH_ICON_URL, BRAND_FAVICON_URL, buildBrandAssetUrl } from './utils/branding.js';
 import { clearGuestPreviewMode, isGuestPreviewMode } from './utils/authSession';
+import { BUILD_VERSION } from './generated/buildInfo.js';
 import { ArrowLeft, Eye } from 'lucide-react';
 
 const Shop = lazy(() => import('./pages/Shop'));
@@ -68,6 +69,12 @@ const RouteFallback = () => (
     </div>
   </div>
 );
+
+const BUILD_SYNC_RELOAD_KEY = 'app_build_reload_target_v1';
+const BUILD_SYNC_LAST_SEEN_KEY = 'app_build_last_seen_v1';
+const BUILD_SYNC_RELOAD_META_KEY = 'app_build_reload_meta_v1';
+const BUILD_SYNC_MAX_RELOADS_PER_BUILD = 1;
+const BUILD_SYNC_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
 
 // Admin Protection
 const AdminRoute = ({ children }) => {
@@ -189,6 +196,166 @@ const PublicLayout = () => {
 };
 
 function App() {
+  const buildCheckInFlightRef = useRef(false);
+  const [buildRefreshNotice, setBuildRefreshNotice] = useState(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const isStandalonePwa = () => {
+      if (window.matchMedia?.('(display-mode: standalone)').matches) return true;
+      return Boolean(window.navigator?.standalone);
+    };
+
+    const isAdminRoute = () => String(window.location?.pathname || '').startsWith('/admin');
+    const shouldShowBuildRefreshBanner = () => isAdminRoute() || isStandalonePwa();
+
+    const readReloadMeta = () => {
+      try {
+        const raw = window.sessionStorage.getItem(BUILD_SYNC_RELOAD_META_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (!parsed || typeof parsed !== 'object') return null;
+        return {
+          targetBuildVersion: String(parsed.targetBuildVersion || '').trim(),
+          attempts: Math.max(0, Number(parsed.attempts || 0)),
+          lastAttemptAt: Math.max(0, Number(parsed.lastAttemptAt || 0))
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    const writeReloadMeta = (value = null) => {
+      try {
+        if (!value) {
+          window.sessionStorage.removeItem(BUILD_SYNC_RELOAD_META_KEY);
+          return;
+        }
+        window.sessionStorage.setItem(BUILD_SYNC_RELOAD_META_KEY, JSON.stringify(value));
+      } catch {
+        // Ignore storage write failures; safety falls back to single-flight checks.
+      }
+    };
+
+    try {
+      if (window.sessionStorage.getItem(BUILD_SYNC_RELOAD_KEY) === BUILD_VERSION) {
+        window.sessionStorage.removeItem(BUILD_SYNC_RELOAD_KEY);
+      }
+      const reloadMeta = readReloadMeta();
+      if (reloadMeta?.targetBuildVersion === BUILD_VERSION) {
+        writeReloadMeta(null);
+      }
+      window.localStorage.setItem(BUILD_SYNC_LAST_SEEN_KEY, BUILD_VERSION);
+    } catch {
+      // Ignore storage access issues and continue without version persistence.
+    }
+
+    const clearClientCachesForBuildRefresh = async () => {
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations().catch(() => []);
+        await Promise.all(registrations.map((registration) => registration.unregister().catch(() => false)));
+      }
+      if ('caches' in window) {
+        const keys = await window.caches.keys().catch(() => []);
+        await Promise.all(keys.map((key) => window.caches.delete(key).catch(() => false)));
+      }
+    };
+
+    const checkForBuildMismatch = async () => {
+      if (buildCheckInFlightRef.current) return;
+      buildCheckInFlightRef.current = true;
+      try {
+        const res = await fetch(`/api/app/version?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache'
+          }
+        });
+        if (!res.ok) return;
+        const payload = await res.json().catch(() => ({}));
+        const serverBuildVersion = String(payload?.buildVersion || '').trim();
+        if (!serverBuildVersion || serverBuildVersion === BUILD_VERSION) {
+          setBuildRefreshNotice(null);
+          try {
+            window.localStorage.setItem(BUILD_SYNC_LAST_SEEN_KEY, BUILD_VERSION);
+          } catch {}
+          return;
+        }
+
+        let alreadyReloadedForTarget = false;
+        try {
+          alreadyReloadedForTarget = window.sessionStorage.getItem(BUILD_SYNC_RELOAD_KEY) === serverBuildVersion;
+        } catch {}
+        if (alreadyReloadedForTarget) return;
+
+        const now = Date.now();
+        const reloadMeta = readReloadMeta();
+        const isSameTarget = reloadMeta?.targetBuildVersion === serverBuildVersion;
+        const attempts = isSameTarget ? Math.max(0, Number(reloadMeta?.attempts || 0)) : 0;
+        const lastAttemptAt = isSameTarget ? Math.max(0, Number(reloadMeta?.lastAttemptAt || 0)) : 0;
+        const withinCooldown = lastAttemptAt > 0 && (now - lastAttemptAt) < BUILD_SYNC_RETRY_COOLDOWN_MS;
+        if (attempts >= BUILD_SYNC_MAX_RELOADS_PER_BUILD || withinCooldown) {
+          if (shouldShowBuildRefreshBanner()) {
+            setBuildRefreshNotice({
+              serverBuildVersion,
+              buildLabel: String(payload?.buildLabel || '').trim() || serverBuildVersion
+            });
+          }
+          return;
+        }
+
+        try {
+          window.sessionStorage.setItem(BUILD_SYNC_RELOAD_KEY, serverBuildVersion);
+        } catch {}
+        writeReloadMeta({
+          targetBuildVersion: serverBuildVersion,
+          attempts: attempts + 1,
+          lastAttemptAt: now
+        });
+        await clearClientCachesForBuildRefresh();
+        window.location.reload();
+      } catch {
+        // Best-effort only; leave the current app running if version check fails.
+      } finally {
+        buildCheckInFlightRef.current = false;
+      }
+    };
+
+    void checkForBuildMismatch();
+
+    const handleFocus = () => {
+      void checkForBuildMismatch();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void checkForBuildMismatch();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  const handleRefreshToLatestBuild = async () => {
+    if (typeof window === 'undefined') return;
+    try {
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations().catch(() => []);
+        await Promise.all(registrations.map((registration) => registration.unregister().catch(() => false)));
+      }
+      if ('caches' in window) {
+        const keys = await window.caches.keys().catch(() => []);
+        await Promise.all(keys.map((key) => window.caches.delete(key).catch(() => false)));
+      }
+    } finally {
+      window.location.reload();
+    }
+  };
+
   return (
     <BrowserRouter>
       <ScrollToTop />
@@ -201,6 +368,27 @@ function App() {
                   <ShippingProvider>
                     <WishlistProvider>
                     <CartProvider>
+                  {buildRefreshNotice && (
+                    <div className="fixed inset-x-0 top-0 z-[220] flex justify-center px-3 pt-3">
+                      <div className="w-full max-w-2xl rounded-2xl border border-amber-200 bg-amber-50/95 px-4 py-3 shadow-lg backdrop-blur">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-amber-950">A newer version is available.</p>
+                            <p className="text-xs text-amber-900/80">
+                              Latest build: {buildRefreshNotice.buildLabel}. Refresh to load the updated app.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => { void handleRefreshToLatestBuild(); }}
+                            className="shrink-0 rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-amber-50 hover:bg-amber-950"
+                          >
+                            Refresh now
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <GuestGoogleOneTap />
                   <PwaInstallPrompt />
                   <AppSeoDefaults />

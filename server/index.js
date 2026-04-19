@@ -56,6 +56,7 @@ const { getSocketRoomsForUser, canAuthenticateSocketUser } = require('./utils/so
 const { getUploadsRoot } = require('./utils/uploadsRoot');
 const { resolveBrandingAsset } = require('./utils/brandingAssets');
 const { ensureCompanyBrandingDerivedAssets } = require('./utils/brandingDerivedAssets');
+const { readBuildInfo } = require('./utils/buildInfo');
 const db = require('./config/db');
 console.log('Boot: DB module loaded');
 
@@ -335,6 +336,14 @@ app.get('/manifest.webmanifest', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
     res.sendFile(path.join(clientDistPath, 'manifest.webmanifest'), (error) => {
         if (error) next();
+    });
+});
+app.get('/api/app/version', (_req, res) => {
+    const build = readBuildInfo();
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.json({
+        buildVersion: build.version,
+        buildLabel: build.label
     });
 });
 app.use(express.static(clientDistPath));
