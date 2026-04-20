@@ -28,14 +28,10 @@ const {
 const { emitToUserAudiences } = require('../utils/socketAudience');
 const { resolveUploadedAssetPath } = require('../utils/uploadsRoot');
 const { cleanupBrandingDerivedAssetsForLogo } = require('../utils/brandingDerivedAssets');
+const { buildWorkbookBuffer } = require('../utils/excelExport');
 const { queueFullRefresh } = require('../services/seoService');
 const DUPLICATE_PAYMENT_SESSION_MESSAGE = 'payment already linked to an existing checkout. please retry with a new payment session.';
 const isProductionLike = () => String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
-const toCsvCell = (value) => {
-    if (value === null || value === undefined) return '""';
-    const text = String(value).replace(/"/g, '""');
-    return `"${text}"`;
-};
 const flattenAddress = (address = null) => ({
     line1: address?.line1 || '',
     city: address?.city || '',
@@ -1885,7 +1881,7 @@ const getUsers = async (req, res) => {
 const exportCustomers = async (req, res) => {
     try {
         const customers = await User.getCustomerExportRows();
-        const header = [
+        const columns = [
             'Customer ID',
             'Name',
             'Mobile',
@@ -1924,9 +1920,9 @@ const exportCustomers = async (req, res) => {
             'Is Archived',
             'Archived At',
             'Archive Reason'
-        ].join(',');
+        ];
 
-        const lines = customers.map((customer) => {
+        const rows = customers.map((customer) => {
             const address = flattenAddress(customer.address);
             const billingAddress = flattenAddress(customer.billingAddress);
             const recordStatus = customer.isArchived
@@ -1936,53 +1932,57 @@ const exportCustomers = async (req, res) => {
                     : 'active';
 
             return [
-                toCsvCell(customer.id || ''),
-                toCsvCell(customer.name || ''),
-                toCsvCell(customer.mobile || ''),
-                toCsvCell(customer.email || ''),
-                toCsvCell(customer.loyaltyTier || 'regular'),
-                toCsvCell(recordStatus),
-                toCsvCell(customer.isActive === false ? 'No' : 'Yes'),
-                toCsvCell(customer.created_at || customer.createdAt || ''),
-                toCsvCell(customer.created_at || customer.createdAt || ''),
-                toCsvCell(customer.deactivatedAt || ''),
-                toCsvCell(customer.deactivationReason || ''),
-                toCsvCell(customer.dob || ''),
-                toCsvCell(address.line1),
-                toCsvCell(address.city),
-                toCsvCell(address.state),
-                toCsvCell(address.zip),
-                toCsvCell(billingAddress.line1),
-                toCsvCell(billingAddress.city),
-                toCsvCell(billingAddress.state),
-                toCsvCell(billingAddress.zip),
-                toCsvCell(Number(customer.cart_count || 0)),
-                toCsvCell(customer.abandoned_cart_last_activity_at || customer.abandonedCartLastActivityAt || ''),
-                toCsvCell(Number(customer.active_coupon_count || customer.activeCouponCount || 0)),
-                toCsvCell(Number(customer.lifetime_paid_orders || 0)),
-                toCsvCell(Number(customer.lifetime_net_revenue || 0).toFixed(2)),
-                toCsvCell(Number(customer.lifetime_avg_order_value || 0).toFixed(2)),
-                toCsvCell(customer.last_paid_order_at || ''),
-                toCsvCell(Number(customer.lifetime_total_orders_attempted || 0)),
-                toCsvCell(Number(customer.lifetime_pending_orders || 0)),
-                toCsvCell(Number(customer.lifetime_cancelled_orders || 0)),
-                toCsvCell(Number(customer.lifetime_failed_orders || 0)),
-                toCsvCell(Number(customer.lifetime_refunded_orders || 0)),
-                toCsvCell(Number(customer.lifetime_refunded_amount || 0).toFixed(2)),
-                toCsvCell(Number(customer.lifetime_cod_orders || 0)),
-                toCsvCell(Number(customer.lifetime_cod_cancelled_orders || 0)),
-                toCsvCell(customer.isArchived ? 'Yes' : 'No'),
-                toCsvCell(customer.archivedAt || ''),
-                toCsvCell(customer.archiveReason || '')
-            ].join(',');
+                customer.id || '',
+                customer.name || '',
+                customer.mobile || '',
+                customer.email || '',
+                customer.loyaltyTier || 'regular',
+                recordStatus,
+                customer.isActive === false ? 'No' : 'Yes',
+                customer.created_at || customer.createdAt || '',
+                customer.created_at || customer.createdAt || '',
+                customer.deactivatedAt || '',
+                customer.deactivationReason || '',
+                customer.dob || '',
+                address.line1,
+                address.city,
+                address.state,
+                address.zip,
+                billingAddress.line1,
+                billingAddress.city,
+                billingAddress.state,
+                billingAddress.zip,
+                Number(customer.cart_count || 0),
+                customer.abandoned_cart_last_activity_at || customer.abandonedCartLastActivityAt || '',
+                Number(customer.active_coupon_count || customer.activeCouponCount || 0),
+                Number(customer.lifetime_paid_orders || 0),
+                Number(customer.lifetime_net_revenue || 0).toFixed(2),
+                Number(customer.lifetime_avg_order_value || 0).toFixed(2),
+                customer.last_paid_order_at || '',
+                Number(customer.lifetime_total_orders_attempted || 0),
+                Number(customer.lifetime_pending_orders || 0),
+                Number(customer.lifetime_cancelled_orders || 0),
+                Number(customer.lifetime_failed_orders || 0),
+                Number(customer.lifetime_refunded_orders || 0),
+                Number(customer.lifetime_refunded_amount || 0).toFixed(2),
+                Number(customer.lifetime_cod_orders || 0),
+                Number(customer.lifetime_cod_cancelled_orders || 0),
+                customer.isArchived ? 'Yes' : 'No',
+                customer.archivedAt || '',
+                customer.archiveReason || ''
+            ];
         });
 
-        const csv = [header, ...lines].join('\n');
-        const fileName = `customers-export-${new Date().toISOString().slice(0, 10)}.csv`;
+        const buffer = await buildWorkbookBuffer({
+            sheetName: 'Customers',
+            columns,
+            rows
+        });
+        const fileName = `customers-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
 
-        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-        return res.status(200).send(csv);
+        return res.status(200).send(Buffer.from(buffer));
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: error?.message || 'Failed to export customers' });

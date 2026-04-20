@@ -69,6 +69,19 @@ const handleBlobResponse = async (res) => {
     }
     return res.blob();
 };
+const getDownloadFileName = (res, fallback = 'download.bin') => {
+    const disposition = String(res.headers.get('content-disposition') || '').trim();
+    const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+        try {
+            return decodeURIComponent(utf8Match[1]);
+        } catch {
+            return utf8Match[1];
+        }
+    }
+    const basicMatch = disposition.match(/filename="?([^"]+)"?/i);
+    return basicMatch?.[1] || fallback;
+};
 
 export const adminService = {
     getUsers: async (page = 1, role = 'all', limit = 10, search = '', options = {}) => {
@@ -228,10 +241,11 @@ export const adminService = {
             headers: getAuthHeader()
         });
         const blob = await handleBlobResponse(res);
+        const fileName = getDownloadFileName(res, `customers-export-${new Date().toISOString().slice(0, 10)}.xlsx`);
         const downloadUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = downloadUrl;
-        link.download = `customers-export-${new Date().toISOString().slice(0, 10)}.csv`;
+        link.download = fileName;
         link.click();
         URL.revokeObjectURL(downloadUrl);
         return true;

@@ -115,7 +115,7 @@ export default function ForgotPassword() {
       <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md border-t-4 border-accent">
         
         <div className="text-center mb-6">
-            <img src={BRAND_LOGO_URL} alt="SSC Impon Jewellery" className="w-20 h-auto mx-auto mb-4" />
+            <img src={BRAND_LOGO_URL} alt="Sree Sai Collections" className="w-20 h-auto mx-auto mb-4" />
             <h2 className="text-2xl font-serif font-bold text-primary">Reset Password</h2>
             <p className="text-gray-500 text-sm">
                 {source === 'admin' ? 'Admin Security Recovery' : 'Secure account recovery'}

@@ -32,6 +32,7 @@ import {
     validateFromLabelData,
     validateToLabelData
 } from '../../utils/thermalLabelPrint';
+import { downloadWorkbook } from '../../utils/excelExport';
 
 const QUICK_RANGES = ADMIN_QUICK_RANGES;
 
@@ -1798,10 +1799,6 @@ export function Orders({
         }
     };
 
-    const toCsvCell = (value) => {
-        const safe = String(value ?? '').replace(/"/g, '""');
-        return `"${safe}"`;
-    };
     const formatReportAmount = (value) => Number(value || 0).toFixed(2);
     const companyAddressParts = [
         companyProfile?.address,
@@ -1859,7 +1856,7 @@ export function Orders({
                 detailedOrders.push(...batchResults);
             }
 
-            const header = [
+            const columns = [
                 'Order Ref',
                 'Order Date',
                 'Customer',
@@ -1892,9 +1889,9 @@ export function Orders({
                 'Tax Regime',
                 'Coupon Code',
                 'Source Channel'
-            ].join(',');
+            ];
 
-            const lines = detailedOrders.map((order) => {
+            const rows = detailedOrders.map((order) => {
                 const totals = computeInvoiceAlignedSummary(order);
                 const gstContext = getOrderGstContext(order || {});
                 const gst = getGstDisplayDetails({
@@ -1903,61 +1900,60 @@ export function Orders({
                 });
                 const jurisdiction = resolveGstJurisdiction(gstContext);
                 const taxRateLabel = getOrderTaxRateLabel(order, jurisdiction.kind);
-                return ([
-                    toCsvCell(order.order_ref),
-                    toCsvCell(formatAdminDate(order.created_at)),
-                    toCsvCell(order.customer_name || 'Guest'),
-                    toCsvCell(order.customer_mobile || ''),
-                    toCsvCell(getTierLabel(order)),
-                    toCsvCell(order.status || 'pending'),
-                    toCsvCell(getPaymentStatusLabel(order)),
-                    toCsvCell(getPaymentReference(order)),
-                    toCsvCell(order?.settlement_snapshot?.status || '—'),
-                    toCsvCell(order?.settlement_snapshot?.created_at ? formatAdminDateTime(new Date(Number(order.settlement_snapshot.created_at) * 1000).toISOString()) : '—'),
-                    toCsvCell(formatReportAmount(totals?.subtotal)),
-                    toCsvCell(formatReportAmount(totals?.shipping)),
-                    toCsvCell(formatReportAmount(totals?.priceBeforeDiscounts)),
-                    toCsvCell(formatReportAmount(totals?.discounts?.product)),
-                    toCsvCell(formatReportAmount(totals?.discounts?.coupon)),
-                    toCsvCell(formatReportAmount(totals?.discounts?.member)),
-                    toCsvCell(formatReportAmount(totals?.discounts?.memberShippingBenefit)),
-                    toCsvCell(formatReportAmount(totals?.discounts?.totalSavings)),
-                    toCsvCell(formatReportAmount(totals?.priceAfterDiscounts)),
-                    toCsvCell(formatReportAmount(totals?.gstTotal)),
-                    toCsvCell(gst.taxTypeLabel),
-                    toCsvCell(taxRateLabel),
-                    toCsvCell(formatReportAmount(jurisdiction.kind === 'inter_state' ? gst.igstAmount : 0)),
-                    toCsvCell(formatReportAmount(jurisdiction.kind === 'intra_state' ? gst.sgstAmount : 0)),
-                    toCsvCell(formatReportAmount(jurisdiction.kind === 'intra_state' ? gst.cgstAmount : 0)),
-                    toCsvCell(gstContext.companyState || ''),
-                    toCsvCell(gstContext.shippingState || ''),
-                    toCsvCell(formatReportAmount(totals?.roundOffAmount)),
-                    toCsvCell(formatReportAmount(totals?.grandTotal)),
-                    toCsvCell(String(totals?.taxRegime || 'exclusive')),
-                    toCsvCell(order.coupon_code || ''),
-                    toCsvCell(getSourceLabel(order))
-                ].join(','));
+                return [
+                    order.order_ref,
+                    formatAdminDate(order.created_at),
+                    order.customer_name || 'Guest',
+                    order.customer_mobile || '',
+                    getTierLabel(order),
+                    order.status || 'pending',
+                    getPaymentStatusLabel(order),
+                    getPaymentReference(order),
+                    order?.settlement_snapshot?.status || '—',
+                    order?.settlement_snapshot?.created_at ? formatAdminDateTime(new Date(Number(order.settlement_snapshot.created_at) * 1000).toISOString()) : '—',
+                    formatReportAmount(totals?.subtotal),
+                    formatReportAmount(totals?.shipping),
+                    formatReportAmount(totals?.priceBeforeDiscounts),
+                    formatReportAmount(totals?.discounts?.product),
+                    formatReportAmount(totals?.discounts?.coupon),
+                    formatReportAmount(totals?.discounts?.member),
+                    formatReportAmount(totals?.discounts?.memberShippingBenefit),
+                    formatReportAmount(totals?.discounts?.totalSavings),
+                    formatReportAmount(totals?.priceAfterDiscounts),
+                    formatReportAmount(totals?.gstTotal),
+                    gst.taxTypeLabel,
+                    taxRateLabel,
+                    formatReportAmount(jurisdiction.kind === 'inter_state' ? gst.igstAmount : 0),
+                    formatReportAmount(jurisdiction.kind === 'intra_state' ? gst.sgstAmount : 0),
+                    formatReportAmount(jurisdiction.kind === 'intra_state' ? gst.cgstAmount : 0),
+                    gstContext.companyState || '',
+                    gstContext.shippingState || '',
+                    formatReportAmount(totals?.roundOffAmount),
+                    formatReportAmount(totals?.grandTotal),
+                    String(totals?.taxRegime || 'exclusive'),
+                    order.coupon_code || '',
+                    getSourceLabel(order)
+                ];
             });
 
-            const metadataLines = [
-                [toCsvCell('Company'), toCsvCell(companyProfile?.displayName || 'SSC Jewellery')].join(','),
-                [toCsvCell('GST Number'), toCsvCell(companyProfile?.gstNumber || '—')].join(','),
-                [toCsvCell('Support Email'), toCsvCell(companyProfile?.supportEmail || '—')].join(','),
-                [toCsvCell('Contact Number'), toCsvCell(companyProfile?.contactNumber || '—')].join(','),
-                [toCsvCell('Address'), toCsvCell(companyAddressLine || '—')].join(','),
-                [toCsvCell('Generated At'), toCsvCell(formatAdminDateTime(new Date().toISOString()))].join(','),
-                [toCsvCell('Filters'), toCsvCell(`Status: ${requestedStatusFilter}, Search: ${search || '—'}, Range: ${quickRange}, Source: ${sourceChannel || 'all'}, Sort: ${sortBy}`)].join(','),
-                ''
+            const prefaceRows = [
+                ['Company', companyProfile?.displayName || 'SSC Jewellery'],
+                ['GST Number', companyProfile?.gstNumber || '—'],
+                ['Support Email', companyProfile?.supportEmail || '—'],
+                ['Contact Number', companyProfile?.contactNumber || '—'],
+                ['Address', companyAddressLine || '—'],
+                ['Generated At', formatAdminDateTime(new Date().toISOString())],
+                ['Filters', `Status: ${requestedStatusFilter}, Search: ${search || '—'}, Range: ${quickRange}, Source: ${sourceChannel || 'all'}, Sort: ${sortBy}`],
+                []
             ];
 
-            const csv = [...metadataLines, header, ...lines].join('\n');
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const downloadUrl = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.download = `orders-report-${new Date().toISOString().slice(0, 10)}.csv`;
-            link.click();
-            URL.revokeObjectURL(downloadUrl);
+            await downloadWorkbook({
+                fileName: `orders-report-${new Date().toISOString().slice(0, 10)}.xlsx`,
+                sheetName: 'Orders',
+                columns,
+                rows,
+                prefaceRows
+            });
         } catch (error) {
             toast.error(error.message || 'Failed to export order report');
         } finally {

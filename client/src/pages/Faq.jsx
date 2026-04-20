@@ -3,19 +3,24 @@ import { Link } from 'react-router-dom';
 import { CircleHelp, Mail, Phone } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
+import { resolvePublicBrandName } from '../seo/brand.js';
 import { FAQ_ITEMS } from '../seo/faqContent';
 import { buildFaqSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
 
 const DEFAULT_COMPANY = {
-    displayName: 'SSC Impon Jewellery',
+    displayName: 'Sree Sai Collections',
     supportEmail: '',
     contactNumber: ''
 };
 
 export default function Faq() {
     const { companyInfo, applyCompanyInfo } = usePublicCompanyInfo();
-    const company = useMemo(() => ({ ...DEFAULT_COMPANY, ...(companyInfo || {}) }), [companyInfo]);
+    const company = useMemo(() => ({
+        ...DEFAULT_COMPANY,
+        ...(companyInfo || {}),
+        displayName: resolvePublicBrandName(companyInfo || DEFAULT_COMPANY)
+    }), [companyInfo]);
 
     const faqs = useMemo(() => FAQ_ITEMS.map((item) => ({ q: item.question, a: item.answer })), []);
     const seoConfig = useMemo(() => buildFaqSeo({ company }), [company]);

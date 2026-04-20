@@ -3,12 +3,13 @@ import { Link, useLocation } from 'react-router-dom';
 import { Copyright, FileText, RefreshCw, ShieldCheck, Truck } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
+import { resolvePublicBrandName } from '../seo/brand.js';
 import { buildPolicySeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
 import { getWebsiteUrl } from '../utils/publicContact';
 
 const DEFAULT_COMPANY = {
-    displayName: 'SSC Impon Jewellery',
+    displayName: 'Sree Sai Collections',
     supportEmail: '',
     contactNumber: '',
     address: ''
@@ -177,6 +178,7 @@ export default function PolicyPage() {
     const company = useMemo(() => ({
         ...DEFAULT_COMPANY,
         ...(companyInfo || {}),
+        displayName: resolvePublicBrandName(companyInfo || DEFAULT_COMPANY),
         address: resolveCompanyAddress(companyInfo || {}) || DEFAULT_COMPANY.address
     }), [companyInfo]);
 

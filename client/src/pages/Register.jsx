@@ -166,7 +166,7 @@ export default function Register() {
       <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-lg border-t-4 border-accent">
         
         <div className="text-center mb-6">
-            <img src={BRAND_LOGO_URL} alt="SSC Impon Jewellery" className="w-24 h-auto mx-auto mb-4" />
+            <img src={BRAND_LOGO_URL} alt="Sree Sai Collections" className="w-24 h-auto mx-auto mb-4" />
             <h2 className="text-3xl font-serif font-bold text-primary">Create Account</h2>
         </div>
 

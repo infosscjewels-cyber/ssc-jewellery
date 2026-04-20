@@ -1258,7 +1258,7 @@ const initDB = async () => {
         await connection.query(`
             CREATE TABLE IF NOT EXISTS company_profile (
                 id INT PRIMARY KEY,
-                display_name VARCHAR(255) NOT NULL DEFAULT 'SSC Jewellery',
+                display_name VARCHAR(255) NOT NULL DEFAULT 'Sree Sai Collections',
                 storefront_open TINYINT(1) NOT NULL DEFAULT 1,
                 contact_number VARCHAR(40),
                 support_email VARCHAR(255),
@@ -1507,7 +1507,7 @@ const initDB = async () => {
                 `INSERT INTO company_profile
                 (id, display_name, storefront_open, contact_number, support_email, address, city, state, postal_code, country, opening_hours, latitude, longitude, instagram_url, youtube_url, facebook_url, whatsapp_number, tax_price_mode, contact_jumbotron_image_url, email_channel_enabled, whatsapp_channel_enabled, whatsapp_module_settings_json, usage_audience_enabled, usage_audience_men_image_url, usage_audience_women_image_url, usage_audience_kids_image_url, advanced_analytics_enabled, razorpay_key_id, razorpay_key_secret, razorpay_webhook_secret, razorpay_emi_min_amount, razorpay_starting_tenure_months)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [1, 'SSC Jewellery', 1, '', '', '', '', '', '', '', '', null, null, '', '', '', '', 'exclusive', '/assets/contact.jpg', 1, 1, JSON.stringify({ loginOtp: true, order: true, payment: true, welcome: true, loyaltyUpgrade: true, loyaltyProgress: true, birthday: true, abandonedCartRecovery: true, couponIssue: true, dashboardAlert: true }), 0, '', '', '', 1, '', '', '', 3000, 12]
+                [1, 'Sree Sai Collections', 1, '', '', '', '', '', '', '', '', null, null, '', '', '', '', 'exclusive', '/assets/contact.jpg', 1, 1, JSON.stringify({ loginOtp: true, order: true, payment: true, welcome: true, loyaltyUpgrade: true, loyaltyProgress: true, birthday: true, abandonedCartRecovery: true, couponIssue: true, dashboardAlert: true }), 0, '', '', '', 1, '', '', '', 3000, 12]
             );
         }
         const [popupRows] = await connection.execute('SELECT id FROM loyalty_popup_config WHERE id = 1 LIMIT 1');

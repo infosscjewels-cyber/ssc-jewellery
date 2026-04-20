@@ -96,7 +96,7 @@ export default function AdminLogin() {
                         <ShieldCheck className="text-primary w-10 h-10" />
                     </div>
                     <h1 className="text-xl font-serif font-bold text-accent tracking-wide text-center uppercase">
-                        SSC Impon Jewellery
+                        Sree Sai Collections
                     </h1>
                     <p className="text-gray-400 text-xs tracking-widest mt-1">Administration Portal</p>
                 </div>

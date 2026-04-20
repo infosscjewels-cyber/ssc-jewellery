@@ -15,20 +15,14 @@ import {
     normalizeAbandonedRangeValue,
     resolveNamedDateRange
 } from '../../utils/adminDateRanges';
+import { downloadWorkbook } from '../../utils/excelExport';
 
 const journeyStatusOptions = [
-    { value: 'all', label: 'All' },
-    { value: 'pending', label: 'Pending' },
     { value: 'active', label: 'Active' },
+    { value: 'pending', label: 'Pending' },
     { value: 'recovered', label: 'Recovered' },
     { value: 'expired', label: 'Expired' },
-    { value: 'cancelled', label: 'Cancelled' }
-];
-const mobileJourneyStatusOptions = [
-    { value: 'new', label: 'New' },
-    { value: 'attempted', label: 'Attempted' },
-    { value: 'recovered', label: 'Recovered' },
-    { value: 'expired', label: 'Expired' },
+    { value: 'cancelled', label: 'Cancelled' },
     { value: 'all', label: 'All' }
 ];
 const MOBILE_JOURNEY_COUNT_STATUSES = ['all', 'pending', 'active', 'recovered', 'expired', 'cancelled'];
@@ -194,39 +188,23 @@ const statusClass = (status) => {
     if (key === 'cancelled') return 'bg-red-200 text-red-950 border border-red-300';
     return 'bg-amber-200 text-amber-950 border border-amber-300';
 };
-const getMobileJourneyLifecycleStatus = (journey = {}) => {
-    const backendStatus = String(journey?.status || '').toLowerCase();
-    if (backendStatus === 'recovered' || String(journey?.recovered_order_ref || '').trim()) return 'recovered';
-    if (backendStatus === 'expired' || backendStatus === 'cancelled') return 'expired';
-    if (Number(journey?.last_attempt_no || 0) > 0) return 'attempted';
-    return 'new';
-};
-const getMobileJourneyStatusLabel = (journey = {}) => {
-    const key = getMobileJourneyLifecycleStatus(journey);
-    if (key === 'recovered') return 'Recovered';
-    if (key === 'attempted') return 'Attempted';
-    if (key === 'expired') return 'Expired';
-    return 'New';
-};
 const getMobileJourneyStatusBadgeClass = (journey = {}) => {
-    const key = getMobileJourneyLifecycleStatus(journey);
-    if (key === 'recovered') return 'bg-lime-200 text-emerald-950 border border-lime-300';
-    if (key === 'attempted') return 'bg-amber-200 text-amber-950 border border-amber-300';
-    if (key === 'expired') return 'bg-red-200 text-red-950 border border-red-300';
-    return 'bg-sky-200 text-sky-950 border border-sky-300';
+    return statusClass(journey?.status || '');
 };
 const getMobileJourneyFilterBadgeClass = (value = '', active = false) => {
     if (!active) return 'border-gray-200 bg-white text-gray-600';
-    if (value === 'recovered') return 'bg-lime-200 text-emerald-950 border border-lime-300';
-    if (value === 'attempted') return 'bg-amber-200 text-amber-950 border border-amber-300';
-    if (value === 'expired') return 'bg-red-200 text-red-950 border border-red-300';
-    if (value === 'new') return 'bg-sky-200 text-sky-950 border border-sky-300';
-    return 'bg-slate-200 text-slate-800 border border-slate-300';
+    return statusClass(value);
 };
 const getMobileJourneyCardTheme = (journey = {}) => {
-    const key = getMobileJourneyLifecycleStatus(journey);
-    if (key === 'attempted' && Number(journey?.last_attempt_no || 0) >= 3) return MOBILE_JOURNEY_CARD_THEMES.attemptedStrong;
-    return MOBILE_JOURNEY_CARD_THEMES[key] || MOBILE_JOURNEY_CARD_THEMES.new;
+    const key = String(journey?.status || '').toLowerCase();
+    if (key === 'recovered') return MOBILE_JOURNEY_CARD_THEMES.recovered;
+    if (key === 'expired') return MOBILE_JOURNEY_CARD_THEMES.expired;
+    if (key === 'cancelled') return MOBILE_JOURNEY_CARD_THEMES.expired;
+    if (key === 'pending' && Number(journey?.last_attempt_no || 0) >= 3) return MOBILE_JOURNEY_CARD_THEMES.attemptedStrong;
+    if (key === 'pending') return MOBILE_JOURNEY_CARD_THEMES.new;
+    if (key === 'active' && Number(journey?.last_attempt_no || 0) >= 3) return MOBILE_JOURNEY_CARD_THEMES.attemptedStrong;
+    if (key === 'active') return MOBILE_JOURNEY_CARD_THEMES.attempted;
+    return MOBILE_JOURNEY_CARD_THEMES.new;
 };
 const inr = (value) => `₹${Number(value || 0).toLocaleString()}`;
 const normalizeText = (value = '') => String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -465,14 +443,14 @@ export default function AbandonedCarts({
     const [journeys, setJourneys] = useState([]);
     const [journeyTotal, setJourneyTotal] = useState(0);
     const [mobileJourneyStatusCounts, setMobileJourneyStatusCounts] = useState({
-        new: 0,
-        attempted: 0,
+        pending: 0,
+        active: 0,
         recovered: 0,
         expired: 0,
+        cancelled: 0,
         all: 0
     });
-    const [status, setStatus] = useState('all');
-    const [mobileStatusFilter, setMobileStatusFilter] = useState('new');
+    const [status, setStatus] = useState('active');
     const [sortBy, setSortBy] = useState('newest');
     const [search, setSearch] = useState('');
     const [searchInput, setSearchInput] = useState('');
@@ -545,13 +523,12 @@ export default function AbandonedCarts({
             })
         );
         const totals = Object.fromEntries(results);
-        const newCount = Number(totals.pending || 0);
-        const activeCount = Number(totals.active || 0);
         setMobileJourneyStatusCounts({
-            new: newCount,
-            attempted: Math.max(0, activeCount - newCount),
+            pending: Number(totals.pending || 0),
+            active: Number(totals.active || 0),
             recovered: Number(totals.recovered || 0),
-            expired: Number(totals.expired || 0) + Number(totals.cancelled || 0),
+            expired: Number(totals.expired || 0),
+            cancelled: Number(totals.cancelled || 0),
             all: Number(totals.all || 0)
         });
     }, [rangeDays, search, sortBy]);
@@ -622,9 +599,6 @@ export default function AbandonedCarts({
         if (status !== nextStatus) {
             setStatus(nextStatus);
         }
-        if (nextStatus === 'active') {
-            setMobileStatusFilter('all');
-        }
         setPage(1);
         onInitialStatusApplied();
     }, [initialStatusFilter, onInitialStatusApplied, status]);
@@ -652,10 +626,6 @@ export default function AbandonedCarts({
             card.label === 'Recovery Rate' ? { ...card, theme: 'red' } : card
         ));
     }, [insights, sharedInsights]);
-    const mobileJourneys = useMemo(() => {
-        if (mobileStatusFilter === 'all') return journeys;
-        return journeys.filter((journey) => getMobileJourneyLifecycleStatus(journey) === mobileStatusFilter);
-    }, [journeys, mobileStatusFilter]);
     const selectedPeriodText = useMemo(() => {
         if (String(rangeDays || '').trim().toLowerCase() === 'lifetime') return 'Selected period: All time';
         const resolvedRange = resolveNamedDateRange(rangeDays);
@@ -668,14 +638,15 @@ export default function AbandonedCarts({
     const fallbackMobileJourneyStatusCounts = useMemo(() => {
         const rows = Array.isArray(journeys) ? journeys : [];
         const counts = {
-            new: 0,
-            attempted: 0,
+            pending: 0,
+            active: 0,
             recovered: 0,
             expired: 0,
+            cancelled: 0,
             all: rows.length
         };
         rows.forEach((journey) => {
-            const key = getMobileJourneyLifecycleStatus(journey);
+            const key = String(journey?.status || '').toLowerCase();
             if (Object.prototype.hasOwnProperty.call(counts, key)) {
                 counts[key] += 1;
             }
@@ -915,11 +886,6 @@ export default function AbandonedCarts({
         }
     }, []);
 
-    const toCsvCell = (value) => {
-        const safe = String(value ?? '').replace(/"/g, '""');
-        return `"${safe}"`;
-    };
-
     const toCsvDateTime = (value) => {
         if (!value) return '';
         const parsed = new Date(value);
@@ -1019,19 +985,12 @@ export default function AbandonedCarts({
                 'Discount Redeemed At',
                 'Discount Created At'
             ];
-            const csv = [
-                header.map(toCsvCell).join(','),
-                ...exportRows.map((row) => row.map(toCsvCell).join(','))
-            ].join('\n');
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const anchor = document.createElement('a');
-            anchor.href = url;
-            anchor.download = `abandoned-cart-report-${new Date().toISOString().slice(0, 10)}.csv`;
-            document.body.appendChild(anchor);
-            anchor.click();
-            document.body.removeChild(anchor);
-            URL.revokeObjectURL(url);
+            await downloadWorkbook({
+                fileName: `abandoned-cart-report-${new Date().toISOString().slice(0, 10)}.xlsx`,
+                sheetName: 'Abandoned Carts',
+                columns: header,
+                rows: exportRows
+            });
             toast.success(`Exported ${exportRows.length} rows from ${allJourneys.length} journeys`);
         } catch (error) {
             toast.error(error.message || 'Failed to export report');
@@ -1327,13 +1286,16 @@ export default function AbandonedCarts({
                             style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
                         >
                             <div className="inline-flex min-w-max flex-nowrap gap-2 pr-1">
-                                {mobileJourneyStatusOptions.map((option) => {
-                                    const active = mobileStatusFilter === option.value;
+                                {journeyStatusOptions.map((option) => {
+                                    const active = status === option.value;
                                     return (
                                         <button
                                             key={option.value}
                                             type="button"
-                                            onClick={() => setMobileStatusFilter(option.value)}
+                                            onClick={() => {
+                                                setStatus(option.value);
+                                                setPage(1);
+                                            }}
                                             className={`inline-flex shrink-0 items-center rounded-full border px-3 py-2 text-xs font-semibold leading-none tracking-normal whitespace-nowrap transition ${getMobileJourneyFilterBadgeClass(option.value, active)}`}
                                         >
                                             {option.label} ({mobileJourneyStatusCounts[option.value] || fallbackMobileJourneyStatusCounts[option.value] || 0})
@@ -1430,11 +1392,11 @@ export default function AbandonedCarts({
                         </table>
                     </div>
                     <div className="md:hidden space-y-4 p-4">
-                        {mobileJourneys.length === 0 ? (
+                        {journeys.length === 0 ? (
                             <div className="py-10 text-center text-gray-400">
                                 No journeys match the selected mobile filter.
                             </div>
-                        ) : mobileJourneys.map((journey) => {
+                        ) : journeys.map((journey) => {
                             const theme = getMobileJourneyCardTheme(journey);
                             return (
                                 <div key={journey.id} className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${theme.shell}`}>
@@ -1447,7 +1409,7 @@ export default function AbandonedCarts({
                                             <p className="text-xs text-gray-400">{formatCustomerContacts(journey)}</p>
                                         </div>
                                         <div className="flex shrink-0 flex-col items-end gap-1.5">
-                                            <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${getMobileJourneyStatusBadgeClass(journey)}`}>{getMobileJourneyStatusLabel(journey)}</span>
+                                            <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold capitalize ${getMobileJourneyStatusBadgeClass(journey)}`}>{String(journey.status || 'pending')}</span>
                                             {!!journey.recovered_order_ref && (
                                                 <p className="max-w-[110px] text-right text-[11px] text-emerald-700">Recovered by {journey.recovered_order_ref}</p>
                                             )}

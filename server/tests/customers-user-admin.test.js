@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const ExcelJS = require('exceljs');
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
 
@@ -52,7 +53,7 @@ test('admin user list strips password hashes from returned users', async () => {
     assert.equal(res.body.users[0].password, undefined);
 });
 
-test('exportCustomers returns csv for active and archived customers without sensitive fields', async () => {
+test('exportCustomers returns xlsx for active and archived customers without sensitive fields', async () => {
     const req = {};
     const res = {
         statusCode: 200,
@@ -115,12 +116,25 @@ test('exportCustomers returns csv for active and archived customers without sens
     });
 
     assert.equal(res.statusCode, 200);
-    assert.match(String(res.headers['Content-Type'] || ''), /text\/csv/i);
+    assert.match(String(res.headers['Content-Type'] || ''), /spreadsheetml\.sheet/i);
     assert.match(String(res.headers['Content-Disposition'] || ''), /customers-export-/i);
-    assert.match(res.body, /Customer ID,Name,Mobile,Email/);
-    assert.match(res.body, /"u_active","Active Customer","9876543210","active@example.com"/);
-    assert.match(res.body, /"u_archived","Archived Customer","9123456780","archived@example.com"/);
-    assert.doesNotMatch(res.body, /hashed-secret/);
+    assert.equal(Buffer.isBuffer(res.body), true);
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(res.body);
+    const sheet = workbook.getWorksheet('Customers');
+    assert.ok(sheet);
+    assert.equal(sheet.getRow(1).getCell(1).value, 'Customer ID');
+    assert.equal(sheet.getRow(1).getCell(2).value, 'Name');
+    assert.equal(sheet.getRow(2).getCell(1).value, 'u_active');
+    assert.equal(sheet.getRow(2).getCell(2).value, 'Active Customer');
+    assert.equal(sheet.getRow(2).getCell(4).value, 'active@example.com');
+    assert.equal(sheet.getRow(3).getCell(1).value, 'u_archived');
+    assert.equal(sheet.getRow(3).getCell(2).value, 'Archived Customer');
+    assert.equal(sheet.getRow(3).getCell(4).value, 'archived@example.com');
+
+    const allValues = sheet.getSheetValues().flat().filter(Boolean).map((value) => String(value));
+    assert.equal(allValues.some((value) => value.includes('hashed-secret')), false);
 });
 
 test('createUser rejects invalid roles', async () => {

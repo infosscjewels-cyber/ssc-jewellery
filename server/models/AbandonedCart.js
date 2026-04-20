@@ -348,9 +348,11 @@ class AbandonedCart {
 
     static async getActiveJourneyByUser(userId) {
         const [rows] = await db.execute(
-            `SELECT * FROM abandoned_cart_journeys
-             WHERE user_id = ? AND status = 'active'
-             ORDER BY id DESC LIMIT 1`,
+            `SELECT j.*, u.name AS customer_name, u.email AS customer_email, u.mobile AS customer_mobile
+             FROM abandoned_cart_journeys j
+             LEFT JOIN users u ON u.id = j.user_id
+             WHERE j.user_id = ? AND j.status = 'active'
+             ORDER BY j.id DESC LIMIT 1`,
             [userId]
         );
         if (!rows.length) return null;

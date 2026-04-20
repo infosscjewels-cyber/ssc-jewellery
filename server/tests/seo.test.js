@@ -44,6 +44,19 @@ test('faq seo includes faq structured data and fallback image', async () => {
     assert.ok(String(seo.image || '').length > 0);
 });
 
+test('legacy storefront brand names normalize to the primary SEO brand', async () => {
+    const { buildHomeSeo } = await importSeoModule('rules.js');
+    const seo = buildHomeSeo({
+        company: {
+            displayName: 'SSC Jewellery'
+        }
+    });
+
+    assert.match(seo.title, /Sree Sai Collections/);
+    const businessSchema = seo.structuredData.find((item) => item?.['@type'] === 'JewelryStore');
+    assert.equal(businessSchema?.name, 'Sree Sai Collections');
+});
+
 test('home seo includes local business and website search action schema', async () => {
     const { buildHomeSeo } = await importSeoModule('rules.js');
     const seo = buildHomeSeo({
@@ -115,7 +128,7 @@ test('seo uses absolute canonicals and richer schema when app base url is config
         assert.equal(Boolean(itemList?.itemListElement?.[0]?.image), true);
 
         const productSchema = productSeo.structuredData.find((item) => item?.['@type'] === 'Product');
-        assert.equal(productSchema?.brand?.name, 'SSC Jewellery');
+        assert.equal(productSchema?.brand?.name, 'Sree Sai Collections');
         assert.equal(productSchema?.offers?.url, 'https://sscjewellery.example/product/p1');
     } finally {
         if (previousBaseUrl == null) delete process.env.APP_BASE_URL;

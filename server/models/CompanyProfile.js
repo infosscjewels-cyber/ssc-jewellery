@@ -3,7 +3,7 @@ const { DEFAULT_WHATSAPP_MODULE_SETTINGS, normalizeWhatsappModuleSettings } = re
 const { isSubCategoriesEnabled } = require('../utils/featureFlags');
 
 const DEFAULT_COMPANY_PROFILE = {
-    displayName: 'SSC Jewellery',
+    displayName: 'Sree Sai Collections',
     storefrontOpen: true,
     contactNumber: '',
     supportEmail: '',

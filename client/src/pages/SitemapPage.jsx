@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom';
 import { BookOpen, FileText, Gem, HelpCircle, Info, Mail, Map, ShieldCheck, Store, Truck } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
+import { resolvePublicBrandName } from '../seo/brand.js';
 import { buildSitemapPageSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
 
 const DEFAULT_COMPANY = {
-    displayName: 'SSC Jewellery'
+    displayName: 'Sree Sai Collections'
 };
 
 const ICONS = {
@@ -40,7 +41,11 @@ const STATIC_SECTIONS = [
 export default function SitemapPage() {
     const { categories, refreshCategories } = usePublicCategories();
     const { companyInfo, refreshCompanyInfo, applyCompanyInfo } = usePublicCompanyInfo();
-    const company = useMemo(() => ({ ...DEFAULT_COMPANY, ...(companyInfo || {}) }), [companyInfo]);
+    const company = useMemo(() => ({
+        ...DEFAULT_COMPANY,
+        ...(companyInfo || {}),
+        displayName: resolvePublicBrandName(companyInfo || DEFAULT_COMPANY)
+    }), [companyInfo]);
 
     useEffect(() => {
         refreshCategories(true).catch(() => {});

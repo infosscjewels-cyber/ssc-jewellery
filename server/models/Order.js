@@ -86,6 +86,15 @@ const isDuplicateOrderPaymentError = (error) => {
     return message.includes('duplicate entry') && message.includes('uniq_orders_razorpay_payment');
 };
 const DUPLICATE_PAYMENT_SESSION_MESSAGE = 'payment already linked to an existing checkout. please retry with a new payment session.';
+const NON_FINAL_PAYMENT_STATUSES = new Set([
+    'created',
+    'checkout_opened',
+    'attempted',
+    'authorized',
+    'verification_pending',
+    'paid_unverified',
+    'reconciliation_pending'
+]);
 const normalizePaymentSnapshot = (payment = null) => {
     if (!payment || typeof payment !== 'object') return null;
     return {
@@ -2574,9 +2583,16 @@ class Order {
         refundAmount = null,
         refundStatus = null
     }) {
+        const normalizedIncomingStatus = String(paymentStatus || '').trim().toLowerCase();
+        const preservePaidAgainstIncoming = NON_FINAL_PAYMENT_STATUSES.has(normalizedIncomingStatus) ? 1 : 0;
+        const preserveRefundedAgainstIncoming = normalizedIncomingStatus !== 'refunded' ? 1 : 0;
         const [result] = await db.execute(
             `UPDATE orders
-             SET payment_status = ?,
+             SET payment_status = CASE
+                    WHEN ? = 1 AND LOWER(COALESCE(payment_status, '')) = 'refunded' THEN payment_status
+                    WHEN ? = 1 AND LOWER(COALESCE(payment_status, '')) = 'paid' THEN payment_status
+                    ELSE ?
+                 END,
                  payment_gateway = 'razorpay',
                  razorpay_payment_id = COALESCE(?, razorpay_payment_id),
                  razorpay_signature = COALESCE(?, razorpay_signature),
@@ -2588,6 +2604,8 @@ class Order {
                  updated_at = CURRENT_TIMESTAMP
              WHERE razorpay_order_id = ?`,
             [
+                preserveRefundedAgainstIncoming,
+                preservePaidAgainstIncoming,
                 paymentStatus,
                 razorpayPaymentId,
                 razorpaySignature,

@@ -4,6 +4,7 @@ import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { useToast } from '../context/ToastContext';
 import fallbackContactImage from '../assets/contact.jpg';
+import { resolvePublicBrandName } from '../seo/brand.js';
 import { buildContactSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
 import WhatsAppIcon from '../components/WhatsAppIcon';
@@ -12,7 +13,7 @@ const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/a
 const DEFAULT_JUMBOTRON = fallbackContactImage;
 
 const DEFAULT_COMPANY = {
-    displayName: 'SSC Jewellery',
+    displayName: 'Sree Sai Collections',
     contactNumber: '',
     supportEmail: 'support@sscimpon.com',
     address: '',
@@ -54,6 +55,7 @@ export default function Contact() {
     const company = useMemo(() => ({
         ...DEFAULT_COMPANY,
         ...(companyInfo || {}),
+        displayName: resolvePublicBrandName(companyInfo || DEFAULT_COMPANY),
         contactJumbotronImageUrl: String(companyInfo?.contactJumbotronImageUrl || DEFAULT_JUMBOTRON)
     }), [companyInfo]);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -188,7 +190,7 @@ export default function Contact() {
 
                     <div className="space-y-6">
                         <InfoCard title="Registered Address" value={company.address || 'Address not set'} icon={MapPin} />
-                        <InfoCard title="Company" value={company.displayName || 'SSC Jewellery'} icon={MapPin} />
+                        <InfoCard title="Company" value={company.displayName || DEFAULT_COMPANY.displayName} icon={MapPin} />
                     </div>
                 </div>
             </div>

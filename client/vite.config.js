@@ -39,9 +39,9 @@ export default defineConfig(({ mode }) => {
           enabled: true
         },
         manifest: {
-          name: 'SSC Impon Jewellery',      // <--- Fixed Full Name
-          short_name: 'SSC Impon',          // <--- Fixed App Name (Home Screen)
-          description: 'SSC Impon Jewellery Store App',
+          name: 'Sree Sai Collections',
+          short_name: 'Sree Sai',
+          description: 'Sree Sai Collections jewellery store app',
           theme_color: '#D4AF37',           // <--- Matched your Gold theme
           background_color: '#ffffff',
           display: 'standalone',            // <--- Forces "App" mode (no URL bar)

@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom';
 import { Code2, Globe, Instagram } from 'lucide-react';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
+import { resolvePublicBrandName } from '../seo/brand.js';
 import { buildCreditsSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
 
 const DEFAULT_COMPANY = {
-    displayName: 'SSC Jewellery'
+    displayName: 'Sree Sai Collections'
 };
 
 const DEVELOPER = {
@@ -20,7 +21,8 @@ export default function SiteCredits() {
     const { companyInfo, refreshCompanyInfo, applyCompanyInfo } = usePublicCompanyInfo();
     const company = useMemo(() => ({
         ...DEFAULT_COMPANY,
-        ...(companyInfo || {})
+        ...(companyInfo || {}),
+        displayName: resolvePublicBrandName(companyInfo || DEFAULT_COMPANY)
     }), [companyInfo]);
     const seoConfig = useMemo(() => buildCreditsSeo({ company }), [company]);
     useSeo(seoConfig);

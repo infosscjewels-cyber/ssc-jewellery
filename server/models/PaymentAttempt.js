@@ -13,6 +13,12 @@ const PAYMENT_STATUS = Object.freeze({
     REFUNDED: 'refunded',
     EXPIRED: 'expired'
 });
+const NON_FINAL_ATTEMPT_STATUSES = new Set([
+    PAYMENT_STATUS.CREATED,
+    PAYMENT_STATUS.CHECKOUT_OPENED,
+    PAYMENT_STATUS.VERIFICATION_PENDING,
+    PAYMENT_STATUS.ATTEMPTED
+]);
 
 const parseJsonField = (value) => {
     if (!value) return null;
@@ -504,6 +510,10 @@ class PaymentAttempt {
         if (!resolvedOrderId) return;
         const targetAttempt = await PaymentAttempt.getByRazorpayOrderIdAny(resolvedOrderId);
         if (!targetAttempt) return;
+        const currentStatus = String(targetAttempt.status || '').trim().toLowerCase();
+        if (targetAttempt.local_order_id || !NON_FINAL_ATTEMPT_STATUSES.has(currentStatus)) {
+            return;
+        }
         const resolvedPaymentId = String(paymentId || '').trim();
         if (resolvedPaymentId) {
             const claim = await PaymentAttempt.claimPaymentForAttempt({

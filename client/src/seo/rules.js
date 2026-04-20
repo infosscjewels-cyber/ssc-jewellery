@@ -1,5 +1,6 @@
 import { FAQ_ITEMS } from './faqContent.js';
 import { DEFAULT_SOCIAL_IMAGE, NOINDEX_PATH_PREFIXES, NOINDEX_PATHS, SITE_DESCRIPTION, SITE_NAME } from './constants.js';
+import { resolvePublicBrandName } from './brand.js';
 import {
     buildCanonical,
     buildDefaultDescription,
@@ -79,7 +80,7 @@ export const buildHomeSeo = ({
     ].filter(Boolean);
     const categoryImages = (Array.isArray(categories) ? categories : []).map((entry) => getCategoryImage(entry)).filter(Boolean);
     const productImages = (Array.isArray(products) ? products : []).flatMap((product) => getProductImageCandidates(product));
-    const brand = normalizeText(company.displayName) || SITE_NAME;
+    const brand = resolvePublicBrandName(company);
     const featuredCategories = categoryNames.slice(0, 4);
     const description = clampDescription(
         featuredCategories.length
@@ -111,7 +112,7 @@ export const buildShopSeo = ({
     selectedCategory = 'all'
 } = {}) => {
     company = safeObject(company);
-    const brand = normalizeText(company.displayName) || SITE_NAME;
+    const brand = resolvePublicBrandName(company);
     const categoryNames = (Array.isArray(categories) ? categories : []).map((entry) => normalizeText(entry?.name)).filter(Boolean);
     const selected = normalizeText(selectedCategory);
     const selectedCategoryName = normalizeText(selectedCategory);
@@ -151,7 +152,7 @@ export const buildCategorySeo = ({
 } = {}) => {
     company = safeObject(company);
     const categoryName = normalizeText(category?.name || category?.title) || 'Category';
-    const brand = normalizeText(company.displayName) || SITE_NAME;
+    const brand = resolvePublicBrandName(company);
     const topProducts = (Array.isArray(products) ? products : []).map((product) => normalizeText(product?.title)).filter(Boolean);
     const topProductPreview = topProducts.slice(0, 4);
     const productCount = Array.isArray(products) ? products.length : 0;
@@ -189,7 +190,7 @@ export const buildProductSeo = ({
 } = {}) => {
     company = safeObject(company);
     if (!product?.id) return buildDefaultSeo('/product');
-    const brand = normalizeText(company.displayName) || SITE_NAME;
+    const brand = resolvePublicBrandName(company);
     const categoryName = firstCategoryName(product.categories);
     const displayPrice = (() => {
         const variants = Array.isArray(product.variants) ? product.variants : [];
@@ -247,7 +248,7 @@ export const buildProductSeo = ({
 
 export const buildFaqSeo = ({ company = {} } = {}) => {
     company = safeObject(company);
-    const brand = normalizeText(company.displayName) || SITE_NAME;
+    const brand = resolvePublicBrandName(company);
     return {
         title: toTitle(`FAQs | ${brand}`),
         description: clampDescription(`Read frequently asked questions about orders, shipping, refunds, and product support at ${brand}.`),
@@ -269,7 +270,7 @@ export const buildFaqSeo = ({ company = {} } = {}) => {
 
 export const buildAboutSeo = ({ company = {}, products = [], categories = [] } = {}) => {
     company = safeObject(company);
-    const brand = normalizeText(company.displayName) || SITE_NAME;
+    const brand = resolvePublicBrandName(company);
     const categoryNames = (categories || []).map((entry) => normalizeText(entry?.name)).filter(Boolean);
     return {
         title: toTitle(`About ${brand} | Jewellery Store Story`),
@@ -297,7 +298,7 @@ export const buildAboutSeo = ({ company = {}, products = [], categories = [] } =
 
 export const buildContactSeo = ({ company = {} } = {}) => {
     company = safeObject(company);
-    const brand = normalizeText(company.displayName) || SITE_NAME;
+    const brand = resolvePublicBrandName(company);
     const cityOrAddress = normalizeText(company.address);
     return {
         title: toTitle(`Contact ${brand} | Support & WhatsApp Help`),
@@ -321,7 +322,7 @@ export const buildContactSeo = ({ company = {} } = {}) => {
 
 export const buildPolicySeo = ({ company = {}, policyKey = 'terms', policyTitle = 'Terms & Conditions' } = {}) => {
     company = safeObject(company);
-    const brand = normalizeText(company.displayName) || SITE_NAME;
+    const brand = resolvePublicBrandName(company);
     return {
         title: toTitle(policyTitle),
         description: clampDescription(`${policyTitle} for ${brand}. Review store policies, legal terms, shipping, refunds, privacy, and customer obligations.`),
@@ -342,7 +343,7 @@ export const buildPolicySeo = ({ company = {}, policyKey = 'terms', policyTitle 
 
 export const buildCreditsSeo = ({ company = {} } = {}) => {
     company = safeObject(company);
-    const brand = normalizeText(company.displayName) || SITE_NAME;
+    const brand = resolvePublicBrandName(company);
     const title = 'Site Credits';
     const description = clampDescription(
         `Website design, frontend implementation, and technical development credits for ${brand}, created by Creativecodz.`
@@ -378,7 +379,7 @@ export const buildCreditsSeo = ({ company = {} } = {}) => {
 
 export const buildSitemapPageSeo = ({ company = {}, links = [] } = {}) => {
     company = safeObject(company);
-    const brand = normalizeText(company.displayName) || SITE_NAME;
+    const brand = resolvePublicBrandName(company);
     const title = 'Sitemap';
     const description = clampDescription(
         `Browse the HTML sitemap for ${brand} to access collections, policies, support pages, and important storefront links.`

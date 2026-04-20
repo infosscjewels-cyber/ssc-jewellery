@@ -3,12 +3,13 @@ import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import { Link } from 'react-router-dom';
 import { Gem, Sparkles } from 'lucide-react';
+import { resolvePublicBrandName } from '../seo/brand.js';
 import { buildAboutSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 
 const DEFAULT_COMPANY = {
-    displayName: 'SSC Impon Jewellery',
+    displayName: 'Sree Sai Collections',
     address: '',
     supportEmail: '',
     contactNumber: '',
@@ -36,6 +37,7 @@ export default function About() {
     const company = useMemo(() => ({
         ...DEFAULT_COMPANY,
         ...(companyInfo || {}),
+        displayName: resolvePublicBrandName(companyInfo || DEFAULT_COMPANY),
         address: resolveCompanyAddress(companyInfo || {}) || DEFAULT_COMPANY.address
     }), [companyInfo]);
     const seoConfig = useMemo(() => buildAboutSeo({ company }), [company]);
@@ -67,20 +69,21 @@ export default function About() {
                     <div className="flex justify-center mb-6">
                         <img
                             src={BRAND_LOGO_URL}
-                            alt={`${company.displayName || 'SSC Impon Jewellery'} logo`}
+                            alt={`${company.displayName || DEFAULT_COMPANY.displayName} logo`}
                             className="w-52 md:w-64 lg:w-80 h-auto object-contain"
                         />
                     </div>
-                    <h1 className="text-3xl md:text-4xl font-serif text-primary">About {company.displayName || 'SSC Impon Jewellery'}</h1>
+                    <h1 className="text-3xl md:text-4xl font-serif text-primary">About {company.displayName || DEFAULT_COMPANY.displayName}</h1>
                     <div className="mt-3 space-y-4 text-sm leading-relaxed text-gray-600">
                         <p>
-                            Sri Sai Collections, now known online as SSC Jewels, began its journey in 2000 with a vision to bring customised,
+                            Sree Sai Collections began its journey in 2000 with a vision to bring customised,
                             order-based imitation jewellery to customers in a more accessible way.
                         </p>
                         <p>
-                            Over the years, SSC Jewels has grown into a trusted online jewellery destination, reaching nearly two lakh customers
+                            Over the years, Sree Sai Collections has grown into a trusted online jewellery destination, reaching nearly two lakh customers
                             through digital and social media platforms such as Instagram, Facebook, and YouTube. From the beginning, the brand
                             has focused on offering elegant, beautifully finished jewellery designed to match customer preferences and modern trends.
+                            Many shoppers also recognize the brand by its short-form store name, SSC Jewels.
                         </p>
                         <p>
                             Our collections are crafted using quality base metals such as brass, copper, zinc, and mixed alloy metals, and are
@@ -93,7 +96,7 @@ export default function About() {
                             in the finish and workmanship of our collections.
                         </p>
                         <p>
-                            At SSC Jewels, we continue to blend tradition, craftsmanship, and modern online convenience to bring premium
+                            At Sree Sai Collections, we continue to blend tradition, craftsmanship, and modern online convenience to bring premium
                             imitation jewellery to customers everywhere.
                         </p>
                     </div>

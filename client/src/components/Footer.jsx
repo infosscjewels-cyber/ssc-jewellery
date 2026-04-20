@@ -4,6 +4,7 @@ import { Instagram, Youtube, Facebook, Mail, MapPin, Home, Store, Info, PhoneCal
 import { useAuth } from '../context/AuthContext';
 import { useAdminCrudSync } from '../hooks/useAdminCrudSync';
 import { usePublicCategories, usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
+import { resolvePublicBrandName } from '../seo/brand.js';
 import { BUILD_VERSION } from '../generated/buildInfo.js';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
@@ -66,6 +67,7 @@ export default function Footer() {
         taxEnabled: false,
         ...(companyInfo || {})
     };
+    company.displayName = resolvePublicBrandName(company);
 
     useEffect(() => {
         refreshCategories().catch(() => {});

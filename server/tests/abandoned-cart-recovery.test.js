@@ -106,13 +106,41 @@ test('AbandonedCart.listJourneysAdvanced keeps total and row filtering aligned i
     assert.match(listSql, /j\.last_attempt_no > 0/);
 });
 
+test('AbandonedCart.getActiveJourneyByUser includes customer identity fields for notifications', async () => {
+    let capturedSql = '';
+
+    await withPatched(db, {
+        execute: async (query, params = []) => {
+            capturedSql = String(query);
+            assert.deepEqual(params, ['u-42']);
+            return [[{
+                id: 11,
+                user_id: 'u-42',
+                status: 'active',
+                customer_name: 'Anita',
+                customer_email: 'anita@example.com',
+                customer_mobile: '919999999999',
+                cart_snapshot_json: '[]'
+            }]];
+        }
+    }, async () => {
+        const journey = await AbandonedCart.getActiveJourneyByUser('u-42');
+        assert.equal(journey.customer_name, 'Anita');
+        assert.equal(journey.customer_email, 'anita@example.com');
+        assert.equal(journey.customer_mobile, '919999999999');
+    });
+
+    assert.match(capturedSql, /LEFT JOIN users u ON u\.id = j\.user_id/);
+    assert.match(capturedSql, /u\.name AS customer_name/);
+});
+
 test('AbandonedCart.touchJourney preserves sent attempt count for active journeys', async () => {
     const calls = [];
     await withPatched(db, {
         execute: async (query, params = []) => {
             const sql = String(query);
             calls.push({ sql, params });
-            if (sql.includes('SELECT * FROM abandoned_cart_journeys') && sql.includes("status = 'active'")) {
+            if (sql.includes('FROM abandoned_cart_journeys j') && sql.includes("j.status = 'active'")) {
                 return [[{
                     id: 9,
                     user_id: 'u-1',
