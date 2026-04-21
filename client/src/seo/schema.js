@@ -26,7 +26,12 @@ const sanitizeSkuForStructuredData = (value = '') => {
     const raw = normalizeText(value);
     if (!raw) return '';
     if (/\s/u.test(raw)) return '';
-    if (/[\u0000-\u001F\u007F]/u.test(raw)) return '';
+    for (const character of raw) {
+        const codePoint = character.codePointAt(0);
+        if ((codePoint >= 0 && codePoint <= 31) || codePoint === 127) {
+            return '';
+        }
+    }
     return raw;
 };
 
@@ -219,7 +224,6 @@ export const buildWebsiteSchema = ({ includeSearchAction = false } = {}) => ({
     '@context': 'https://schema.org',
     '@type': 'WebSite',
     name: SITE_NAME,
-    alternateName: 'SSC Jewels',
     url: buildCanonical('/'),
     description: SITE_DESCRIPTION,
     ...(includeSearchAction

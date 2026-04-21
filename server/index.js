@@ -120,6 +120,48 @@ const app = express();
 const server = http.createServer(app); // [NEW] Wrap Express app
 console.log('Boot: express app created');
 
+const BRANDING_ROUTE_FALLBACKS = Object.freeze({
+    logo: path.join(projectRoot, 'client/public/logo.webp'),
+    favicon: path.join(projectRoot, 'client/public/favicon.ico'),
+    appleTouchIcon: path.join(projectRoot, 'client/public/apple-touch-icon.png')
+});
+
+const sendResolvedBrandingAsset = async (res, next, kind = 'logo') => {
+    const fallbackPath = BRANDING_ROUTE_FALLBACKS[kind] || BRANDING_ROUTE_FALLBACKS.logo;
+    const safeSendFile = (targetPath, onFailure) => {
+        if (!targetPath || !fs.existsSync(targetPath)) {
+            onFailure?.();
+            return;
+        }
+        res.sendFile(targetPath, (error) => {
+            if (!error) return;
+            if (error.code !== 'ECONNABORTED') {
+                console.error(`Failed to send branding asset (${kind}):`, error?.message || error);
+            }
+            onFailure?.();
+        });
+    };
+
+    try {
+        const asset = await resolveBrandingAsset(kind);
+        if (asset?.mode === 'redirect' && asset?.target) {
+            return res.redirect(asset.target);
+        }
+        if (asset?.target) {
+            return safeSendFile(asset.target, () => {
+                if (asset.target !== fallbackPath) {
+                    return safeSendFile(fallbackPath, next);
+                }
+                return next();
+            });
+        }
+        return safeSendFile(fallbackPath, next);
+    } catch (error) {
+        console.error(`Failed to resolve branding asset (${kind}):`, error?.message || error);
+        return safeSendFile(fallbackPath, next);
+    }
+};
+
 const buildSocketCorsOrigins = () => {
     const rawOrigins = [
         process.env.APP_BASE_URL,
@@ -255,40 +297,16 @@ app.use('/uploads', express.static(getUploadsRoot(), {
     }
 }));
 app.get(['/branding/logo', '/branding/logo.webp'], async (_req, res, next) => {
-    try {
-        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-        const asset = await resolveBrandingAsset('logo');
-        if (asset?.mode === 'redirect') return res.redirect(asset.target);
-        if (asset?.target) return res.sendFile(asset.target);
-        return next();
-    } catch (error) {
-        console.error('Failed to resolve branding logo:', error?.message || error);
-        return next();
-    }
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return sendResolvedBrandingAsset(res, next, 'logo');
 });
 app.get('/favicon.ico', async (_req, res, next) => {
-    try {
-        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-        const asset = await resolveBrandingAsset('favicon');
-        if (asset?.mode === 'redirect') return res.redirect(asset.target);
-        if (asset?.target) return res.sendFile(asset.target);
-        return next();
-    } catch (error) {
-        console.error('Failed to resolve favicon:', error?.message || error);
-        return next();
-    }
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return sendResolvedBrandingAsset(res, next, 'favicon');
 });
 app.get('/apple-touch-icon.png', async (_req, res, next) => {
-    try {
-        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-        const asset = await resolveBrandingAsset('appleTouchIcon');
-        if (asset?.mode === 'redirect') return res.redirect(asset.target);
-        if (asset?.target) return res.sendFile(asset.target);
-        return next();
-    } catch (error) {
-        console.error('Failed to resolve apple touch icon:', error?.message || error);
-        return next();
-    }
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    return sendResolvedBrandingAsset(res, next, 'appleTouchIcon');
 });
 app.get([
     '/',

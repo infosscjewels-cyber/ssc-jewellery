@@ -861,7 +861,7 @@ export default function ProductPage() {
     };
 
     const shareUrl = window.location.href;
-    const shareText = `I found this product in SSC Impo jewellery website - ${shareUrl}`;
+    const shareText = `I found this jewellery product on Sree Sai Collections - ${shareUrl}`;
     const encodedUrl = encodeURIComponent(shareUrl);
     const encodedText = encodeURIComponent(shareText);
     const shareLinks = {

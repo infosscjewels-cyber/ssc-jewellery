@@ -47,7 +47,7 @@ const sendToTokenRows = async (rows = [], {
     const payload = {
         data: normalizeDataPayload({
             ...data,
-            title: String(title || '').trim() || 'SSC Jewels',
+            title: String(title || '').trim() || 'Sree Sai Collections',
             body: String(body || '').trim() || '',
             icon,
             badge: icon,

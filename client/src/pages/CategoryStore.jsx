@@ -111,7 +111,7 @@ export default function CategoryStore() {
     }, []);
 
     const shareUrl = window.location.href;
-    const shareText = `I found this category in SSC Impo jewellery website - ${shareUrl}`;
+    const shareText = `I found this jewellery collection on Sree Sai Collections - ${shareUrl}`;
     const encodedUrl = encodeURIComponent(shareUrl);
     const encodedText = encodeURIComponent(shareText);
     const shareLinks = {
@@ -133,7 +133,7 @@ export default function CategoryStore() {
         if (navigator.share) {
             try {
                 await navigator.share({
-                    title: `SSC Impo Jewellery`,
+                    title: 'Sree Sai Collections',
                     text: shareText,
                     url: shareUrl
                 });

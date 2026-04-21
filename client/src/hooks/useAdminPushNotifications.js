@@ -22,7 +22,7 @@ const normalizeForegroundNotification = (payload = {}) => {
     const webpush = payload?.webpush?.notification || {};
     const data = payload?.data || {};
     return {
-        title: data.title || notification.title || webpush.title || 'SSC Jewels',
+        title: data.title || notification.title || webpush.title || 'Sree Sai Collections',
         options: {
             body: data.body || notification.body || webpush.body || '',
             icon: data.icon || webpush.icon || '/logo.webp',
