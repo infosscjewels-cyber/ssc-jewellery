@@ -17,14 +17,15 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   const notification = payload?.notification || {};
   const webpush = payload?.webpush?.notification || {};
-  const title = notification.title || webpush.title || 'SSC Jewels';
+  const data = payload?.data || {};
+  const title = data.title || notification.title || webpush.title || 'SSC Jewels';
   const options = {
-    body: notification.body || webpush.body || '',
-    icon: webpush.icon || '/logo.webp',
-    badge: webpush.badge || '/logo.webp',
-    tag: webpush.tag || payload?.data?.tag || undefined,
+    body: data.body || notification.body || webpush.body || '',
+    icon: data.icon || webpush.icon || '/logo.webp',
+    badge: data.badge || webpush.badge || '/logo.webp',
+    tag: data.tag || webpush.tag || undefined,
     data: {
-      link: payload?.fcmOptions?.link || payload?.data?.link || payload?.data?.url || '/admin'
+      link: payload?.fcmOptions?.link || data.link || data.url || '/admin'
     }
   };
   self.registration.showNotification(title, options);

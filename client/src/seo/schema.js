@@ -4,6 +4,125 @@ import { resolvePublicBrandName } from './brand.js';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 
 const safeObject = (value) => (value && typeof value === 'object' ? value : {});
+const DEFAULT_COUNTRY_CODE = 'IN';
+const DEFAULT_CURRENCY = 'INR';
+
+const COUNTRY_CODE_BY_NAME = new Map([
+    ['india', 'IN'],
+    ['ind', 'IN'],
+    ['in', 'IN']
+]);
+
+const normalizeCountryCode = (value = '') => {
+    const raw = normalizeText(value);
+    if (!raw) return DEFAULT_COUNTRY_CODE;
+    const compact = raw.toLowerCase().replace(/\s+/g, ' ');
+    if (COUNTRY_CODE_BY_NAME.has(compact)) return COUNTRY_CODE_BY_NAME.get(compact);
+    if (/^[a-z]{2}$/i.test(raw)) return raw.toUpperCase();
+    return DEFAULT_COUNTRY_CODE;
+};
+
+const sanitizeSkuForStructuredData = (value = '') => {
+    const raw = normalizeText(value);
+    if (!raw) return '';
+    if (/\s/u.test(raw)) return '';
+    if (/[\u0000-\u001F\u007F]/u.test(raw)) return '';
+    return raw;
+};
+
+const buildReturnPolicyId = () => `${buildCanonical('/refund')}#policy`;
+const buildShippingPolicyId = () => `${buildCanonical('/shipping')}#policy`;
+
+export const buildMerchantReturnPolicySchema = (company = {}) => ({
+    '@type': 'MerchantReturnPolicy',
+    '@id': buildReturnPolicyId(),
+    applicableCountry: normalizeCountryCode(company?.country),
+    returnPolicyCategory: 'https://schema.org/MerchantReturnNotPermitted',
+    merchantReturnLink: buildCanonical('/refund')
+});
+
+const buildShippingConditionKey = (option = {}) => ([
+    String(option?.conditionType || 'price').trim().toLowerCase(),
+    option?.min == null ? '' : String(option.min),
+    option?.max == null ? '' : String(option.max)
+].join('|'));
+
+const toFiniteNumber = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+const buildShippingConditionsFromZones = (shippingZones = [], countryCode = DEFAULT_COUNTRY_CODE) => {
+    const grouped = new Map();
+    (Array.isArray(shippingZones) ? shippingZones : []).forEach((zone) => {
+        (Array.isArray(zone?.options) ? zone.options : []).forEach((option) => {
+            const conditionType = String(option?.conditionType || 'price').trim().toLowerCase();
+            if (!['price', 'weight'].includes(conditionType)) return;
+            const rate = toFiniteNumber(option?.rate);
+            if (rate == null || rate < 0) return;
+            const normalized = {
+                conditionType,
+                min: toFiniteNumber(option?.min),
+                max: toFiniteNumber(option?.max),
+                rate
+            };
+            const key = buildShippingConditionKey(normalized);
+            const current = grouped.get(key);
+            if (!current || normalized.rate > current.rate) {
+                grouped.set(key, normalized);
+            }
+        });
+    });
+
+    return Array.from(grouped.values())
+        .sort((a, b) => {
+            if (a.conditionType !== b.conditionType) return a.conditionType.localeCompare(b.conditionType);
+            const aMin = a.min == null ? Number.NEGATIVE_INFINITY : a.min;
+            const bMin = b.min == null ? Number.NEGATIVE_INFINITY : b.min;
+            return aMin - bMin;
+        })
+        .map((option) => {
+            const condition = {
+                '@type': 'ShippingConditions',
+                shippingDestination: {
+                    '@type': 'DefinedRegion',
+                    addressCountry: countryCode
+                },
+                shippingRate: {
+                    '@type': 'MonetaryAmount',
+                    value: option.rate,
+                    currency: DEFAULT_CURRENCY
+                }
+            };
+            if (option.conditionType === 'price') {
+                condition.orderValue = {
+                    '@type': 'MonetaryAmount',
+                    currency: DEFAULT_CURRENCY,
+                    ...(option.min != null ? { minValue: option.min } : {}),
+                    ...(option.max != null ? { maxValue: option.max } : {})
+                };
+            } else if (option.conditionType === 'weight') {
+                condition.weight = {
+                    '@type': 'QuantitativeValue',
+                    unitCode: 'KGM',
+                    ...(option.min != null ? { minValue: option.min } : {}),
+                    ...(option.max != null ? { maxValue: option.max } : {})
+                };
+            }
+            return condition;
+        });
+};
+
+export const buildShippingServiceSchema = (company = {}) => {
+    const shippingConditions = buildShippingConditionsFromZones(company?.shippingZones, normalizeCountryCode(company?.country));
+    if (!shippingConditions.length) return null;
+    return {
+        '@type': 'ShippingService',
+        '@id': buildShippingPolicyId(),
+        name: `${resolvePublicBrandName(company)} shipping policy`,
+        shippingConditions
+    };
+};
 
 const buildPostalAddress = (company = {}) => {
     company = safeObject(company);
@@ -53,6 +172,8 @@ export const buildOrganizationSchema = (company = {}) => {
         name,
         url: buildCanonical('/'),
         logo,
+        hasMerchantReturnPolicy: buildMerchantReturnPolicySchema(company),
+        ...(buildShippingServiceSchema(company) ? { hasShippingService: buildShippingServiceSchema(company) } : {}),
         ...(sameAs.length ? { sameAs } : {}),
         ...(contactPoint.length ? { contactPoint } : {})
     };
@@ -221,6 +342,8 @@ export const buildProductSchema = (product = null) => {
         return !tracked || Number(product.available_quantity ?? product.quantity ?? 0) > 0;
     })();
 
+    const shippingService = buildShippingServiceSchema(product?.company || {});
+    const sanitizedSku = sanitizeSkuForStructuredData(product.sku);
     return {
         '@context': 'https://schema.org',
         '@type': 'Product',
@@ -231,14 +354,26 @@ export const buildProductSchema = (product = null) => {
             '@type': 'Brand',
             name: SITE_NAME
         },
-        sku: normalizeText(product.sku) || undefined,
+        ...(sanitizedSku ? { sku: sanitizedSku } : {}),
         category: category || undefined,
         offers: {
             '@type': 'Offer',
             priceCurrency: 'INR',
             price: Number.isFinite(displayPrice) ? displayPrice.toFixed(2) : '0.00',
             availability: isAvailable ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
-            url: buildCanonical(`/product/${product.id}`)
+            itemCondition: 'https://schema.org/NewCondition',
+            url: buildCanonical(`/product/${product.id}`),
+            hasMerchantReturnPolicy: {
+                '@id': buildReturnPolicyId()
+            },
+            ...(shippingService ? {
+                shippingDetails: {
+                    '@type': 'OfferShippingDetails',
+                    hasShippingService: {
+                        '@id': buildShippingPolicyId()
+                    }
+                }
+            } : {})
         }
     };
 };

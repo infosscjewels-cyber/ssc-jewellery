@@ -3,6 +3,7 @@ const path = require('path');
 const db = require('../config/db');
 const CompanyProfile = require('../models/CompanyProfile');
 const Product = require('../models/Product');
+const Shipping = require('../models/Shipping');
 const { pathToFileURL } = require('url');
 
 const STATIC_ROUTE_PATHS = [
@@ -296,6 +297,9 @@ const parseCatalogRoute = (pathname = '') => {
 
 const fetchSharedSeoContext = async () => {
     const company = await CompanyProfile.get().catch(() => null);
+    const shippingZones = await Shipping.getAll()
+        .then((zones) => Shipping.toPublicZones(zones))
+        .catch(() => []);
     const [categoryRows] = await db.execute(
         `SELECT c.id, c.name, c.image_url, MAX(p.updated_at) AS lastmod
          FROM categories c
@@ -327,7 +331,10 @@ const fetchSharedSeoContext = async () => {
     ).catch(() => [[]]);
 
     return {
-        company: company || {},
+        company: {
+            ...(company || {}),
+            shippingZones
+        },
         categories: categoryRows || [],
         products: (productRows || []).map(normalizeProductForSeo),
         slides: slideRows || [],
@@ -424,9 +431,15 @@ const regenerateProductArtifact = async (productId) => {
     }
 
     const rules = await loadSeoRules();
+    const shippingZones = await Shipping.getAll()
+        .then((zones) => Shipping.toPublicZones(zones))
+        .catch(() => []);
     const company = await CompanyProfile.get().catch(() => ({}));
     const seo = rules.buildProductSeo({
-        company,
+        company: {
+            ...company,
+            shippingZones
+        },
         product: normalizeProductForSeo(product)
     });
     await writeArtifact(routePath, seo, {
@@ -440,11 +453,17 @@ const regenerateCategoryArtifactById = async (categoryId) => {
     const categoryContext = await fetchCategorySeoContextById(categoryId);
     if (!categoryContext?.category?.name) return;
 
+    const shippingZones = await Shipping.getAll()
+        .then((zones) => Shipping.toPublicZones(zones))
+        .catch(() => []);
     const company = await CompanyProfile.get().catch(() => ({}));
     const rules = await loadSeoRules();
     const routePath = `/shop/${encodeURIComponent(categoryContext.category.name)}`;
     const seo = rules.buildCategorySeo({
-        company,
+        company: {
+            ...company,
+            shippingZones
+        },
         category: categoryContext.category,
         products: categoryContext.products
     });

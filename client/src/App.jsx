@@ -76,6 +76,7 @@ const BUILD_SYNC_RELOAD_META_KEY = 'app_build_reload_meta_v1';
 const BUILD_SYNC_NOTICE_KEY = 'app_build_notice_target_v1';
 const BUILD_SYNC_MAX_RELOADS_PER_BUILD = 1;
 const BUILD_SYNC_RETRY_COOLDOWN_MS = 5 * 60 * 1000;
+const BUILD_SYNC_CHECK_RETRY_MS = 60 * 1000;
 
 // Admin Protection
 const AdminRoute = ({ children }) => {
@@ -198,6 +199,7 @@ const PublicLayout = () => {
 
 function App() {
   const buildCheckInFlightRef = useRef(false);
+  const buildCheckRetryTimerRef = useRef(null);
   const [buildRefreshNotice, setBuildRefreshNotice] = useState(null);
 
   useEffect(() => {
@@ -208,8 +210,7 @@ function App() {
       return Boolean(window.navigator?.standalone);
     };
 
-    const isAdminRoute = () => String(window.location?.pathname || '').startsWith('/admin');
-    const shouldShowBuildRefreshBanner = () => isAdminRoute() || isStandalonePwa();
+    const shouldShowBuildRefreshBanner = () => true;
 
     const notifyAboutAvailableBuild = async ({ serverBuildVersion = '', buildLabel = '' } = {}) => {
       const targetBuildVersion = String(serverBuildVersion || '').trim();
@@ -226,7 +227,7 @@ function App() {
         // Ignore storage failures and attempt a best-effort notification once.
       }
 
-      const title = 'New version available';
+      const title = isStandalonePwa() ? 'New version available' : 'Website update available';
       const body = `Latest build: ${String(buildLabel || targetBuildVersion).trim() || targetBuildVersion}. Refresh to update the app.`;
       const options = {
         body,
@@ -310,6 +311,23 @@ function App() {
       }
     };
 
+    const clearScheduledBuildCheck = () => {
+      if (buildCheckRetryTimerRef.current) {
+        window.clearTimeout(buildCheckRetryTimerRef.current);
+        buildCheckRetryTimerRef.current = null;
+      }
+    };
+
+    const scheduleBuildCheckRetry = () => {
+      clearScheduledBuildCheck();
+      buildCheckRetryTimerRef.current = window.setTimeout(() => {
+        buildCheckRetryTimerRef.current = null;
+        if (document.visibilityState === 'visible') {
+          void checkForBuildMismatch();
+        }
+      }, BUILD_SYNC_CHECK_RETRY_MS);
+    };
+
     const checkForBuildMismatch = async () => {
       if (buildCheckInFlightRef.current) return;
       buildCheckInFlightRef.current = true;
@@ -320,10 +338,14 @@ function App() {
             'Cache-Control': 'no-cache'
           }
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          scheduleBuildCheckRetry();
+          return;
+        }
         const payload = await res.json().catch(() => ({}));
         const serverBuildVersion = String(payload?.buildVersion || '').trim();
         if (!serverBuildVersion || serverBuildVersion === BUILD_VERSION) {
+          clearScheduledBuildCheck();
           setBuildRefreshNotice(null);
           try {
             window.localStorage.setItem(BUILD_SYNC_LAST_SEEN_KEY, BUILD_VERSION);
@@ -363,10 +385,11 @@ function App() {
           attempts: attempts + 1,
           lastAttemptAt: now
         });
+        clearScheduledBuildCheck();
         await clearClientCachesForBuildRefresh();
         window.location.reload();
       } catch {
-        // Best-effort only; leave the current app running if version check fails.
+        scheduleBuildCheckRetry();
       } finally {
         buildCheckInFlightRef.current = false;
       }
@@ -382,12 +405,19 @@ function App() {
         void checkForBuildMismatch();
       }
     };
+    const handleOnline = () => {
+      clearScheduledBuildCheck();
+      void checkForBuildMismatch();
+    };
 
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
     return () => {
+      clearScheduledBuildCheck();
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
     };
   }, []);
 

@@ -241,7 +241,10 @@ export const buildProductSeo = ({
             buildOrganizationSchema(company),
             buildLocalBusinessSchema(company),
             buildBreadcrumbSchema(breadcrumbItems),
-            buildProductSchema(product)
+            buildProductSchema({
+                ...product,
+                company
+            })
         ].filter(Boolean)
     };
 };

@@ -219,6 +219,37 @@ const serializePaymentAttemptStatus = ({ attempt = null, order = null, message =
     };
 };
 
+const buildCheckoutTraceMeta = ({
+    attempt = null,
+    notes = null,
+    paymentId = null,
+    order = null,
+    source = ''
+} = {}) => {
+    const resolvedNotes = notes && typeof notes === 'object'
+        ? notes
+        : (attempt?.notes && typeof attempt.notes === 'object' ? attempt.notes : null);
+    return {
+        source: String(source || '').trim() || null,
+        attemptId: attempt?.id || null,
+        userId: attempt?.user_id || order?.user_id || null,
+        razorpayOrderId: attempt?.razorpay_order_id || order?.razorpay_order_id || null,
+        razorpayPaymentId: String(paymentId || attempt?.razorpay_payment_id || order?.razorpay_payment_id || '').trim() || null,
+        localOrderId: attempt?.local_order_id || order?.id || null,
+        attemptStatus: attempt?.status || null,
+        paymentStatus: order?.payment_status || null,
+        sessionGroupId: resolvedNotes?.sessionGroupId || null,
+        supersedesAttemptId: resolvedNotes?.supersedesAttemptId || null,
+        supersedeReason: resolvedNotes?.supersedeReason || null,
+        checkoutFingerprintHash: resolvedNotes?.checkoutFingerprintHash || null,
+        checkoutSource: resolvedNotes?.source || null
+    };
+};
+
+const logCheckoutTrace = (eventName = '', payload = {}) => {
+    console.info(`[checkout_trace:${String(eventName || 'unknown').trim() || 'unknown'}]`, JSON.stringify(payload || {}));
+};
+
 const notifyAdminsOfNewOrder = (order = null, { source = 'order' } = {}) => {
     if (!order) return;
     const orderRef = String(order?.order_ref || order?.orderRef || `#${order?.id || ''}`).trim();
@@ -1023,8 +1054,22 @@ const createRazorpayOrder = async (req, res) => {
             notes,
             couponCode
         });
+        logCheckoutTrace('create_order', buildCheckoutTraceMeta({
+            attempt: payload?.attempt,
+            notes,
+            source: 'createRazorpayOrder'
+        }));
         return res.status(201).json(payload);
     } catch (error) {
+        logCheckoutTrace('create_order_error', {
+            source: 'createRazorpayOrder',
+            userId: req.user?.id || null,
+            sessionGroupId: req.body?.notes?.sessionGroupId || null,
+            supersedesAttemptId: req.body?.notes?.supersedesAttemptId || null,
+            supersedeReason: req.body?.notes?.supersedeReason || null,
+            checkoutFingerprintHash: req.body?.notes?.checkoutFingerprintHash || null,
+            message: error?.message || null
+        });
         if (Number(error?.statusCode || 0) === 423) {
             return res.status(423).json({ message: error.message });
         }
@@ -1150,6 +1195,11 @@ const createPublicRazorpayOrder = async (req, res) => {
             userId: user.id,
             razorpayOrderId: payload?.order?.id || ''
         });
+        logCheckoutTrace('create_order_public', buildCheckoutTraceMeta({
+            attempt: payload?.attempt,
+            notes,
+            source: 'createPublicRazorpayOrder'
+        }));
         return res.status(201).json({
             ...payload,
             attemptToken,
@@ -1163,6 +1213,15 @@ const createPublicRazorpayOrder = async (req, res) => {
             } : undefined
         });
     } catch (error) {
+        logCheckoutTrace('create_order_public_error', {
+            source: 'createPublicRazorpayOrder',
+            mobile: String(req.body?.guest?.mobile || '').replace(/\D/g, '').trim() || null,
+            sessionGroupId: req.body?.notes?.sessionGroupId || null,
+            supersedesAttemptId: req.body?.notes?.supersedesAttemptId || null,
+            supersedeReason: req.body?.notes?.supersedeReason || null,
+            checkoutFingerprintHash: req.body?.notes?.checkoutFingerprintHash || null,
+            message: error?.message || null
+        });
         if (Number(error?.statusCode || 0) === 423) {
             return res.status(423).json({ message: error.message });
         }
@@ -1238,6 +1297,11 @@ const verifyRazorpayPayment = async (req, res) => {
         if (!attempt) {
             return res.status(404).json({ message: 'Payment attempt not found' });
         }
+        logCheckoutTrace('verify_start', buildCheckoutTraceMeta({
+            attempt,
+            paymentId: razorpayPaymentId,
+            source: 'verifyRazorpayPayment'
+        }));
 
         if (attempt.status === PAYMENT_STATUS.PAID && attempt.local_order_id) {
             const existingOrder = await Order.getById(attempt.local_order_id);
@@ -1289,6 +1353,11 @@ const verifyRazorpayPayment = async (req, res) => {
 
         if (!lockAcquired) {
             const latestAttempt = await PaymentAttempt.getById(attempt.id);
+            logCheckoutTrace('verify_lock_conflict', buildCheckoutTraceMeta({
+                attempt: latestAttempt || attempt,
+                paymentId: razorpayPaymentId,
+                source: 'verifyRazorpayPayment'
+            }));
             if (latestAttempt?.local_order_id) {
                 const existingOrder = await Order.getById(latestAttempt.local_order_id);
                 if (existingOrder) {
@@ -1378,6 +1447,12 @@ const verifyRazorpayPayment = async (req, res) => {
         if (!reusedExistingOrder) {
             notifyAdminsOfNewOrder(finalOrder, { source: 'checkout' });
         }
+        logCheckoutTrace('verify_success', buildCheckoutTraceMeta({
+            attempt: reconciledAttempt,
+            paymentId: razorpayPaymentId,
+            order: finalOrder,
+            source: reusedExistingOrder ? 'verifyRazorpayPayment:reused' : 'verifyRazorpayPayment:fresh'
+        }));
         // Always attempt customer lifecycle communications; per-order dedupe keys
         // prevent duplicate sends across concurrent webhook/verify/poll paths.
         void triggerOrderLifecycleEmail({
@@ -1414,6 +1489,11 @@ const verifyRazorpayPayment = async (req, res) => {
         }
         if (error?.reconciliationPending) {
             const latestAttempt = lockedAttemptId ? await PaymentAttempt.getById(lockedAttemptId) : null;
+            logCheckoutTrace('verify_reconciliation_pending', buildCheckoutTraceMeta({
+                attempt: latestAttempt,
+                paymentId: lockedPaymentId,
+                source: 'verifyRazorpayPayment'
+            }));
             return res.json(serializePaymentAttemptStatus({
                 attempt: latestAttempt || null,
                 message: error.message || 'Payment confirmation is taking longer than usual'
@@ -1439,6 +1519,14 @@ const verifyRazorpayPayment = async (req, res) => {
                 }
             } catch {}
         }
+        logCheckoutTrace('verify_error', {
+            source: 'verifyRazorpayPayment',
+            attemptId: lockedAttemptId || attempt?.id || null,
+            userId,
+            razorpayOrderId,
+            razorpayPaymentId,
+            message: error?.message || null
+        });
         const statusCode = Number(error?.statusCode || 0) || 400;
         return res.status(statusCode).json({ message: error.message || 'Failed to verify payment' });
     }
@@ -1468,6 +1556,11 @@ const verifyPublicRazorpayPayment = async (req, res) => {
         if (!attempt) {
             return res.status(404).json({ message: 'Payment attempt not found' });
         }
+        logCheckoutTrace('verify_public_start', buildCheckoutTraceMeta({
+            attempt,
+            paymentId: razorpayPaymentId,
+            source: 'verifyPublicRazorpayPayment'
+        }));
         if (String(attempt.razorpay_order_id || '') !== String(razorpayOrderId || '')) {
             return res.status(400).json({ message: 'Payment attempt does not match this Razorpay order' });
         }
@@ -1522,6 +1615,11 @@ const verifyPublicRazorpayPayment = async (req, res) => {
 
         if (!lockAcquired) {
             const latestAttempt = await PaymentAttempt.getById(attempt.id);
+            logCheckoutTrace('verify_public_lock_conflict', buildCheckoutTraceMeta({
+                attempt: latestAttempt || attempt,
+                paymentId: razorpayPaymentId,
+                source: 'verifyPublicRazorpayPayment'
+            }));
             if (latestAttempt?.local_order_id) {
                 const existingOrder = await Order.getById(latestAttempt.local_order_id);
                 if (existingOrder) {
@@ -1610,6 +1708,12 @@ const verifyPublicRazorpayPayment = async (req, res) => {
         if (!reusedExistingOrder) {
             notifyAdminsOfNewOrder(finalOrder, { source: 'checkout_public' });
         }
+        logCheckoutTrace('verify_public_success', buildCheckoutTraceMeta({
+            attempt: reconciledAttempt,
+            paymentId: razorpayPaymentId,
+            order: finalOrder,
+            source: reusedExistingOrder ? 'verifyPublicRazorpayPayment:reused' : 'verifyPublicRazorpayPayment:fresh'
+        }));
         // Always attempt customer lifecycle communications; per-order dedupe keys
         // prevent duplicate sends across concurrent webhook/verify/poll paths.
         void triggerOrderLifecycleEmail({
@@ -1646,6 +1750,11 @@ const verifyPublicRazorpayPayment = async (req, res) => {
         }
         if (error?.reconciliationPending) {
             const latestAttempt = lockedAttemptId ? await PaymentAttempt.getById(lockedAttemptId) : null;
+            logCheckoutTrace('verify_public_reconciliation_pending', buildCheckoutTraceMeta({
+                attempt: latestAttempt,
+                paymentId: lockedPaymentId,
+                source: 'verifyPublicRazorpayPayment'
+            }));
             return res.json(serializePaymentAttemptStatus({
                 attempt: latestAttempt || null,
                 message: error.message || 'Payment confirmation is taking longer than usual'
@@ -1671,6 +1780,13 @@ const verifyPublicRazorpayPayment = async (req, res) => {
                 }
             } catch {}
         }
+        logCheckoutTrace('verify_public_error', {
+            source: 'verifyPublicRazorpayPayment',
+            attemptId: lockedAttemptId || attemptId || null,
+            razorpayOrderId,
+            razorpayPaymentId,
+            message: error?.message || null
+        });
         return res.status(Number(error?.statusCode || 400) || 400).json({ message: error?.message || 'Failed to verify payment' });
     }
 };
@@ -1685,7 +1801,6 @@ const getPublicPaymentAttemptStatus = async (req, res) => {
         if (!attempt) {
             return res.status(404).json({ message: 'Payment attempt not found' });
         }
-
         if (attempt.local_order_id) {
             const existingOrder = await Order.getById(attempt.local_order_id);
             return res.json(serializePaymentAttemptStatus({
@@ -1708,6 +1823,11 @@ const getPublicPaymentAttemptStatus = async (req, res) => {
         if (!lockAcquired) {
             const latestAttempt = await PaymentAttempt.getById(attempt.id);
             const existingOrder = latestAttempt?.local_order_id ? await Order.getById(latestAttempt.local_order_id) : null;
+            logCheckoutTrace('attempt_status_public_lock_conflict', buildCheckoutTraceMeta({
+                attempt: latestAttempt || attempt,
+                order: existingOrder || null,
+                source: 'getPublicPaymentAttemptStatus'
+            }));
             return res.json(serializePaymentAttemptStatus({
                 attempt: latestAttempt || attempt,
                 order: existingOrder || null
@@ -1770,6 +1890,12 @@ const getPublicPaymentAttemptStatus = async (req, res) => {
                     }
                 });
             }
+            logCheckoutTrace('attempt_status_public_resolved', buildCheckoutTraceMeta({
+                attempt: latestAttempt || reconciled.attempt,
+                order: finalOrder || null,
+                paymentId: reconciled.paymentId,
+                source: 'getPublicPaymentAttemptStatus'
+            }));
 
             return res.json(serializePaymentAttemptStatus({
                 attempt: latestAttempt || reconciled.attempt,
@@ -1778,6 +1904,11 @@ const getPublicPaymentAttemptStatus = async (req, res) => {
         } catch (error) {
             const latestAttempt = await PaymentAttempt.getById(attempt.id);
             const existingOrder = latestAttempt?.local_order_id ? await Order.getById(latestAttempt.local_order_id) : null;
+            logCheckoutTrace('attempt_status_public_error', buildCheckoutTraceMeta({
+                attempt: latestAttempt || attempt,
+                order: existingOrder || null,
+                source: 'getPublicPaymentAttemptStatus:error'
+            }));
             return res.json(serializePaymentAttemptStatus({
                 attempt: latestAttempt || attempt,
                 order: existingOrder || null,
@@ -2808,10 +2939,26 @@ const getMyOrderByPaymentRef = async (req, res) => {
         }
         const order = await Order.getByRazorpayPaymentId(paymentId);
         if (!order || String(order.user_id) !== String(req.user.id)) {
+            logCheckoutTrace('payment_ref_lookup_miss', {
+                source: 'getMyOrderByPaymentRef',
+                userId: req.user?.id || null,
+                razorpayPaymentId: paymentId
+            });
             return res.status(404).json({ message: 'Order not found' });
         }
+        logCheckoutTrace('payment_ref_lookup_hit', buildCheckoutTraceMeta({
+            order,
+            paymentId,
+            source: 'getMyOrderByPaymentRef'
+        }));
         return res.json({ order });
     } catch (error) {
+        logCheckoutTrace('payment_ref_lookup_error', {
+            source: 'getMyOrderByPaymentRef',
+            userId: req.user?.id || null,
+            razorpayPaymentId: String(req.params.paymentId || '').trim() || null,
+            message: error?.message || null
+        });
         return res.status(500).json({ message: 'Failed to load order' });
     }
 };
@@ -2827,7 +2974,6 @@ const getMyPaymentAttemptStatus = async (req, res) => {
         if (!attempt || String(attempt.user_id) !== String(req.user.id)) {
             return res.status(404).json({ message: 'Payment attempt not found' });
         }
-
         if (attempt.local_order_id) {
             const existingOrder = await Order.getById(attempt.local_order_id);
             return res.json(serializePaymentAttemptStatus({
@@ -2850,6 +2996,11 @@ const getMyPaymentAttemptStatus = async (req, res) => {
         if (!lockAcquired) {
             const latestAttempt = await PaymentAttempt.getById(attempt.id);
             const existingOrder = latestAttempt?.local_order_id ? await Order.getById(latestAttempt.local_order_id) : null;
+            logCheckoutTrace('attempt_status_lock_conflict', buildCheckoutTraceMeta({
+                attempt: latestAttempt || attempt,
+                order: existingOrder || null,
+                source: 'getMyPaymentAttemptStatus'
+            }));
             return res.json(serializePaymentAttemptStatus({
                 attempt: latestAttempt || attempt,
                 order: existingOrder || null
@@ -2913,6 +3064,13 @@ const getMyPaymentAttemptStatus = async (req, res) => {
                 });
             }
 
+            logCheckoutTrace('attempt_status_resolved', buildCheckoutTraceMeta({
+                attempt: latestAttempt || reconciled.attempt,
+                order: finalOrder || null,
+                paymentId: reconciled.paymentId,
+                source: 'getMyPaymentAttemptStatus'
+            }));
+
             return res.json(serializePaymentAttemptStatus({
                 attempt: latestAttempt || reconciled.attempt,
                 order: finalOrder
@@ -2920,6 +3078,11 @@ const getMyPaymentAttemptStatus = async (req, res) => {
         } catch (error) {
             const latestAttempt = await PaymentAttempt.getById(attempt.id);
             const existingOrder = latestAttempt?.local_order_id ? await Order.getById(latestAttempt.local_order_id) : null;
+            logCheckoutTrace('attempt_status_error', buildCheckoutTraceMeta({
+                attempt: latestAttempt || attempt,
+                order: existingOrder || null,
+                source: 'getMyPaymentAttemptStatus:error'
+            }));
             return res.json(serializePaymentAttemptStatus({
                 attempt: latestAttempt || attempt,
                 order: existingOrder || null,
@@ -2927,6 +3090,12 @@ const getMyPaymentAttemptStatus = async (req, res) => {
             }));
         }
     } catch (error) {
+        logCheckoutTrace('attempt_status_request_error', {
+            source: 'getMyPaymentAttemptStatus',
+            userId: req.user?.id || null,
+            attemptId: Number(req.params.id || 0) || null,
+            message: error?.message || null
+        });
         return res.status(400).json({ message: error?.message || 'Failed to fetch payment attempt status' });
     }
 };

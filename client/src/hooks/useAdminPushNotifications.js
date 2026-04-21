@@ -22,12 +22,12 @@ const normalizeForegroundNotification = (payload = {}) => {
     const webpush = payload?.webpush?.notification || {};
     const data = payload?.data || {};
     return {
-        title: notification.title || webpush.title || 'SSC Jewels',
+        title: data.title || notification.title || webpush.title || 'SSC Jewels',
         options: {
-            body: notification.body || webpush.body || '',
-            icon: webpush.icon || '/logo.webp',
-            badge: webpush.badge || '/logo.webp',
-            tag: webpush.tag || data.tag || undefined,
+            body: data.body || notification.body || webpush.body || '',
+            icon: data.icon || webpush.icon || '/logo.webp',
+            badge: data.badge || webpush.badge || '/logo.webp',
+            tag: data.tag || webpush.tag || undefined,
             data: {
                 link: data.link || data.url || DEFAULT_ADMIN_LINK
             }

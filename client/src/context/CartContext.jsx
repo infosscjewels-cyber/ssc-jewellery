@@ -30,6 +30,8 @@ const defaultCartContext = {
 
 const CartContext = createContext(defaultCartContext);
 const STORAGE_KEY = 'guest_cart_v1';
+const CART_SYNC_EVENT_KEY = 'cart_sync_event_v1';
+const createCartSyncSessionId = () => `cart_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
 const buildKey = (productId, variantId) => `${productId}__${variantId || ''}`;
 const toBool = (value) => value === 1 || value === true || value === '1' || value === 'true';
@@ -182,6 +184,20 @@ export const CartProvider = ({ children }) => {
     const skipNextLoginGuestMergeRef = useRef(false);
     const suppressGuestCartPersistRef = useRef(false);
     const pendingPostSwitchAddIntentRef = useRef(null);
+    const cartSyncSessionIdRef = useRef(createCartSyncSessionId());
+
+    const announceCartSyncEvent = useCallback((payload = {}) => {
+        if (typeof window === 'undefined') return;
+        try {
+            window.localStorage.setItem(CART_SYNC_EVENT_KEY, JSON.stringify({
+                ...payload,
+                sessionId: cartSyncSessionIdRef.current,
+                ts: Date.now()
+            }));
+        } catch {
+            // Ignore cross-tab sync broadcast failures.
+        }
+    }, []);
 
     const hydrateFromServer = useCallback(async (mergeGuest = false) => {
         if (!user) return;
@@ -262,6 +278,10 @@ export const CartProvider = ({ children }) => {
             try {
                 const data = await cartService.addItem({ productId: product.id, variantId: variant?.id || '', quantity });
                 setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+                announceCartSyncEvent({
+                    type: 'server_cart_mutated',
+                    userId: user?.id || null
+                });
                 await removeFromWishlist(product.id, variant?.id || '', { silent: true, removeAllVariants: !variant?.id });
                 setIsOpen(true);
             } catch (error) {
@@ -275,7 +295,7 @@ export const CartProvider = ({ children }) => {
             setIsOpen(true);
         }
         return { status: 'added' };
-    }, [removeFromWishlist, toast, user, items]);
+    }, [announceCartSyncEvent, removeFromWishlist, toast, user, items]);
 
     useEffect(() => {
         if (!user || isSyncing || !pendingPostSwitchAddIntentRef.current) return;
@@ -306,7 +326,7 @@ export const CartProvider = ({ children }) => {
         return executeAddItem({ product, variant, quantity });
     }, [executeAddItem, phoneCaptureState.isOpen, user]);
 
-    const updateQuantity = async ({ productId, variantId = '', quantity }) => {
+    const updateQuantity = useCallback(async ({ productId, variantId = '', quantity }) => {
         if (user) {
             const previousItems = items;
             const current = items.find((item) => item.productId === productId && item.variantId === variantId);
@@ -323,6 +343,10 @@ export const CartProvider = ({ children }) => {
             try {
                 const data = await cartService.updateItem({ productId, variantId, quantity: nextQuantity });
                 setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+                announceCartSyncEvent({
+                    type: 'server_cart_mutated',
+                    userId: user?.id || null
+                });
             } catch (error) {
                 setItems(previousItems);
                 throw error;
@@ -340,15 +364,19 @@ export const CartProvider = ({ children }) => {
                 return prev.map(p => (p.productId === productId && p.variantId === variantId) ? { ...p, quantity: nextQuantity } : p);
             });
         }
-    };
+    }, [announceCartSyncEvent, items, toast, user]);
 
-    const removeItem = async ({ productId, variantId = '' }) => {
+    const removeItem = useCallback(async ({ productId, variantId = '' }) => {
         if (user) {
             const previousItems = items;
             setItems((prev) => prev.filter((item) => !(item.productId === productId && item.variantId === variantId)));
             try {
                 const data = await cartService.removeItem({ productId, variantId });
                 setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+                announceCartSyncEvent({
+                    type: 'server_cart_mutated',
+                    userId: user?.id || null
+                });
             } catch (error) {
                 setItems(previousItems);
                 throw error;
@@ -356,15 +384,19 @@ export const CartProvider = ({ children }) => {
         } else {
             setItems(prev => prev.filter(p => !(p.productId === productId && p.variantId === variantId)));
         }
-    };
+    }, [announceCartSyncEvent, items, user]);
 
-    const clearCart = async () => {
+    const clearCart = useCallback(async () => {
         if (user) {
             const previousItems = items;
             setItems([]);
             try {
                 const data = await cartService.clearCart();
                 setItems((data.items || []).map(i => ({ ...i, key: buildKey(i.productId, i.variantId) })));
+                announceCartSyncEvent({
+                    type: 'server_cart_cleared',
+                    userId: user?.id || null
+                });
             } catch (error) {
                 setItems(previousItems);
                 throw error;
@@ -372,7 +404,7 @@ export const CartProvider = ({ children }) => {
         } else {
             setItems([]);
         }
-    };
+    }, [announceCartSyncEvent, items, user]);
 
     const adoptServerCart = useCallback((serverItems = []) => {
         try {
@@ -677,7 +709,31 @@ export const CartProvider = ({ children }) => {
             socket.off('product:category_change', handleProductCategoryChange);
             socket.off('refresh:categories', handleCategoryRefresh);
         };
-    }, [socket, shouldShowCartToasts, user, hydrateFromServer]);
+    }, [socket, shouldShowCartToasts, toast, user, hydrateFromServer]);
+
+    useEffect(() => {
+        const handleStorage = (event) => {
+            if (!event) return;
+            if (event.key === STORAGE_KEY && !user) {
+                setItems(loadGuestCart());
+                return;
+            }
+            if (event.key !== CART_SYNC_EVENT_KEY || !event.newValue || !user) return;
+            try {
+                const payload = JSON.parse(event.newValue);
+                if (!payload || payload.sessionId === cartSyncSessionIdRef.current) return;
+                if (String(payload.userId || '') !== String(user?.id || '')) return;
+            } catch {
+                return;
+            }
+            hydrateFromServer(false).catch(() => {});
+        };
+
+        window.addEventListener('storage', handleStorage);
+        return () => {
+            window.removeEventListener('storage', handleStorage);
+        };
+    }, [hydrateFromServer, user]);
 
     const itemCount = useMemo(() => items.reduce((sum, i) => sum + i.quantity, 0), [items]);
     const subtotal = useMemo(() => items.reduce((sum, i) => sum + (i.price * i.quantity), 0), [items]);
@@ -697,7 +753,7 @@ export const CartProvider = ({ children }) => {
         openQuickAdd,
         adoptServerCart,
         skipNextLoginGuestMerge
-    }), [items, itemCount, subtotal, isOpen, isSyncing, addItem, adoptServerCart, skipNextLoginGuestMerge]);
+    }), [items, itemCount, subtotal, isOpen, isSyncing, addItem, updateQuantity, removeItem, clearCart, adoptServerCart, skipNextLoginGuestMerge]);
 
     return (
         <CartContext.Provider value={value}>

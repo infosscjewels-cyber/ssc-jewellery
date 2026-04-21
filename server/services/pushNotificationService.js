@@ -45,19 +45,16 @@ const sendToTokenRows = async (rows = [], {
     if (!tokens.length) return { sent: 0, failed: 0, skipped: 0 };
 
     const payload = {
-        notification: {
+        data: normalizeDataPayload({
+            ...data,
             title: String(title || '').trim() || 'SSC Jewels',
-            body: String(body || '').trim() || ''
-        },
-        data: normalizeDataPayload(data),
+            body: String(body || '').trim() || '',
+            icon,
+            badge: icon,
+            tag: String(tag || '').trim() || '',
+            link: String(link || '/').trim() || '/'
+        }),
         webpush: {
-            notification: {
-                title: String(title || '').trim() || 'SSC Jewels',
-                body: String(body || '').trim() || '',
-                icon,
-                badge: icon,
-                tag: String(tag || '').trim() || undefined
-            },
             fcmOptions: {
                 link: String(link || '/').trim() || '/'
             }

@@ -39,6 +39,41 @@ const hydrateAttemptRow = (row = null) => {
         notes: parseJsonField(row.notes)
     };
 };
+const summarizeAttemptForLog = (attempt = null) => {
+    if (!attempt || typeof attempt !== 'object') return null;
+    const notes = attempt?.notes && typeof attempt.notes === 'object' ? attempt.notes : parseJsonField(attempt.notes);
+    return {
+        id: attempt.id || null,
+        userId: attempt.user_id || null,
+        status: attempt.status || null,
+        localOrderId: attempt.local_order_id || null,
+        razorpayOrderId: attempt.razorpay_order_id || null,
+        razorpayPaymentId: attempt.razorpay_payment_id || null,
+        createdAt: attempt.created_at || null,
+        updatedAt: attempt.updated_at || null,
+        sessionGroupId: notes?.sessionGroupId || null,
+        supersedesAttemptId: notes?.supersedesAttemptId || null,
+        supersedeReason: notes?.supersedeReason || null,
+        checkoutFingerprintHash: notes?.checkoutFingerprintHash || null,
+        source: notes?.source || null
+    };
+};
+const logDuplicatePaymentClaimEvent = ({
+    source = 'unknown',
+    paymentId = '',
+    targetAttempt = null,
+    ownerAttempt = null,
+    resolution = ''
+} = {}) => {
+    const payload = {
+        source: String(source || 'unknown').trim() || 'unknown',
+        paymentId: String(paymentId || '').trim() || null,
+        resolution: String(resolution || '').trim() || 'unspecified',
+        targetAttempt: summarizeAttemptForLog(targetAttempt),
+        ownerAttempt: summarizeAttemptForLog(ownerAttempt)
+    };
+    console.warn('[payment_attempt_duplicate_claim]', JSON.stringify(payload));
+};
 const normalizeGatewayPaymentSnapshot = (paymentDetails = null) => {
     if (!paymentDetails || typeof paymentDetails !== 'object') return null;
     const card = paymentDetails.card && typeof paymentDetails.card === 'object' ? paymentDetails.card : null;
@@ -133,6 +168,11 @@ const buildPaymentFailureNotificationBody = (attempt = {}) => {
     const reasonText = reason ? ` · ${reason.slice(0, 80)}` : '';
     return `❌ ${customerName} · ${amount}${reasonText}`;
 };
+const shouldSuppressFailedPaymentAdminNotification = (attempt = {}) => {
+    const reason = String(attempt?.failure_reason || attempt?.last_gateway_error || '').trim().toLowerCase();
+    if (!reason) return false;
+    return reason === 'payment already linked to an existing checkout. please retry with a new payment session.';
+};
 const notifyAdminsOfFailedPaymentAttempt = async (attemptId) => {
     const resolvedAttemptId = Number(attemptId || 0);
     if (!Number.isFinite(resolvedAttemptId) || resolvedAttemptId <= 0) return;
@@ -154,6 +194,13 @@ const notifyAdminsOfFailedPaymentAttempt = async (attemptId) => {
         );
         const attempt = hydrateAttemptRow(rows?.[0] || null);
         if (!attempt?.id) return;
+        if (shouldSuppressFailedPaymentAdminNotification(attempt)) {
+            console.info('[payment_attempt_failed_notification_suppressed]', JSON.stringify({
+                attemptId: attempt.id,
+                reason: String(attempt?.failure_reason || attempt?.last_gateway_error || '').trim() || null
+            }));
+            return;
+        }
 
         await sendToAdmins({
             title: '💳 Order payment failed',
@@ -597,6 +644,13 @@ class PaymentAttempt {
                 return { claimedBySelf: true };
             }
             if (ownerAttempt.local_order_id && !targetAttempt.local_order_id) {
+                logDuplicatePaymentClaimEvent({
+                    source,
+                    paymentId: resolvedPaymentId,
+                    targetAttempt,
+                    ownerAttempt,
+                    resolution: 'linked_to_existing_order'
+                });
                 await PaymentAttempt.linkToExistingOrder({
                     id: targetAttempt.id,
                     localOrderId: ownerAttempt.local_order_id,
@@ -627,6 +681,13 @@ class PaymentAttempt {
                     targetAttempt.id
                 ]
             );
+            logDuplicatePaymentClaimEvent({
+                source,
+                paymentId: resolvedPaymentId,
+                targetAttempt,
+                ownerAttempt,
+                resolution: 'owner_still_pending_marked_reconciliation_pending'
+            });
             return {
                 claimedBySelf: false,
                 claimedByAnotherPendingAttempt: true,
@@ -646,12 +707,18 @@ class PaymentAttempt {
                  SET razorpay_payment_id = COALESCE(?, razorpay_payment_id),
                      razorpay_signature = COALESCE(?, razorpay_signature),
                      updated_at = CURRENT_TIMESTAMP
-                 WHERE id = ?`,
+                WHERE id = ?`,
                 [resolvedPaymentId, resolvedSignature, targetAttempt.id]
             );
             return { claimedBySelf: true };
         } catch (error) {
             if (!isDuplicatePaymentClaimError(error)) throw error;
+            console.warn('[payment_attempt_duplicate_claim_db_conflict]', JSON.stringify({
+                source: String(source || 'unknown').trim() || 'unknown',
+                paymentId: resolvedPaymentId,
+                targetAttempt: summarizeAttemptForLog(targetAttempt),
+                error: String(error?.message || '').slice(0, 300)
+            }));
             return resolveExistingOwner();
         }
     }

@@ -37,6 +37,98 @@ const RAZORPAY_SCRIPT_ID = 'razorpay-checkout-js';
 const RAZORPAY_SCRIPT_SRC = 'https://checkout.razorpay.com/v1/checkout.js';
 const buildCheckoutCartKey = (productId = '', variantId = '') => `${String(productId || '').trim()}::${String(variantId || '').trim()}`;
 const POST_OTP_PREPARE_TIMEOUT_MS = 8000;
+const CHECKOUT_GUARD_SESSION_KEY = 'checkout_guard_state_v1';
+const CHECKOUT_GUARD_GROUP_KEY = 'checkout_guard_group_v1';
+const CHECKOUT_GUARD_EVENT_KEY = 'checkout_guard_event_v1';
+const CHECKOUT_GUARD_ARM_DEBOUNCE_MS = 900;
+const CHECKOUT_GUARD_BLOCKING_PHASES = new Set(['arming', 'opening', 'verifying', 'recovering']);
+const CHECKOUT_GUARD_UI_BLOCKING_PHASES = new Set(['opening', 'verifying']);
+const CHECKOUT_GUARD_PHASE_TIMEOUT_MS = Object.freeze({
+    arming: 15000,
+    opening: 120000,
+    verifying: 30000,
+    recovering: 20000
+});
+
+const createCheckoutGuardId = (prefix = 'chk') => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+const safeParseJson = (value, fallback = null) => {
+    try {
+        return value ? JSON.parse(value) : fallback;
+    } catch {
+        return fallback;
+    }
+};
+const normalizeCheckoutAddressForFingerprint = (value = null) => ({
+    line1: String(value?.line1 || '').trim(),
+    landmark: String(value?.landmark || '').trim(),
+    city: String(value?.city || '').trim(),
+    state: String(value?.state || '').trim(),
+    zip: String(value?.zip || '').trim(),
+    additionalPhone: String(value?.additionalPhone || '').trim()
+});
+const computeCheckoutFingerprintHash = (value = '') => {
+    const input = String(value || '');
+    let hash = 5381;
+    for (let index = 0; index < input.length; index += 1) {
+        hash = ((hash << 5) + hash) ^ input.charCodeAt(index);
+    }
+    return Math.abs(hash >>> 0).toString(36);
+};
+const readCheckoutGuardState = () => {
+    if (typeof window === 'undefined') return null;
+    return safeParseJson(window.sessionStorage.getItem(CHECKOUT_GUARD_SESSION_KEY), null);
+};
+const writeCheckoutGuardState = (value = null) => {
+    if (typeof window === 'undefined') return;
+    try {
+        if (!value) {
+            window.sessionStorage.removeItem(CHECKOUT_GUARD_SESSION_KEY);
+            return;
+        }
+        window.sessionStorage.setItem(CHECKOUT_GUARD_SESSION_KEY, JSON.stringify(value));
+    } catch {
+        // Ignore session storage write failures.
+    }
+};
+const getOrCreateCheckoutGuardGroupId = () => {
+    if (typeof window === 'undefined') return createCheckoutGuardId('checkout');
+    try {
+        const existing = String(window.sessionStorage.getItem(CHECKOUT_GUARD_GROUP_KEY) || '').trim();
+        if (existing) return existing;
+        const next = createCheckoutGuardId('checkout');
+        window.sessionStorage.setItem(CHECKOUT_GUARD_GROUP_KEY, next);
+        return next;
+    } catch {
+        return createCheckoutGuardId('checkout');
+    }
+};
+const buildDefaultCheckoutGuardState = (sessionGroupId = '') => ({
+    sessionGroupId,
+    armedSession: null,
+    activeAttempt: null,
+    checkoutFingerprint: '',
+    checkoutFingerprintHash: '',
+    phase: 'idle',
+    phaseStartedAt: 0,
+    supersededAttemptId: null
+});
+const announceCheckoutGuardEvent = (payload = {}) => {
+    if (typeof window === 'undefined') return;
+    const eventPayload = {
+        ...payload,
+        ts: Date.now()
+    };
+    try {
+        console.info('[checkout_guard]', JSON.stringify(eventPayload));
+    } catch {
+        // Ignore console serialization failures.
+    }
+    try {
+        window.localStorage.setItem(CHECKOUT_GUARD_EVENT_KEY, JSON.stringify(eventPayload));
+    } catch {
+        // Ignore storage/broadcast failures.
+    }
+};
 
 const ensureRazorpayScript = () => {
     if (typeof window === 'undefined') return Promise.resolve(false);
@@ -148,6 +240,17 @@ const EXTRA_DISCOUNT_BY_TIER = {
 };
 
 export default function Checkout() {
+    const sessionGroupIdRef = useRef(getOrCreateCheckoutGuardGroupId());
+    const initialCheckoutGuardStateRef = useRef(null);
+    if (!initialCheckoutGuardStateRef.current) {
+        const storedState = readCheckoutGuardState();
+        initialCheckoutGuardStateRef.current = storedState?.sessionGroupId === sessionGroupIdRef.current
+            ? {
+                ...buildDefaultCheckoutGuardState(sessionGroupIdRef.current),
+                ...storedState
+            }
+            : buildDefaultCheckoutGuardState(sessionGroupIdRef.current);
+    }
     const { user, login, updateUser } = useAuth();
     const { items, subtotal, itemCount, clearCart, adoptServerCart, isSyncing: isCartSyncing } = useCart();
     const { zones } = useShipping();
@@ -188,6 +291,10 @@ export default function Checkout() {
     const preserveCheckoutAddressOnLoginRef = useRef(false);
     const forceEditableAfterOtpLoginRef = useRef(false);
     const checkoutAddressSnapshotRef = useRef({ address: { ...emptyAddress }, billingAddress: { ...emptyAddress } });
+    const checkoutGuardRef = useRef(initialCheckoutGuardStateRef.current);
+    const checkoutGuardRecoveryRef = useRef(false);
+    const checkoutGuardArmTimeoutRef = useRef(null);
+    const checkoutGuardRequestIdRef = useRef(0);
     const [form, setForm] = useState({
         name: '',
         email: '',
@@ -196,6 +303,7 @@ export default function Checkout() {
         billingAddress: { ...emptyAddress }
     });
     const [attemptedPay, setAttemptedPay] = useState(false);
+    const [checkoutGuard, setCheckoutGuard] = useState(initialCheckoutGuardStateRef.current);
     const couponFromQuery = useMemo(() => {
         const raw = new URLSearchParams(location.search).get('coupon');
         return String(raw || '').trim().toUpperCase();
@@ -232,6 +340,49 @@ export default function Checkout() {
             quantity: Number(item.quantity || 0)
         })),
         [items]
+    );
+    const updateCheckoutGuard = useCallback((updater) => {
+        setCheckoutGuard((prev) => {
+            const nextValue = typeof updater === 'function' ? updater(prev) : updater;
+            const baseNext = {
+                ...buildDefaultCheckoutGuardState(sessionGroupIdRef.current),
+                ...(nextValue || {})
+            };
+            const nextPhase = String(baseNext.phase || 'idle').trim().toLowerCase() || 'idle';
+            const prevPhase = String(prev?.phase || 'idle').trim().toLowerCase() || 'idle';
+            const next = {
+                ...baseNext,
+                phase: nextPhase,
+                phaseStartedAt: nextPhase !== prevPhase
+                    ? Date.now()
+                    : Math.max(0, Number(baseNext.phaseStartedAt || prev?.phaseStartedAt || 0))
+            };
+            checkoutGuardRef.current = next;
+            writeCheckoutGuardState(next);
+            return next;
+        });
+    }, []);
+    const checkoutFingerprint = useMemo(() => JSON.stringify({
+        userId: String(user?.id || '').trim(),
+        guest: {
+            mobile: normalizeStorefrontMobileInput(form.mobile),
+            email: String(form.email || '').trim().toLowerCase(),
+            locked: Boolean(guestLockedAccount)
+        },
+        addresses: {
+            shipping: normalizeCheckoutAddressForFingerprint(form.address),
+            billing: normalizeCheckoutAddressForFingerprint(billingAddressEnabled ? form.billingAddress : form.address)
+        },
+        couponCode: String(appliedCoupon?.code || coupon || '').trim().toUpperCase(),
+        items: checkoutItemsPayload.map((item) => ({
+            productId: String(item.productId || '').trim(),
+            variantId: String(item.variantId || '').trim(),
+            quantity: Number(item.quantity || 0)
+        }))
+    }), [user?.id, form.mobile, form.email, guestLockedAccount, form.address, form.billingAddress, billingAddressEnabled, appliedCoupon?.code, coupon, checkoutItemsPayload]);
+    const checkoutFingerprintHash = useMemo(
+        () => computeCheckoutFingerprintHash(checkoutFingerprint),
+        [checkoutFingerprint]
     );
     const pollPaymentAttemptUntilResolved = useCallback(async (attemptId, { maxAttempts = 8 } = {}) => {
         const safeAttemptId = Number(attemptId);
@@ -1229,6 +1380,390 @@ export default function Checkout() {
         });
         return Array.from(byCode.values());
     }, [availableCoupons]);
+    const isCheckoutGuardBlockingPayment = CHECKOUT_GUARD_UI_BLOCKING_PHASES.has(String(checkoutGuard?.phase || 'idle').trim().toLowerCase());
+    const canCreateCheckoutSession = useMemo(() => (
+        storefrontOpen
+        && lineItems.length > 0
+        && !isPlacingOrder
+        && !isPreparingVerifiedCheckout
+        && !isPaymentAwaitingConfirmation
+        && !resumeCheckoutAfterVerification
+        && !postOtpCheckoutSync
+        && !isCartSyncing
+        && !isLoggedInEditingBeforePayment
+        && !hasFormValidationErrors
+        && !hasUnavailableItems
+        && isReadyForPayment
+        && !guestCheckoutConflict
+        && !isAccountVerificationOpen
+    ), [
+        storefrontOpen,
+        lineItems.length,
+        isPlacingOrder,
+        isPreparingVerifiedCheckout,
+        isPaymentAwaitingConfirmation,
+        resumeCheckoutAfterVerification,
+        postOtpCheckoutSync,
+        isCartSyncing,
+        isLoggedInEditingBeforePayment,
+        hasFormValidationErrors,
+        hasUnavailableItems,
+        isReadyForPayment,
+        guestCheckoutConflict,
+        isAccountVerificationOpen
+    ]);
+    const canBackgroundArmCheckoutSession = useMemo(() => (
+        canCreateCheckoutSession
+        && Boolean(checkoutGuard?.supersededAttemptId || checkoutGuard?.armedSession)
+        && !checkoutGuard?.activeAttempt
+        && !isCheckoutGuardBlockingPayment
+    ), [
+        canCreateCheckoutSession,
+        checkoutGuard?.supersededAttemptId,
+        checkoutGuard?.armedSession,
+        checkoutGuard?.activeAttempt,
+        isCheckoutGuardBlockingPayment
+    ]);
+    const fetchAttemptStatusForGuard = useCallback(async (attemptRecord = null, { maxAttempts = 3 } = {}) => {
+        const safeAttemptId = Number(attemptRecord?.attemptId || 0);
+        if (!Number.isFinite(safeAttemptId) || safeAttemptId <= 0) {
+            return null;
+        }
+        const isPublicAttempt = Boolean(attemptRecord?.isPublicFlow);
+        const token = isPublicAttempt
+            ? String(attemptRecord?.attemptToken || orderService.getStoredPublicAttemptAccess(safeAttemptId) || '').trim()
+            : '';
+        let lastPayload = null;
+        for (let index = 0; index < Math.max(1, Number(maxAttempts || 1)); index += 1) {
+            lastPayload = isPublicAttempt
+                ? await orderService.getPublicPaymentAttemptStatus(safeAttemptId, token)
+                : await orderService.getPaymentAttemptStatus(safeAttemptId);
+            if (lastPayload?.order || lastPayload?.failed || !lastPayload?.processing) {
+                break;
+            }
+            if (index < maxAttempts - 1) {
+                await new Promise((resolve) => window.setTimeout(resolve, 1000 + (index * 500)));
+            }
+        }
+        return lastPayload;
+    }, []);
+    const createCheckoutSessionInit = useCallback(async ({
+        supersedesAttemptId = null,
+        supersedeReason = '',
+        keepExistingArm = false
+    } = {}) => {
+        const existingArmed = keepExistingArm ? checkoutGuardRef.current?.armedSession : null;
+        if (
+            existingArmed
+            && existingArmed.checkoutFingerprintHash === checkoutFingerprintHash
+            && Number(existingArmed.attemptId || 0) > 0
+            && String(existingArmed.orderId || '').trim()
+        ) {
+            return existingArmed;
+        }
+
+        const effectiveGuestShippingAddress = guestLockedAccount
+            ? (hasCompleteAddress(form.address) ? form.address : null)
+            : form.address;
+        const effectiveGuestBillingAddress = guestLockedAccount
+            ? (billingAddressEnabled
+                ? (hasCompleteAddress(form.billingAddress) ? form.billingAddress : null)
+                : effectiveGuestShippingAddress)
+            : effectiveBillingAddress;
+        const notesMeta = {
+            source: 'web_checkout',
+            sessionGroupId: sessionGroupIdRef.current,
+            checkoutFingerprintHash,
+            ...(Number.isFinite(Number(supersedesAttemptId)) && Number(supersedesAttemptId) > 0 ? { supersedesAttemptId: Number(supersedesAttemptId) } : {}),
+            ...(String(supersedeReason || '').trim() ? { supersedeReason: String(supersedeReason || '').trim() } : {})
+        };
+        const init = user
+            ? await orderService.createRazorpayOrder({
+                billingAddress: effectiveBillingAddress,
+                shippingAddress: form.address,
+                couponCode: appliedCoupon?.code || null,
+                notes: notesMeta
+            })
+            : await orderService.createPublicRazorpayOrder({
+                guest: {
+                    name: form.name,
+                    email: form.email,
+                    mobile: form.mobile
+                },
+                billingAddress: effectiveGuestBillingAddress,
+                shippingAddress: effectiveGuestShippingAddress,
+                couponCode: appliedCoupon?.code || null,
+                notes: notesMeta,
+                items: checkoutItemsPayload
+            });
+        if (!init?.order?.id || !init?.keyId || !init?.attempt?.id) {
+            throw new Error(init?.message || 'Failed to initialize payment');
+        }
+        if (!user && init?.attemptToken) {
+            orderService.rememberPublicAttemptAccess({
+                attemptId: init.attempt.id,
+                attemptToken: init.attemptToken
+            });
+        }
+        return {
+            attemptId: Number(init.attempt.id || 0) || null,
+            attemptToken: String(init.attemptToken || '').trim(),
+            isPublicFlow: !user && Boolean(init?.attemptToken),
+            orderId: String(init.order.id || '').trim(),
+            keyId: String(init.keyId || '').trim(),
+            order: init.order,
+            summary: init.summary || null,
+            checkoutFingerprint,
+            checkoutFingerprintHash,
+            notesMeta,
+            createdAt: Date.now()
+        };
+    }, [
+        user,
+        guestLockedAccount,
+        form.address,
+        form.billingAddress,
+        form.name,
+        form.email,
+        form.mobile,
+        billingAddressEnabled,
+        effectiveBillingAddress,
+        appliedCoupon?.code,
+        checkoutItemsPayload,
+        checkoutFingerprint,
+        checkoutFingerprintHash
+    ]);
+    const recoverCheckoutGuard = useCallback(async ({ reason = 'resume' } = {}) => {
+        if (checkoutGuardRecoveryRef.current) return;
+        const activeAttempt = checkoutGuardRef.current?.activeAttempt || null;
+        if (!activeAttempt?.attemptId) return;
+        checkoutGuardRecoveryRef.current = true;
+        updateCheckoutGuard((prev) => ({
+            ...prev,
+            phase: 'recovering'
+        }));
+        try {
+            const payload = await fetchAttemptStatusForGuard(activeAttempt, { maxAttempts: 2 });
+            const resolvedAttemptId = Number(activeAttempt.attemptId || 0) || null;
+            if (payload?.order) {
+                if (activeAttempt?.isPublicFlow && resolvedAttemptId) {
+                    orderService.clearStoredPublicAttemptAccess(resolvedAttemptId);
+                }
+                updateCheckoutGuard((prev) => ({
+                    ...prev,
+                    activeAttempt: null,
+                    phase: 'idle',
+                    supersededAttemptId: null
+                }));
+                return;
+            }
+
+            updateCheckoutGuard((prev) => ({
+                ...prev,
+                activeAttempt: null,
+                phase: 'idle',
+                supersededAttemptId: resolvedAttemptId || prev.supersededAttemptId || null
+            }));
+            if (!canCreateCheckoutSession) {
+                announceCheckoutGuardEvent({
+                    type: 'session_arm_deferred',
+                    sessionGroupId: sessionGroupIdRef.current,
+                    checkoutFingerprintHash,
+                    attemptId: resolvedAttemptId,
+                    reason
+                });
+                return;
+            }
+            const successor = await createCheckoutSessionInit({
+                supersedesAttemptId: resolvedAttemptId,
+                supersedeReason: `recover_${String(reason || 'resume').trim() || 'resume'}`
+            });
+            setCheckoutSummary(successor.summary || null);
+            updateCheckoutGuard((prev) => ({
+                ...prev,
+                armedSession: successor,
+                phase: 'ready',
+                supersededAttemptId: resolvedAttemptId || prev.supersededAttemptId || null
+            }));
+            announceCheckoutGuardEvent({
+                type: 'session_armed',
+                sessionGroupId: sessionGroupIdRef.current,
+                checkoutFingerprintHash,
+                attemptId: successor.attemptId
+            });
+        } catch {
+            updateCheckoutGuard((prev) => ({
+                ...prev,
+                phase: 'idle'
+            }));
+        } finally {
+            checkoutGuardRecoveryRef.current = false;
+        }
+    }, [canCreateCheckoutSession, checkoutFingerprintHash, createCheckoutSessionInit, fetchAttemptStatusForGuard, updateCheckoutGuard]);
+    useEffect(() => {
+        updateCheckoutGuard((prev) => {
+            const next = {
+                ...prev,
+                checkoutFingerprint,
+                checkoutFingerprintHash
+            };
+            if (prev?.armedSession && prev.armedSession.checkoutFingerprintHash !== checkoutFingerprintHash) {
+                next.armedSession = null;
+                if (String(prev.phase || '').trim().toLowerCase() === 'ready') {
+                    next.phase = 'idle';
+                }
+            }
+            return next;
+        });
+    }, [checkoutFingerprint, checkoutFingerprintHash, updateCheckoutGuard]);
+    useEffect(() => {
+        if (checkoutGuardArmTimeoutRef.current) {
+            window.clearTimeout(checkoutGuardArmTimeoutRef.current);
+            checkoutGuardArmTimeoutRef.current = null;
+        }
+        if (!canBackgroundArmCheckoutSession) return undefined;
+        if (
+            checkoutGuard?.armedSession
+            && checkoutGuard.armedSession.checkoutFingerprintHash === checkoutFingerprintHash
+        ) {
+            return undefined;
+        }
+        const requestId = checkoutGuardRequestIdRef.current + 1;
+        checkoutGuardRequestIdRef.current = requestId;
+        checkoutGuardArmTimeoutRef.current = window.setTimeout(() => {
+            updateCheckoutGuard((prev) => ({
+                ...prev,
+                phase: 'arming'
+            }));
+            void createCheckoutSessionInit({
+                supersedesAttemptId: checkoutGuardRef.current?.supersededAttemptId || null,
+                supersedeReason: 'background_rearm',
+                keepExistingArm: true
+            }).then((session) => {
+                if (checkoutGuardRequestIdRef.current !== requestId) return;
+                setCheckoutSummary(session.summary || null);
+                updateCheckoutGuard((prev) => ({
+                    ...prev,
+                    armedSession: session,
+                    phase: 'ready'
+                }));
+                announceCheckoutGuardEvent({
+                    type: 'session_armed',
+                    sessionGroupId: sessionGroupIdRef.current,
+                    checkoutFingerprintHash,
+                    attemptId: session.attemptId
+                });
+            }).catch(() => {
+                if (checkoutGuardRequestIdRef.current !== requestId) return;
+                updateCheckoutGuard((prev) => ({
+                    ...prev,
+                    phase: 'idle'
+                }));
+            });
+        }, CHECKOUT_GUARD_ARM_DEBOUNCE_MS);
+        return () => {
+            if (checkoutGuardArmTimeoutRef.current) {
+                window.clearTimeout(checkoutGuardArmTimeoutRef.current);
+                checkoutGuardArmTimeoutRef.current = null;
+            }
+        };
+    }, [canBackgroundArmCheckoutSession, checkoutGuard?.armedSession, checkoutFingerprintHash, createCheckoutSessionInit, updateCheckoutGuard]);
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && checkoutGuardRef.current?.activeAttempt?.attemptId) {
+                void recoverCheckoutGuard({ reason: 'visibility' });
+            }
+        };
+        const handleFocus = () => {
+            if (checkoutGuardRef.current?.activeAttempt?.attemptId) {
+                void recoverCheckoutGuard({ reason: 'focus' });
+            }
+        };
+        const handleStorage = (event) => {
+            if (event.key !== CHECKOUT_GUARD_EVENT_KEY || !event.newValue) return;
+            const payload = safeParseJson(event.newValue, null);
+            if (!payload || payload.sessionGroupId === sessionGroupIdRef.current) return;
+            if (payload.checkoutFingerprintHash !== checkoutFingerprintHash) return;
+            const localAttemptId = Number(checkoutGuardRef.current?.activeAttempt?.attemptId || 0);
+            const eventAttemptId = Number(payload.attemptId || 0);
+            if (localAttemptId > 0 && eventAttemptId > 0 && localAttemptId === eventAttemptId) {
+                updateCheckoutGuard((prev) => ({
+                    ...prev,
+                    activeAttempt: null,
+                    phase: 'idle',
+                    supersededAttemptId: localAttemptId
+                }));
+            }
+        };
+        window.addEventListener('focus', handleFocus);
+        window.addEventListener('storage', handleStorage);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        if (checkoutGuardRef.current?.activeAttempt?.attemptId) {
+            void recoverCheckoutGuard({ reason: 'mount' });
+        }
+        return () => {
+            window.removeEventListener('focus', handleFocus);
+            window.removeEventListener('storage', handleStorage);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [checkoutFingerprintHash, recoverCheckoutGuard, updateCheckoutGuard]);
+    useEffect(() => {
+        const phase = String(checkoutGuard?.phase || 'idle').trim().toLowerCase();
+        if (!CHECKOUT_GUARD_BLOCKING_PHASES.has(phase)) return undefined;
+        const timeoutMs = Number(CHECKOUT_GUARD_PHASE_TIMEOUT_MS[phase] || 0);
+        if (timeoutMs <= 0) return undefined;
+        const phaseStartedAt = Math.max(0, Number(checkoutGuard?.phaseStartedAt || 0));
+        const elapsed = phaseStartedAt > 0 ? Math.max(0, Date.now() - phaseStartedAt) : 0;
+        const waitMs = Math.max(0, timeoutMs - elapsed);
+
+        const timer = window.setTimeout(() => {
+            const latest = checkoutGuardRef.current || buildDefaultCheckoutGuardState(sessionGroupIdRef.current);
+            const latestPhase = String(latest.phase || 'idle').trim().toLowerCase();
+            if (latestPhase !== phase) return;
+            announceCheckoutGuardEvent({
+                type: 'phase_timeout',
+                sessionGroupId: sessionGroupIdRef.current,
+                checkoutFingerprintHash,
+                phase: latestPhase,
+                attemptId: latest?.activeAttempt?.attemptId || null
+            });
+
+            if (latestPhase === 'arming') {
+                updateCheckoutGuard((prev) => ({
+                    ...prev,
+                    phase: prev?.armedSession ? 'ready' : 'idle'
+                }));
+                return;
+            }
+
+            if (latestPhase === 'opening') {
+                updateCheckoutGuard((prev) => ({
+                    ...prev,
+                    phase: 'idle'
+                }));
+                return;
+            }
+
+            if (latestPhase === 'verifying' && latest?.activeAttempt?.attemptId) {
+                void recoverCheckoutGuard({ reason: `timeout_${latestPhase}` });
+                return;
+            }
+
+            if (latestPhase === 'recovering') {
+                const timedOutAttemptId = Number(latest?.activeAttempt?.attemptId || 0) || null;
+                updateCheckoutGuard((prev) => ({
+                    ...prev,
+                    activeAttempt: null,
+                    phase: prev?.armedSession ? 'ready' : 'idle',
+                    supersededAttemptId: timedOutAttemptId || prev?.supersededAttemptId || null
+                }));
+            }
+        }, waitMs);
+
+        return () => {
+            window.clearTimeout(timer);
+        };
+    }, [checkoutGuard?.phase, checkoutGuard?.phaseStartedAt, recoverCheckoutGuard, updateCheckoutGuard]);
     useEffect(() => {
         if (user && isAccountVerificationOpen) {
             setIsAccountVerificationOpen(false);
@@ -1351,7 +1886,7 @@ export default function Checkout() {
             setIsPreparingVerifiedCheckout(false);
             return toast.error('Your cart is empty');
         }
-        if (isPlacingOrder) {
+        if (isPlacingOrder || isCheckoutGuardBlockingPayment) {
             setIsPreparingVerifiedCheckout(false);
             return;
         }
@@ -1378,14 +1913,6 @@ export default function Checkout() {
             return toast.error(mobileValidationMessage || 'Please enter a valid mobile number before payment');
         }
         const isGuestLockedFlow = !user && guestLockedAccount;
-        const hasShippingOverride = hasCompleteAddress(form.address);
-        const hasBillingOverride = billingAddressEnabled ? hasCompleteAddress(form.billingAddress) : hasShippingOverride;
-        const effectiveGuestShippingAddress = isGuestLockedFlow
-            ? (hasShippingOverride ? form.address : null)
-            : form.address;
-        const effectiveGuestBillingAddress = isGuestLockedFlow
-            ? (billingAddressEnabled ? (hasBillingOverride ? form.billingAddress : null) : effectiveGuestShippingAddress)
-            : effectiveBillingAddress;
         if ((!isGuestLockedFlow || hasAddressFields(form.address)) && !hasCompleteAddress(form.address)) {
             setIsPreparingVerifiedCheckout(false);
             setEditing(true);
@@ -1438,63 +1965,56 @@ export default function Checkout() {
                     }
                 }
             }
-
-            const preflight = user
-                ? await orderService.getCheckoutSummary({
-                    shippingAddress: form.address,
-                    couponCode: appliedCoupon?.code || null
-                })
-                : await orderService.getPublicCheckoutSummary({
-                    shippingAddress: effectiveGuestShippingAddress,
-                    couponCode: appliedCoupon?.code || null,
-                    items: checkoutItemsPayload,
-                    guest: { mobile: form.mobile }
-                });
-            if (!preflight?.summary || preflight.summary.total == null) {
-                throw new Error('Unable to validate order summary on server. Please retry.');
+            if (checkoutGuardRef.current?.activeAttempt?.attemptId) {
+                await recoverCheckoutGuard({ reason: 'pay_click_resume' });
             }
-            setCheckoutSummary(preflight.summary);
+            let launchSession = checkoutGuardRef.current?.armedSession || null;
+            if (!launchSession || launchSession.checkoutFingerprintHash !== checkoutFingerprintHash) {
+                updateCheckoutGuard((prev) => ({
+                    ...prev,
+                    phase: 'arming',
+                    armedSession: null
+                }));
+                launchSession = await createCheckoutSessionInit({
+                    supersedesAttemptId: checkoutGuardRef.current?.supersededAttemptId || null,
+                    supersedeReason: 'pay_click'
+                });
+            }
+            setCheckoutSummary(launchSession.summary || null);
 
             const scriptLoaded = await ensureRazorpayScript();
             if (!scriptLoaded || !window.Razorpay) {
+                updateCheckoutGuard((prev) => ({
+                    ...prev,
+                    armedSession: launchSession,
+                    phase: 'ready'
+                }));
                 throw new Error('Unable to load Razorpay checkout');
             }
 
-            const init = user
-                ? await orderService.createRazorpayOrder({
-                    billingAddress: effectiveBillingAddress,
-                    shippingAddress: form.address,
-                    couponCode: appliedCoupon?.code || null,
-                    notes: {
-                        source: 'web_checkout'
-                    }
-                })
-                : await orderService.createPublicRazorpayOrder({
-                    guest: {
-                        name: form.name,
-                        email: form.email,
-                        mobile: form.mobile
-                    },
-                    billingAddress: effectiveGuestBillingAddress,
-                    shippingAddress: effectiveGuestShippingAddress,
-                    couponCode: appliedCoupon?.code || null,
-                    notes: {
-                        source: 'web_checkout'
-                    },
-                    items: checkoutItemsPayload
-                });
-            if (!init?.order?.id || !init?.keyId) {
-                throw new Error(init?.message || 'Failed to initialize payment');
-            }
-            if (!user && init?.attempt?.id && init?.attemptToken) {
-                orderService.rememberPublicAttemptAccess({
-                    attemptId: init.attempt.id,
-                    attemptToken: init.attemptToken
-                });
-            }
-            setPendingPaymentAmount(Number(init?.order?.amount || 0) / 100);
-            currentAttemptId = Number(init?.attempt?.id || 0) || null;
-            const isPublicPaymentFlow = !user && Boolean(init?.attemptToken);
+            currentAttemptId = Number(launchSession?.attemptId || 0) || null;
+            const activeAttempt = {
+                attemptId: currentAttemptId,
+                attemptToken: String(launchSession?.attemptToken || '').trim(),
+                orderId: String(launchSession?.orderId || '').trim(),
+                isPublicFlow: Boolean(launchSession?.isPublicFlow),
+                checkoutFingerprintHash,
+                launchedAt: Date.now()
+            };
+            updateCheckoutGuard((prev) => ({
+                ...prev,
+                armedSession: null,
+                activeAttempt,
+                phase: 'opening'
+            }));
+            announceCheckoutGuardEvent({
+                type: 'attempt_opened',
+                sessionGroupId: sessionGroupIdRef.current,
+                checkoutFingerprintHash,
+                attemptId: currentAttemptId
+            });
+            setPendingPaymentAmount(Number(launchSession?.order?.amount || 0) / 100);
+            const isPublicPaymentFlow = Boolean(launchSession?.isPublicFlow);
 
             const prefillContact = form.mobile
                 ? (String(form.mobile).startsWith('+') ? String(form.mobile) : `+91${String(form.mobile).replace(/\D/g, '')}`)
@@ -1505,13 +2025,13 @@ export default function Checkout() {
                 const markSettled = () => { settled = true; };
 
                 const rzp = new window.Razorpay({
-                    key: init.keyId,
-                    amount: init.order.amount,
-                    currency: init.order.currency || 'INR',
+                    key: launchSession.keyId,
+                    amount: launchSession.order.amount,
+                    currency: launchSession.order.currency || 'INR',
                     name: 'SSC Jewellery',
-                    description: `Order payment (${init.summary?.itemCount || itemCount} items)`,
+                    description: `Order payment (${launchSession.summary?.itemCount || itemCount} items)`,
                     image: BRAND_LOGO_URL,
-                    order_id: init.order.id,
+                    order_id: launchSession.order.id,
                     prefill: {
                         name: form.name || '',
                         email: form.email || '',
@@ -1535,17 +2055,36 @@ export default function Checkout() {
                     handler: async (response) => {
                         try {
                             setIsPaymentAwaitingConfirmation(true);
+                            updateCheckoutGuard((prev) => ({
+                                ...prev,
+                                phase: 'verifying'
+                            }));
+                            announceCheckoutGuardEvent({
+                                type: 'attempt_verifying',
+                                sessionGroupId: sessionGroupIdRef.current,
+                                checkoutFingerprintHash,
+                                attemptId: currentAttemptId
+                            });
                             const verification = isPublicPaymentFlow
                                 ? await orderService.verifyPublicRazorpayPayment({
                                     ...response,
-                                    attemptId: init?.attempt?.id,
-                                    attemptToken: init?.attemptToken
+                                    attemptId: launchSession?.attemptId,
+                                    attemptToken: launchSession?.attemptToken
                                 })
                                 : await orderService.verifyRazorpayPayment(response);
                             if (verification?.order) {
                                 setIsPaymentAwaitingConfirmation(false);
                                 setOrderResult(verification.order);
                                 await clearCart();
+                                if (isPublicPaymentFlow && currentAttemptId) {
+                                    orderService.clearStoredPublicAttemptAccess(currentAttemptId);
+                                }
+                                updateCheckoutGuard((prev) => ({
+                                    ...prev,
+                                    activeAttempt: null,
+                                    phase: 'idle',
+                                    supersededAttemptId: null
+                                }));
                                 toast.success('Payment successful, order placed');
                                 markSettled();
                                 resolve(verification.order);
@@ -1553,12 +2092,21 @@ export default function Checkout() {
                             }
                             if (verification?.processing && currentAttemptId) {
                                 const polled = isPublicPaymentFlow
-                                    ? await orderService.getPublicPaymentAttemptStatus(currentAttemptId, init.attemptToken)
+                                    ? await orderService.getPublicPaymentAttemptStatus(currentAttemptId, launchSession.attemptToken)
                                     : await pollPaymentAttemptUntilResolved(currentAttemptId);
                                 if (polled?.order) {
                                     setIsPaymentAwaitingConfirmation(false);
                                     setOrderResult(polled.order);
                                     await clearCart();
+                                    if (isPublicPaymentFlow && currentAttemptId) {
+                                        orderService.clearStoredPublicAttemptAccess(currentAttemptId);
+                                    }
+                                    updateCheckoutGuard((prev) => ({
+                                        ...prev,
+                                        activeAttempt: null,
+                                        phase: 'idle',
+                                        supersededAttemptId: null
+                                    }));
                                     toast.success('Payment successful, order placed');
                                     markSettled();
                                     resolve(polled.order);
@@ -1568,6 +2116,10 @@ export default function Checkout() {
                                     throw new Error(polled?.message || 'Payment verification failed');
                                 }
                                 setIsPaymentAwaitingConfirmation(false);
+                                updateCheckoutGuard((prev) => ({
+                                    ...prev,
+                                    phase: 'recovering'
+                                }));
                                 markSettled();
                                 navigate(`/payment/success?attemptId=${encodeURIComponent(String(currentAttemptId))}`);
                                 resolve({ pending: true, attemptId: currentAttemptId });
@@ -1584,6 +2136,10 @@ export default function Checkout() {
 
                 rzp.on('payment.failed', (response) => {
                     if (settled) return;
+                    updateCheckoutGuard((prev) => ({
+                        ...prev,
+                        phase: 'recovering'
+                    }));
                     markSettled();
                     const message = response?.error?.description || 'Payment failed. Please retry.';
                     reject(new Error(message));
@@ -1607,9 +2163,17 @@ export default function Checkout() {
                 return;
             }
             if (!currentAttemptId) {
+                updateCheckoutGuard((prev) => ({
+                    ...prev,
+                    phase: prev.armedSession ? 'ready' : 'idle'
+                }));
                 toast.error(message);
                 return;
             }
+            updateCheckoutGuard((prev) => ({
+                ...prev,
+                phase: 'recovering'
+            }));
             toast.error(message);
             const params = new URLSearchParams();
             params.set('reason', message);
@@ -2320,7 +2884,7 @@ export default function Checkout() {
                                 <button
                                     type="button"
                                     onClick={handlePayNow}
-                                    disabled={isPlacingOrder || !isReadyForPayment || isLoggedInEditingBeforePayment}
+                                    disabled={isPlacingOrder || isCheckoutGuardBlockingPayment || !isReadyForPayment || isLoggedInEditingBeforePayment}
                                     className="mt-6 w-full inline-flex items-center justify-center gap-2 bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all disabled:opacity-60"
                                 >
                                     <CreditCard size={18} /> {isPlacingOrder ? 'Processing...' : 'Pay Now'}

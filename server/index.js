@@ -347,8 +347,15 @@ app.get('/api/app/version', (_req, res) => {
         buildLabel: build.label
     });
 });
-app.use(express.static(clientDistPath));
+app.use(express.static(clientDistPath, {
+    setHeaders: (res, filePath) => {
+        if (String(filePath || '').toLowerCase().endsWith('.html')) {
+            res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+        }
+    }
+}));
 app.get('*', (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.sendFile(path.join(clientDistPath, 'index.html'));
 });
 

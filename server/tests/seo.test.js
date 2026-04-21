@@ -17,6 +17,18 @@ test('private routes default to noindex', async () => {
 test('product seo builds product and breadcrumb structured data', async () => {
     const { buildProductSeo } = await importSeoModule('rules.js');
     const seo = buildProductSeo({
+        company: {
+            country: 'India',
+            shippingZones: [
+                {
+                    states: ['Tamil Nadu'],
+                    options: [
+                        { rate: 80, conditionType: 'price', min: null, max: 1000 },
+                        { rate: 0, conditionType: 'price', min: 1000, max: null }
+                    ]
+                }
+            ]
+        },
         product: {
             id: 'p1',
             title: 'Premium Chain',
@@ -35,6 +47,9 @@ test('product seo builds product and breadcrumb structured data', async () => {
     assert.equal(Array.isArray(seo.structuredData), true);
     assert.equal(seo.structuredData.some((item) => item?.['@type'] === 'Product'), true);
     assert.equal(seo.structuredData.some((item) => item?.['@type'] === 'BreadcrumbList'), true);
+    const productSchema = seo.structuredData.find((item) => item?.['@type'] === 'Product');
+    assert.match(String(productSchema?.offers?.hasMerchantReturnPolicy?.['@id'] || ''), /\/refund#policy$/);
+    assert.match(String(productSchema?.offers?.shippingDetails?.hasShippingService?.['@id'] || ''), /\/shipping#policy$/);
 });
 
 test('faq seo includes faq structured data and fallback image', async () => {
@@ -134,4 +149,22 @@ test('seo uses absolute canonicals and richer schema when app base url is config
         if (previousBaseUrl == null) delete process.env.APP_BASE_URL;
         else process.env.APP_BASE_URL = previousBaseUrl;
     }
+});
+
+test('structured data omits invalid sku values with whitespace', async () => {
+    const { buildProductSeo } = await importSeoModule('rules.js');
+    const seo = buildProductSeo({
+        product: {
+            id: 'p2',
+            title: 'Premium Chain',
+            description: '',
+            categories: ['Chains'],
+            media: [{ type: 'image', url: '/uploads/products/p2.jpg' }],
+            mrp: 3000,
+            discount_price: 2600,
+            sku: 'SKU 1'
+        }
+    });
+    const productSchema = seo.structuredData.find((item) => item?.['@type'] === 'Product');
+    assert.equal('sku' in productSchema, false);
 });
