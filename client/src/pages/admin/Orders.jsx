@@ -593,9 +593,22 @@ const buildVisiblePages = (currentPage, totalPages, windowSize = 4) => {
     if (end - start + 1 < windowSize) start = Math.max(1, end - windowSize + 1);
     return Array.from({ length: end - start + 1 }, (_, idx) => start + idx);
 };
+const dedupeOrderTimelineEntries = (entries = []) => {
+    const seen = new Set();
+    return (Array.isArray(entries) ? entries : []).filter((entry) => {
+        const key = [
+            String(entry?.status || '').trim().toLowerCase(),
+            String(entry?.created_at || '').trim(),
+            String(entry?.detail || '').trim().toLowerCase()
+        ].join('|');
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+};
 const buildOrderTimelineEntries = (order = {}, { isAttempt = false } = {}) => {
     const explicitEvents = Array.isArray(order?.events) ? order.events : [];
-    if (explicitEvents.length > 0) return explicitEvents;
+    if (explicitEvents.length > 0) return dedupeOrderTimelineEntries(explicitEvents);
 
     const entries = [];
     const createdAt = order?.created_at || order?.createdAt || '';
@@ -649,7 +662,7 @@ const buildOrderTimelineEntries = (order = {}, { isAttempt = false } = {}) => {
         });
     }
 
-    return entries;
+    return dedupeOrderTimelineEntries(entries);
 };
 const MOBILE_ORDER_CARD_THEMES = {
     confirmed: {
@@ -1632,8 +1645,9 @@ export function Orders({
     }, [statusFilter]);
 
     useEffect(() => {
-        const next = normalizeStatusSelection(initialStatusFilter);
-        if (!next || next === 'all') return;
+        const rawInitialStatus = String(initialStatusFilter || '').trim();
+        if (!rawInitialStatus) return;
+        const next = normalizeStatusSelection(rawInitialStatus);
         setDraftStatusFilter(next);
         if (statusFilter !== next) {
             setStatusFilter(next);

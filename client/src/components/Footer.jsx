@@ -8,6 +8,7 @@ import { resolvePublicBrandName } from '../seo/brand.js';
 import { BUILD_VERSION } from '../generated/buildInfo.js';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import { isCategoryVisibleInStorefront } from '../utils/categoryVisibility';
+import { buildAssignedWhatsAppLink, resolveAssignedWhatsappNumber } from '../utils/whatsappRouter';
 import WhatsAppIcon from './WhatsAppIcon';
 
 const CUSTOM_ORDER_URL = String(import.meta.env.VITE_CUSTOM_ORDER_URL || 'https://rzp.io/rzp/sscjewels').trim();
@@ -54,20 +55,26 @@ export default function Footer() {
     const { user } = useAuth();
     const { categories, refreshCategories } = usePublicCategories();
     const { companyInfo, refreshCompanyInfo, applyCompanyInfo } = usePublicCompanyInfo();
-    const company = {
-        displayName: 'Sree Sai Collections',
-        contactNumber: '',
-        supportEmail: '',
-        address: '',
-        instagramUrl: '',
-        youtubeUrl: '',
-        facebookUrl: '',
-        whatsappNumber: '',
-        gstNumber: '',
-        taxEnabled: false,
-        ...(companyInfo || {})
-    };
-    company.displayName = resolvePublicBrandName(company);
+    const company = useMemo(() => {
+        const nextCompany = {
+            displayName: 'Sree Sai Collections',
+            contactNumber: '',
+            supportEmail: '',
+            address: '',
+            instagramUrl: '',
+            youtubeUrl: '',
+            facebookUrl: '',
+            whatsappNumber: '',
+            gstNumber: '',
+            taxEnabled: false,
+            ...(companyInfo || {})
+        };
+
+        return {
+            ...nextCompany,
+            displayName: resolvePublicBrandName(nextCompany)
+        };
+    }, [companyInfo]);
 
     useEffect(() => {
         refreshCategories().catch(() => {});
@@ -100,13 +107,8 @@ export default function Footer() {
         }
         return columns;
     }, [categoryLinks]);
-    const whatsappLink = company.whatsappNumber
-        ? `https://wa.me/${String(company.whatsappNumber).replace(/\D/g, '')}`
-        : '';
-    const footerWhatsappNumbers = [
-        String(company.contactNumber || '').trim(),
-        '9500941350'
-    ].filter(Boolean);
+    const assignedWhatsappNumber = useMemo(() => resolveAssignedWhatsappNumber(company), [company]);
+    const whatsappLink = useMemo(() => buildAssignedWhatsAppLink({ companyInfo: company }), [company]);
     const hasSocial = Boolean(company.instagramUrl || company.youtubeUrl || company.facebookUrl || whatsappLink);
     const isAboutPage = String(location?.pathname || '').split('?')[0] === '/about';
 
@@ -144,20 +146,15 @@ export default function Footer() {
                             </div>
                             <div className="flex items-start gap-2">
                                 <WhatsAppIcon size={16} className="text-[#25D366] mt-0.5 shrink-0" />
-                                {footerWhatsappNumbers.length ? (
-                                    <div className="flex flex-col">
-                                        {footerWhatsappNumbers.map((number) => (
-                                            <a
-                                                key={number}
-                                                href={`https://wa.me/${String(number).replace(/\D/g, '')}`}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="text-white/60 hover:text-[#25D366]"
-                                            >
-                                                {number}
-                                            </a>
-                                        ))}
-                                    </div>
+                                {assignedWhatsappNumber ? (
+                                    <a
+                                        href={whatsappLink}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-white/60 hover:text-[#25D366]"
+                                    >
+                                        {assignedWhatsappNumber}
+                                    </a>
                                 ) : (
                                     <span className="text-white/40">WhatsApp not set</span>
                                 )}

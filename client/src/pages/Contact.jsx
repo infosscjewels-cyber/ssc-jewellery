@@ -8,6 +8,7 @@ import { resolvePublicBrandName } from '../seo/brand.js';
 import { buildContactSeo } from '../seo/rules';
 import { useSeo } from '../seo/useSeo';
 import WhatsAppIcon from '../components/WhatsAppIcon';
+import { buildAssignedWhatsAppLink, resolveAssignedWhatsappNumber } from '../utils/whatsappRouter';
 
 const CMS_API_URL = import.meta.env.PROD ? '/api/cms' : 'http://localhost:5000/api/cms';
 const DEFAULT_JUMBOTRON = fallbackContactImage;
@@ -21,8 +22,6 @@ const DEFAULT_COMPANY = {
     whatsappNumber: '',
     contactJumbotronImageUrl: DEFAULT_JUMBOTRON
 };
-
-const cleanPhone = (value = '') => String(value || '').replace(/\D/g, '');
 
 const InfoCard = ({ title, value, href = '', icon, iconTint = 'text-primary' }) => {
     if (!value) return null;
@@ -119,10 +118,8 @@ export default function Contact() {
         }
     };
 
-    const whatsappHref = useMemo(() => {
-        const number = cleanPhone(company.whatsappNumber);
-        return number ? `https://wa.me/${number}` : '';
-    }, [company.whatsappNumber]);
+    const assignedWhatsappNumber = useMemo(() => resolveAssignedWhatsappNumber(company), [company]);
+    const whatsappHref = useMemo(() => buildAssignedWhatsAppLink({ companyInfo: company }), [company]);
     const seoConfig = useMemo(() => buildContactSeo({ company }), [company]);
     useSeo(seoConfig);
 
@@ -161,7 +158,7 @@ export default function Contact() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 mb-10">
                     <InfoCard title="Email" value={company.supportEmail} href={company.supportEmail ? `mailto:${company.supportEmail}` : ''} icon={Mail} />
-                    <InfoCard title="WhatsApp" value={company.whatsappNumber} href={whatsappHref} icon={WhatsAppIcon} iconTint="text-green-600" />
+                    <InfoCard title="WhatsApp" value={assignedWhatsappNumber} href={whatsappHref} icon={WhatsAppIcon} iconTint="text-green-600" />
                     <InfoCard title="Instagram" value={company.instagramUrl ? '@Visit Profile' : ''} href={company.instagramUrl} icon={Instagram} iconTint="text-pink-600" />
                     <InfoCard title="Call" value={company.contactNumber} href={company.contactNumber ? `tel:${company.contactNumber}` : ''} icon={Phone} iconTint="text-blue-600" />
                 </div>

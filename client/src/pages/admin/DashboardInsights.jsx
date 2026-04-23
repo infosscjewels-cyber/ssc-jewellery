@@ -1463,13 +1463,13 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                             {applyKpiThemeRotation([
                                 { label: 'New Customer Revenue', value: formatCurrency(growth.newCustomerRevenue), helper: `Returning: ${formatCurrency(growth.returningCustomerRevenue)}`, icon: Users },
-                                { label: 'Coupon Impact', value: formatCurrency(growth.couponDiscountTotal), helper: `${Number(growth.couponOrders || 0)} orders used coupons`, icon: Target },
+                                { label: 'Coupon Impact', value: formatCurrency(growth.couponDiscountTotal), helper: `${Number(growth.couponOrders || 0)} orders used coupons`, helperClass: 'text-white/95 font-medium drop-shadow-sm', icon: Target },
                                 { label: 'Failed Payments (6h)', value: Number(risk.failedPaymentsCurrent6h || 0).toLocaleString('en-IN'), helper: `vs prev 6h: ${Number(risk.failedPaymentsSpikePct || 0)}%`, icon: ShieldAlert },
-                                { label: 'Pending Aging', value: `${Number(risk.pendingAging?.over72h || 0)} over 72h`, helper: `24-72h: ${Number(risk.pendingAging?.from24hTo72h || 0)}, <24h: ${Number(risk.pendingAging?.under24h || 0)}`, icon: CalendarDays }
+                                { label: 'Pending Aging', value: `${Number(risk.pendingAging?.over72h || 0)} over 72h`, helper: `24-72h: ${Number(risk.pendingAging?.from24hTo72h || 0)}, <24h: ${Number(risk.pendingAging?.under24h || 0)}`, helperClass: 'text-white/95 font-medium drop-shadow-sm', icon: CalendarDays }
                             ]).map((card) => (
                                 <div key={card.label} className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm ${KPI_CARD_THEMES[card.theme].shell}`} style={getKpiCardStyle(card.theme)}>
                                     <p className={`text-xs uppercase tracking-[0.2em] flex items-center gap-1 ${KPI_CARD_THEMES[card.theme].label}`}><card.icon size={12} />{card.label}</p>
-                                    <p className={`text-xs mt-2 ${KPI_CARD_THEMES[card.theme].subtext}`}>{card.helper}</p>
+                                    <p className={`text-xs mt-2 ${card.helperClass || KPI_CARD_THEMES[card.theme].subtext}`}>{card.helper}</p>
                                     <p className={`text-2xl font-extrabold mt-3 leading-none ${KPI_CARD_THEMES[card.theme].value}`}>{card.value}</p>
                                     <card.icon size={46} className={`absolute right-2 bottom-2 opacity-90 ${KPI_CARD_THEMES[card.theme].icon}`} />
                                 </div>
@@ -1563,21 +1563,35 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
                                 {(growth.channelRevenue || []).slice(0, 6).map((item) => (
                                     (() => {
                                         const rawChannel = String(item.channel || 'unknown').toLowerCase();
-                                        const channelLabel = rawChannel === 'checkout_webhook_recovery' || rawChannel === 'direct'
+                                        const normalizedChannel = rawChannel === 'checkout_webhook_recovery' || ['direct', 'checkout', 'web', 'website'].includes(rawChannel)
+                                            ? 'direct'
+                                            : rawChannel === 'abandoned_recovery'
+                                                ? 'abandoned_recovery'
+                                                : rawChannel;
+                                        const channelLabel = normalizedChannel === 'direct'
                                             ? 'Direct website'
-                                            : String(item.channel || 'unknown').replace(/_/g, ' ');
+                                            : normalizedChannel === 'abandoned_recovery'
+                                                ? 'Abandoned cart recovery'
+                                                : String(item.channel || 'unknown').replace(/_/g, ' ');
+                                        const clickTarget = normalizedChannel === 'abandoned_recovery'
+                                            ? {
+                                                tab: 'abandoned',
+                                                status: 'recovered',
+                                                rangeDays: 'lifetime'
+                                            }
+                                            : {
+                                                tab: 'orders',
+                                                status: statusFilter || 'all',
+                                                quickRange,
+                                                sourceChannel: normalizedChannel
+                                            };
                                         return (
                                     <button
                                         key={String(item.channel)}
                                         type="button"
                                         onClick={() => handleOpenAction({
                                             id: `channel_${String(item.channel || 'unknown')}`,
-                                            target: {
-                                                tab: 'orders',
-                                                status: statusFilter || 'all',
-                                                quickRange,
-                                                sourceChannel: String(item.channel || 'all').toLowerCase()
-                                            }
+                                            target: clickTarget
                                         })}
                                         className="w-full text-left flex items-center justify-between py-2 border-b border-gray-100 last:border-0 hover:bg-gray-50 rounded-lg px-2 -mx-2"
                                     >

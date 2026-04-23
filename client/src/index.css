@@ -6,6 +6,12 @@
 @tailwind utilities;
 
 @layer base {
+  html, body, #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
   /* 1. Set Default Body Styles */
   body {
     @apply bg-secondary text-dark font-sans antialiased;

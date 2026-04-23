@@ -6,9 +6,10 @@ import { useMyOrders } from '../context/OrderContext';
 import { useToast } from '../context/ToastContext';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { orderService } from '../services/orderService';
+import { usePublicCompanyInfo } from '../hooks/usePublicSiteShell';
 import ordersIllustration from '../assets/orders.svg';
 import { getGstDisplayDetails, getOrderGstContext } from '../utils/gst';
-import { buildWhatsAppChatLink } from '../utils/publicContact';
+import { buildAssignedWhatsAppLink } from '../utils/whatsappRouter';
 import WhatsAppIcon from '../components/WhatsAppIcon';
 import { computeInvoiceAlignedSummary, computeInvoiceStyleItemRows } from '../utils/orderTotalsComputation';
 
@@ -180,12 +181,6 @@ const getItemImage = (item) => {
     const snapshot = getItemSnapshot(item);
     return item?.image_url || snapshot?.imageUrl || '';
 };
-const getItemDiscountPercent = (item) => {
-    const unitPrice = getItemUnitPrice(item);
-    const originalPrice = getItemOriginalPrice(item);
-    if (originalPrice <= unitPrice || originalPrice <= 0) return 0;
-    return Math.round(((originalPrice - unitPrice) / originalPrice) * 100);
-};
 const getItemSavings = (item) => {
     const unitPrice = getItemUnitPrice(item);
     const originalPrice = getItemOriginalPrice(item);
@@ -237,12 +232,6 @@ const hasRefundInitiated = (order) => Boolean(
 const canCheckRefundStatus = (order) => hasRefundInitiated(order)
     && Boolean(order?.razorpay_order_id || order?.razorpayOrderId || order?.razorpay_payment_id || order?.razorpayPaymentId);
 const isCancelledWithoutRefund = (order) => String(order?.status || '').toLowerCase() === 'cancelled' && !hasRefundInitiated(order);
-    const getOrderSupportLink = (order) => {
-    const orderRef = order?.order_ref || order?.orderRef || order?.id || 'N/A';
-    const text = `Hi, I need support for my Order ID ${orderRef}. I have a query regarding this order.`;
-    return buildWhatsAppChatLink({ text });
-};
-
 const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
     const safeTotal = Math.max(1, Number(totalPages || 1));
     const safeCurrent = Math.min(safeTotal, Math.max(1, Number(currentPage || 1)));
@@ -258,6 +247,7 @@ const buildVisiblePages = (currentPage, totalPages, windowSize = 5) => {
 
 export default function Orders() {
     const { user } = useAuth();
+    const { companyInfo } = usePublicCompanyInfo();
     const toast = useToast();
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
@@ -331,6 +321,11 @@ export default function Orders() {
         const nonShippingSavings = roundCurrency(Math.max(0, totalSavings - selectedOrderShippingSavings));
         return roundCurrency(nonShippingSavings + selectedOrderShippingBase);
     }, [selectedOrderIsShippingFree, selectedOrderShippingBase, selectedOrderShippingSavings, selectedOrderTotals]);
+    const getOrderSupportLink = (order) => {
+        const orderRef = order?.order_ref || order?.orderRef || order?.id || 'N/A';
+        const text = `Hi, I need support for my Order ID ${orderRef}. I have a query regarding this order.`;
+        return buildAssignedWhatsAppLink({ companyInfo, text });
+    };
 
     useEffect(() => {
         if (!error) return;
