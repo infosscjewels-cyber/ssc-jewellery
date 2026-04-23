@@ -208,7 +208,7 @@ const buildWelcomeEmailTemplate = ({ user = {} } = {}) => {
         || process.env.APP_URL
         || (String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production' ? '' : 'http://localhost:5173')
     ).trim();
-    const subject = `Welcome to SSC Impon Jewellery, ${customerName}`;
+    const subject = `Welcome to Sree Sai Collections, ${customerName}`;
     const text = [
         `Hello ${customerName},`,
         '',

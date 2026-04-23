@@ -49,6 +49,45 @@ const buildOrderRef = async (connection = db) => {
     );
     return `${dateKey}${String(nextSequence).padStart(ORDER_REF_SEQUENCE_PAD, '0')}`;
 };
+const buildAbandonedRecoveryOrderPredicate = (alias = 'o') => `(
+    ${alias}.is_abandoned_recovery = 1
+    OR LOWER(COALESCE(${alias}.source_channel, '')) = 'abandoned_recovery'
+    OR EXISTS (
+        SELECT 1
+        FROM abandoned_cart_journeys acj
+        WHERE acj.recovered_order_id = ${alias}.id
+        LIMIT 1
+    )
+)`;
+const buildDerivedAbandonedJourneyIdSql = (alias = 'o') => `COALESCE(
+    ${alias}.abandoned_journey_id,
+    (
+        SELECT acj.id
+        FROM abandoned_cart_journeys acj
+        WHERE acj.recovered_order_id = ${alias}.id
+        ORDER BY acj.id DESC
+        LIMIT 1
+    )
+)`;
+const buildDirectOrderPredicate = (alias = 'o') => `(NOT ${buildAbandonedRecoveryOrderPredicate(alias)})`;
+
+const insertOrderStatusEventIfChanged = async (connection, { orderId, status, actorUserId = null } = {}) => {
+    const normalizedStatus = String(status || '').trim().toLowerCase();
+    if (!orderId || !normalizedStatus) return false;
+
+    const [lastRows] = await connection.execute(
+        'SELECT status FROM order_status_events WHERE order_id = ? ORDER BY id DESC LIMIT 1',
+        [orderId]
+    );
+    const lastStatus = String(lastRows?.[0]?.status || '').trim().toLowerCase();
+    if (lastStatus === normalizedStatus) return false;
+
+    await connection.execute(
+        'INSERT INTO order_status_events (order_id, status, actor_user_id) VALUES (?, ?, ?)',
+        [orderId, normalizedStatus, actorUserId || null]
+    );
+    return true;
+};
 
 const normalizeAddress = (address) => {
     if (!address) return null;
@@ -905,9 +944,9 @@ const buildAdminOrderFilters = ({ status = 'all', search = '', startDate = '', e
     if (sourceChannel && sourceChannel !== 'all') {
         const normalizedSource = String(sourceChannel || '').trim().toLowerCase();
         if (normalizedSource === 'abandoned_recovery') {
-            where += " AND (o.is_abandoned_recovery = 1 OR LOWER(COALESCE(o.source_channel, '')) = 'abandoned_recovery')";
+            where += ` AND ${buildAbandonedRecoveryOrderPredicate('o')}`;
         } else if (normalizedSource === 'direct') {
-            where += " AND (o.is_abandoned_recovery = 0 AND (COALESCE(o.source_channel, '') = '' OR LOWER(o.source_channel) <> 'abandoned_recovery'))";
+            where += ` AND ${buildDirectOrderPredicate('o')}`;
         } else {
             where += ' AND LOWER(COALESCE(o.source_channel, \'\')) = ?';
             params.push(normalizedSource);
@@ -2705,9 +2744,9 @@ class Order {
         if (sourceChannel && sourceChannel !== 'all') {
             const normalizedSource = String(sourceChannel || '').trim().toLowerCase();
             if (normalizedSource === 'abandoned_recovery') {
-                orderWhere += " AND (o.is_abandoned_recovery = 1 OR LOWER(COALESCE(o.source_channel, '')) = 'abandoned_recovery')";
+                orderWhere += ` AND ${buildAbandonedRecoveryOrderPredicate('o')}`;
             } else if (normalizedSource === 'direct') {
-                orderWhere += " AND (o.is_abandoned_recovery = 0 AND (COALESCE(o.source_channel, '') = '' OR LOWER(o.source_channel) <> 'abandoned_recovery'))";
+                orderWhere += ` AND ${buildDirectOrderPredicate('o')}`;
             } else {
                 orderWhere += ' AND LOWER(COALESCE(o.source_channel, \'\')) = ?';
                 orderParams.push(normalizedSource);
@@ -2778,8 +2817,8 @@ class Order {
                 o.loyalty_meta,
                 NULL as attempt_notes,
                 o.source_channel,
-                o.is_abandoned_recovery,
-                o.abandoned_journey_id,
+                CASE WHEN ${buildAbandonedRecoveryOrderPredicate('o')} THEN 1 ELSE 0 END as is_abandoned_recovery,
+                ${buildDerivedAbandonedJourneyIdSql('o')} as abandoned_journey_id,
                 o.refund_reference,
                 o.refund_amount,
                 o.refund_status,
@@ -3556,10 +3595,11 @@ class Order {
                 );
             }
 
-            await connection.execute(
-                'INSERT INTO order_status_events (order_id, status, actor_user_id) VALUES (?, ?, ?)',
-                [orderId, normalizedStatus, actorUserId || null]
-            );
+            await insertOrderStatusEventIfChanged(connection, {
+                orderId,
+                status: normalizedStatus,
+                actorUserId
+            });
             await connection.commit();
             return true;
         } catch (error) {
@@ -3666,11 +3706,9 @@ class Order {
                 `UPDATE orders SET status = 'pending' WHERE id IN (${placeholders})`,
                 ids
             );
-            const values = ids.map(id => [id, 'pending']);
-            await connection.query(
-                'INSERT INTO order_status_events (order_id, status) VALUES ?',
-                [values]
-            );
+            for (const id of ids) {
+                await insertOrderStatusEventIfChanged(connection, { orderId: id, status: 'pending' });
+            }
             await connection.commit();
             return { updated: ids.length, ids };
         } catch (error) {

@@ -1990,7 +1990,8 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
     razorpayPaymentId = null,
     razorpaySignature = null,
     settlementId = null,
-    settlementSnapshot = null
+    settlementSnapshot = null,
+    returnMeta = false
 } = {}) => {
     if (!attempt?.id) return null;
     if (attempt.local_order_id) {
@@ -2002,7 +2003,7 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
                 source: 'checkout_attempt_existing_order'
             });
             emitCouponChangedForOrder(req, existingOrder);
-            return existingOrder;
+            return returnMeta ? { order: existingOrder, created: false } : existingOrder;
         }
     }
     if (razorpayPaymentId) {
@@ -2019,7 +2020,7 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
                 source: 'checkout_attempt_existing_payment'
             });
             emitCouponChangedForOrder(req, existingByPayment);
-            return existingByPayment;
+            return returnMeta ? { order: existingByPayment, created: false } : existingByPayment;
         }
     }
 
@@ -2054,7 +2055,7 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
         });
     }
     if (order) emitCouponChangedForOrder(req, order);
-    return order;
+    return returnMeta ? { order, created: Boolean(order) } : order;
 };
 
 const handleRazorpayWebhook = async (req, res) => {
@@ -2365,13 +2366,40 @@ const handleRazorpayWebhook = async (req, res) => {
                         paymentDetails: paymentEntity,
                         source: 'webhook_paid'
                     });
-                    linkedOrder = await createOrderFromCheckoutPaymentAttempt(req, {
+                    const checkoutOrderResult = await createOrderFromCheckoutPaymentAttempt(req, {
                         attempt: reconciled.attempt,
                         razorpayOrderId,
                         razorpayPaymentId: reconciled.paymentId,
                         settlementId: settlementIdFromWebhook,
-                        settlementSnapshot: null
+                        settlementSnapshot: null,
+                        returnMeta: true
                     });
+                    linkedOrder = checkoutOrderResult?.order || null;
+                    if (linkedOrder && checkoutOrderResult?.created) {
+                        const io = req.app.get('io');
+                        const hydratedLinkedOrder = await Order.getById(linkedOrder.id);
+                        const finalLinkedOrder = hydratedLinkedOrder || linkedOrder;
+                        if (io) {
+                            emitToOrderAudiences(io, finalLinkedOrder, 'order:create', { order: finalLinkedOrder });
+                        }
+                        notifyAdminsOfNewOrder(finalLinkedOrder, { source: 'webhook_checkout' });
+                        void triggerOrderLifecycleEmail({
+                            order: finalLinkedOrder,
+                            stage: 'confirmed',
+                            includeInvoice: true
+                        });
+                        void triggerPaymentLifecycleCommunication({
+                            order: finalLinkedOrder,
+                            stage: PAYMENT_STATUS.PAID,
+                            payment: {
+                                event,
+                                paymentStatus: PAYMENT_STATUS.PAID,
+                                paymentMethod: finalLinkedOrder?.payment_gateway || 'razorpay',
+                                paymentReference: reconciled.paymentId,
+                                razorpayOrderId
+                            }
+                        });
+                    }
                 }
             }
             if (!linkedOrder) {

@@ -38,6 +38,17 @@ const flattenAddress = (address = null) => ({
     state: address?.state || '',
     zip: address?.zip || ''
 });
+const buildAbandonedRecoveryOrderPredicate = (alias = 'o') => `(
+    ${alias}.is_abandoned_recovery = 1
+    OR LOWER(COALESCE(${alias}.source_channel, '')) = 'abandoned_recovery'
+    OR EXISTS (
+        SELECT 1
+        FROM abandoned_cart_journeys acj
+        WHERE acj.recovered_order_id = ${alias}.id
+        LIMIT 1
+    )
+)`;
+const buildDirectOrderPredicate = (alias = 'o') => `(NOT ${buildAbandonedRecoveryOrderPredicate(alias)})`;
 
 const normalizeAddressPayload = (value = null, { fieldLabel = 'Address' } = {}) => {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -231,9 +242,9 @@ const buildOrderFilterFragments = (query = {}, alias = 'o') => {
 
     if (sourceChannel !== 'all') {
         if (sourceChannel === 'abandoned_recovery') {
-            parts.push(`(${alias}.is_abandoned_recovery = 1 OR LOWER(COALESCE(${alias}.source_channel, '')) = 'abandoned_recovery')`);
+            parts.push(buildAbandonedRecoveryOrderPredicate(alias));
         } else if (sourceChannel === 'direct') {
-            parts.push(`(${alias}.is_abandoned_recovery = 0 AND (COALESCE(${alias}.source_channel, '') = '' OR LOWER(${alias}.source_channel) <> 'abandoned_recovery'))`);
+            parts.push(buildDirectOrderPredicate(alias));
         } else {
             parts.push(`LOWER(COALESCE(${alias}.source_channel, '')) = ?`);
             params.push(sourceChannel);
@@ -548,9 +559,9 @@ const getDashboardInsightsPayload = async (query = {}) => {
         db.execute(
             `SELECT
                 CASE
-                    WHEN scoped.is_abandoned_recovery = 1 OR LOWER(COALESCE(scoped.source_channel, '')) = 'abandoned_recovery'
+                    WHEN ${buildAbandonedRecoveryOrderPredicate('scoped')}
                         THEN 'abandoned_recovery'
-                    WHEN LOWER(COALESCE(scoped.source_channel, '')) IN ('', 'direct', 'checkout', 'web', 'website')
+                    WHEN LOWER(COALESCE(scoped.source_channel, '')) IN ('', 'direct', 'checkout', 'web', 'website', 'checkout_webhook_recovery')
                         THEN 'direct'
                     ELSE LOWER(scoped.source_channel)
                 END AS channel,
