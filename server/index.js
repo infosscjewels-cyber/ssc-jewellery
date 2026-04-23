@@ -117,6 +117,7 @@ const sanitizeRequest = require('./middleware/sanitizeRequest');
 console.log('Boot: service and middleware modules loaded');
 
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app); // [NEW] Wrap Express app
 console.log('Boot: express app created');
 
@@ -334,17 +335,17 @@ app.get([
     }
 });
 app.get('/robots.txt', (_req, res) => {
-    const origin = `${_req.protocol}://${_req.get('host')}`;
+    const origin = canonicalOrigin || `${_req.protocol}://${_req.get('host')}`;
     res.type('text/plain').send(buildRobotsTxt(origin));
 });
 app.get('/sitemap.xml', async (req, res) => {
     try {
         const entries = await loadSitemapEntries();
-        const origin = `${req.protocol}://${req.get('host')}`;
+        const origin = canonicalOrigin || `${req.protocol}://${req.get('host')}`;
         res.type('application/xml').send(buildSitemapXml(entries, origin));
     } catch (error) {
         console.error('Failed to generate sitemap.xml:', error?.message || error);
-        const origin = `${req.protocol}://${req.get('host')}`;
+        const origin = canonicalOrigin || `${req.protocol}://${req.get('host')}`;
         res.status(500).type('application/xml').send(buildSitemapXml([], origin));
     }
 });
