@@ -264,6 +264,8 @@ export default function CartDrawer() {
                         const mrp = Number(item.compareAt || 0);
                         const hasDiscount = mrp > price;
                         const discountPct = hasDiscount ? Math.round(((mrp - price) / mrp) * 100) : 0;
+                        const discountAmount = hasDiscount ? Math.max(0, Math.round(mrp - price)) : 0;
+                        const discountLabel = discountPct >= 1 ? `${discountPct}% OFF` : `₹${discountAmount.toLocaleString()} OFF`;
                         return (
                             <div key={item.key} className={`flex gap-3 items-center ${item.isOutOfStock ? 'grayscale opacity-80' : ''}`}>
                                 <div className="w-16 h-16 rounded-lg bg-gray-100 overflow-hidden border border-gray-200">
@@ -290,7 +292,7 @@ export default function CartDrawer() {
                                             <>
                                                 <p className="text-[11px] text-gray-400 line-through">₹{mrp.toLocaleString()}</p>
                                                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-50 text-red-600 font-semibold">
-                                                    {discountPct}% OFF
+                                                    {discountLabel}
                                                 </span>
                                             </>
                                         )}

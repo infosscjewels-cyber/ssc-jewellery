@@ -1078,7 +1078,17 @@ export function Orders({
         if (method === 'cod') return 'Online Payment';
         return method ? method.toUpperCase() : '—';
     };
-    const getPaymentReference = (order) => order?.razorpay_payment_id || order?.razorpayPaymentId || '—';
+    const getPaymentReference = (order) => {
+        const settlement = order?.settlement_snapshot || order?.settlementSnapshot || null;
+        const loyaltyMeta = order?.loyalty_meta || order?.loyaltyMeta || null;
+        return order?.razorpay_payment_id
+            || order?.razorpayPaymentId
+            || settlement?.payment_reference
+            || settlement?.paymentReference
+            || loyaltyMeta?.paymentReference
+            || loyaltyMeta?.manualPaymentReference
+            || '—';
+    };
     const getInvoiceNumber = (order) => {
         const ref = order?.order_ref || order?.orderRef || order?.id || 'N/A';
         return `INV-${ref}`;
@@ -1957,7 +1967,7 @@ export function Orders({
                 ['Contact Number', companyProfile?.contactNumber || '—'],
                 ['Address', companyAddressLine || '—'],
                 ['Generated At', formatAdminDateTime(new Date().toISOString())],
-                ['Filters', `Status: ${requestedStatusFilter}, Search: ${search || '—'}, Range: ${quickRange}, Source: ${sourceChannel || 'all'}, Sort: ${sortBy}`],
+                ['Filters', `Status: ${requestedStatusFilter === 'all' ? 'All Sales' : requestedStatusFilter}, Search: ${search || '—'}, Range: ${quickRange}, Source: ${sourceChannel || 'all'}, Sort: ${sortBy}`],
                 []
             ];
 
@@ -2971,7 +2981,7 @@ export function Orders({
         { value: 'attempted', label: 'Attempted' },
         { value: 'cancelled', label: 'Cancelled' },
         { value: 'failed', label: 'Failed' },
-        { value: 'all', label: 'All' }
+        { value: 'all', label: 'All Sales' }
     ];
     const mobileStatusMetricCounts = useMemo(() => (
         mobileStatusMetricQueries.reduce((acc, query) => {
@@ -3415,7 +3425,7 @@ export function Orders({
                                 <option value="attempted">Attempted</option>
                                 <option value="cancelled">Cancelled</option>
                                 <option value="failed">Failed</option>
-                                <option value="all">All Status</option>
+                                <option value="all">All Sales</option>
                             </select>
                         </div>
                         <div className="relative hidden md:block w-full md:w-auto order-2 md:order-3">
@@ -3637,23 +3647,23 @@ export function Orders({
                                 <div
                                     key={entry.key}
                                     onClick={() => openDetails(order)}
-                                    className="w-full text-left px-2 py-1 transition-colors hover:bg-slate-50/70"
+                                    className="w-full text-left px-1.5 py-0.5 transition-colors hover:bg-slate-50/70"
                                 >
-                                    <div className={`relative overflow-hidden rounded-lg border px-2.5 pb-1.5 pt-1.5 shadow-sm ${theme.shell}`}>
+                                    <div className={`relative overflow-hidden rounded-lg border px-2 pb-1 pt-1.5 shadow-sm ${theme.shell}`}>
                                         <div className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${theme.strip}`} />
-                                        <div className="flex items-start justify-between gap-2">
+                                        <div className="flex items-start justify-between gap-1.5">
                                             <div className="min-w-0">
-                                                <p className="font-mono text-[11px] font-bold leading-tight tracking-tight text-slate-900 break-words">#{order.order_ref}</p>
-                                                <div className="mt-0 flex min-w-0 items-baseline gap-1.5">
-                                                    <p className="min-w-0 truncate text-[11px] font-semibold leading-tight text-slate-800">{order.customer_name || 'Guest'}</p>
+                                                <p className="font-mono text-xs font-bold leading-tight tracking-normal text-slate-900 break-words">#{order.order_ref}</p>
+                                                <div className="mt-0 flex min-w-0 items-baseline gap-1">
+                                                    <p className="min-w-0 truncate text-xs font-semibold leading-tight text-slate-800">{order.customer_name || 'Guest'}</p>
                                                     {order.customer_mobile && (
-                                                        <p className="shrink-0 text-[9px] leading-tight text-slate-600">{order.customer_mobile}</p>
+                                                        <p className="shrink-0 text-[10px] leading-tight text-slate-600">{order.customer_mobile}</p>
                                                     )}
                                                 </div>
                                             </div>
-                                            <div className="flex shrink-0 flex-col items-end gap-1">
-                                                <div className="flex items-center justify-end gap-1">
-                                                    <span className={`inline-flex min-w-[62px] items-center justify-center px-2 py-0.5 rounded-full text-[9px] font-semibold ${getOrderStatusBadgeClasses(displayStatus)}`}>
+                                            <div className="flex shrink-0 flex-col items-end gap-0.5">
+                                                <div className="flex items-center justify-end gap-1.5">
+                                                    <span className={`inline-flex min-w-[68px] items-center justify-center px-2 py-1 rounded-full text-[11px] font-semibold leading-none ${getOrderStatusBadgeClasses(displayStatus)}`}>
                                                         {formatStatusLabel(displayStatus)}
                                                     </span>
                                                     {!isAttemptEntry(order) && !['completed', 'cancelled'].includes(displayStatus) && (
@@ -3661,10 +3671,10 @@ export function Orders({
                                                             type="button"
                                                             onClick={(e) => handleQuickComplete(order, e)}
                                                             disabled={isQuickCompleting}
-                                                            className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-gradient-to-r from-emerald-50 via-lime-50 to-emerald-100 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-800 shadow-sm shadow-emerald-100/70 transition-all hover:from-emerald-100 hover:via-lime-100 hover:to-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                                            className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-gradient-to-r from-emerald-50 via-lime-50 to-emerald-100 px-1.5 py-1 text-[11px] font-semibold leading-none text-emerald-800 shadow-sm shadow-emerald-100/70 transition-all hover:from-emerald-100 hover:via-lime-100 hover:to-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
                                                             title="Mark order as completed"
                                                         >
-                                                            <CheckCircle2 size={10} className={isQuickCompleting ? 'animate-pulse' : ''} />
+                                                            <CheckCircle2 size={13} className={isQuickCompleting ? 'animate-pulse' : ''} />
                                                             {isQuickCompleting ? 'Completing...' : 'Complete'}
                                                         </button>
                                                     )}
@@ -3672,28 +3682,28 @@ export function Orders({
                                             </div>
                                         </div>
 
-                                        <div className={`mt-1 grid grid-cols-[1fr_auto] items-start gap-2 border-t px-0 pt-1 ${theme.divider}`}>
+                                        <div className={`mt-0.5 grid grid-cols-[1fr_auto] items-start gap-1.5 border-t px-0 pt-0.5 ${theme.divider}`}>
                                             <div>
-                                                <p className="text-[10px] leading-tight text-slate-700">{formatAdminDateTime(order.created_at)}</p>
+                                                <p className="text-[11px] leading-tight text-slate-700">{formatAdminDateTime(order.created_at)}</p>
                                             </div>
                                             <div className="text-right">
-                                                <p className={`text-[13px] font-semibold leading-tight ${theme.amount}`}>₹{Number(order.total || 0).toLocaleString()}</p>
+                                                <p className={`text-sm font-semibold leading-tight ${theme.amount}`}>₹{Number(order.total || 0).toLocaleString()}</p>
                                             </div>
                                         </div>
 
-                                        <div className={`mt-1 flex flex-wrap items-center gap-1 ${theme.divider}`}>
-                                            <span className={`inline-flex min-w-[64px] items-center justify-center px-1.5 py-0.5 rounded-full text-[8px] font-semibold ${getPaymentStatusBadgeClasses(order.payment_status)}`}>
+                                        <div className={`mt-0.5 flex flex-wrap items-center gap-0.5 ${theme.divider}`}>
+                                            <span className={`inline-flex min-w-[64px] items-center justify-center px-1 py-0.5 rounded-full text-[9px] font-semibold leading-none ${getPaymentStatusBadgeClasses(order.payment_status)}`}>
                                                 {getPaymentStatusLabel(order)}
                                             </span>
                                             <TierBadge
                                                 tier={order?.loyalty_tier || order?.loyaltyTier || 'regular'}
                                                 label={getTierLabel(order)}
-                                                className="min-w-[64px] justify-center px-1.5 py-0.5 text-[7px]"
-                                                iconSize={8}
+                                                className="min-w-[64px] justify-center px-1 py-0.5 text-[8px]"
+                                                iconSize={9}
                                                 hideRegular
                                             />
                                             {!!pendingDurationLabel && (
-                                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[7px] font-semibold uppercase tracking-[0.12em] ${getOrderStatusBadgeClasses('pending')}`}>
+                                                <span className={`inline-flex items-center px-1 py-0.5 rounded-full text-[8px] font-semibold uppercase tracking-normal ${getOrderStatusBadgeClasses('pending')}`}>
                                                     {pendingDurationLabel}
                                                 </span>
                                             )}
@@ -3702,7 +3712,7 @@ export function Orders({
                                             </span>
                                         </div>
 
-                                        <div className={`mt-1 flex items-center justify-end gap-1 flex-nowrap overflow-hidden border-t pt-1 ${theme.divider}`}>
+                                        <div className={`mt-0.5 flex items-center justify-end gap-0.5 flex-nowrap overflow-hidden border-t pt-0.5 ${theme.divider}`}>
                                         {getCallLink(order.customer_mobile) && (
                                             <a
                                                 href={getCallLink(order.customer_mobile)}

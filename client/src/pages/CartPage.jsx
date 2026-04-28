@@ -270,6 +270,8 @@ export default function CartPage() {
                                                 const mrp = Number(item.compareAt || item.originalPrice || 0);
                                                 const hasDiscount = mrp > price;
                                                 const discountPct = hasDiscount ? Math.round(((mrp - price) / mrp) * 100) : 0;
+                                                const discountAmount = hasDiscount ? Math.max(0, Math.round(mrp - price)) : 0;
+                                                const discountLabel = discountPct >= 1 ? `${discountPct}% OFF` : `₹${discountAmount.toLocaleString()} OFF`;
                                                 const lowStockCopy = item.isLowStock
                                                     ? `Only ${Number(item.availableQuantity || 0)} left. Checkout soon.`
                                                     : '';
@@ -296,7 +298,7 @@ export default function CartPage() {
                                                             <>
                                                                 <p className="text-xs text-gray-400 line-through">₹{mrp.toLocaleString()}</p>
                                                                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-600 font-semibold">
-                                                                    {discountPct}% OFF
+                                                                    {discountLabel}
                                                                 </span>
                                                             </>
                                                         )}

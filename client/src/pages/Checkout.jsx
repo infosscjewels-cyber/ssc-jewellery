@@ -2723,6 +2723,8 @@ export default function Checkout() {
                                             const mrp = Number(item.compareAt || 0);
                                             const hasDiscount = mrp > price;
                                             const discountPct = hasDiscount ? Math.round(((mrp - price) / mrp) * 100) : 0;
+                                            const discountAmount = hasDiscount ? Math.max(0, Math.round(mrp - price)) : 0;
+                                            const discountLabel = discountPct >= 1 ? `${discountPct}% OFF` : `₹${discountAmount.toLocaleString()} OFF`;
                                             const displayUnitPrice = Number(price || 0);
                                             const displayLineTotal = Number(item.lineTotal || 0);
                                             const lowStockCopy = item.isLowStock
@@ -2760,7 +2762,7 @@ export default function Checkout() {
                                                                 <>
                                                                     <p className="text-[11px] text-gray-400 line-through">₹{mrp.toLocaleString()}</p>
                                                                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-50 text-red-600 font-semibold">
-                                                                        {discountPct}% OFF
+                                                                        {discountLabel}
                                                                     </span>
                                                                 </>
                                                             )}

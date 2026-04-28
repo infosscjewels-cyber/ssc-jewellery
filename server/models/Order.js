@@ -182,6 +182,35 @@ const parseStringArray = (value) => {
 const toSubunits = (amount) => Math.round(Number(amount || 0) * 100);
 const fromSubunits = (subunits) => Number(subunits || 0) / 100;
 const roundMoney = (value) => Number(Number(value || 0).toFixed(2));
+const buildManualConversionSettlementSnapshot = ({
+    attemptId = null,
+    amount = 0,
+    currency = 'INR',
+    paymentGateway = 'manual',
+    paymentReference = '',
+    actorUserId = null
+} = {}) => {
+    const safeAttemptId = Number(attemptId || 0);
+    const safeReference = String(paymentReference || '').trim();
+    const now = Math.floor(Date.now() / 1000);
+    return {
+        id: `manual_settled_attempt_${safeAttemptId || now}`,
+        entity: 'settlement',
+        status: 'settled',
+        amount: toSubunits(amount),
+        fees: 0,
+        tax: 0,
+        net_amount: toSubunits(amount),
+        currency: String(currency || 'INR').toUpperCase(),
+        method: String(paymentGateway || 'manual').trim().toLowerCase() || 'manual',
+        payment_reference: safeReference || null,
+        utr: safeReference || null,
+        created_at: now,
+        fetched_at: now,
+        source: 'manual_attempt_conversion',
+        settled_by: actorUserId || null
+    };
+};
 const isForcedOutOfStock = (value) => value === 1 || value === true || value === '1' || value === 'true';
 const normalizeAdminOrderSearch = (value = '') => String(value || '').trim().replace(/^#+\s*/, '');
 const normalizeTaxPriceMode = (value = 'exclusive') => String(value || 'exclusive').trim().toLowerCase() === 'inclusive'
@@ -879,13 +908,20 @@ const buildOrderItemsFromSelections = async (connection, selections = [], { dedu
 
 const MAX_FETCH_RANGE_DAYS = 90;
 const ADMIN_PAID_PAYMENT_CONDITION = (alias = 'o') => `LOWER(COALESCE(${alias}.payment_status, '')) IN ('paid', 'captured')`;
+const ADMIN_REVENUE_PAYMENT_CONDITION = (alias = 'o') => `(
+    ${ADMIN_PAID_PAYMENT_CONDITION(alias)}
+    AND LOWER(COALESCE(${alias}.status, '')) NOT IN ('cancelled', 'failed')
+    AND LOWER(COALESCE(${alias}.payment_status, '')) NOT IN ('failed', 'refunded')
+)`;
+const ADMIN_SALES_ORDER_CONDITION = ADMIN_REVENUE_PAYMENT_CONDITION;
 const ADMIN_OVERDUE_CONFIRMED_CONDITION = (alias = 'o') => `(${alias}.status = 'confirmed' AND ${ADMIN_PAID_PAYMENT_CONDITION(alias)} AND TIMESTAMPDIFF(HOUR, ${alias}.created_at, NOW()) >= 24)`;
 const ADMIN_ATTEMPTED_PAYMENT_CONDITION = (alias = 'o') => `LOWER(COALESCE(${alias}.payment_status, '')) IN ('attempted', 'verification_pending', 'paid_unverified', 'reconciliation_pending', 'authorized')`;
 
 const buildSingleAdminStatusCondition = ({ status = 'all', alias = 'o', params = [] } = {}) => {
     const requestedStatus = String(status || '').trim().toLowerCase();
     const normalizedStatus = requestedStatus === 'shipped' ? 'completed' : requestedStatus;
-    if (!normalizedStatus || normalizedStatus === 'all') return '';
+    if (!normalizedStatus) return '';
+    if (normalizedStatus === 'all') return ADMIN_SALES_ORDER_CONDITION(alias);
     if (normalizedStatus === 'pending') {
         return `(${alias}.status = 'pending' OR ${ADMIN_OVERDUE_CONFIRMED_CONDITION(alias)})`;
     }
@@ -910,7 +946,8 @@ const buildAdminStatusClause = ({ status = 'all', alias = 'o', params = [] } = {
     const normalizedStatuses = [...new Set(
         requestedStatuses.map((entry) => (entry === 'shipped' ? 'completed' : entry))
     )];
-    if (normalizedStatuses.length === 0 || normalizedStatuses.includes('all')) return '';
+    if (normalizedStatuses.length === 0) return '';
+    if (normalizedStatuses.includes('all')) return ` AND ${ADMIN_SALES_ORDER_CONDITION(alias)}`;
     const conditions = normalizedStatuses
         .map((entry) => buildSingleAdminStatusCondition({ status: entry, alias, params }))
         .filter(Boolean);
@@ -2396,6 +2433,15 @@ class Order {
                     discountTotal,
                     taxPriceMode: finalTaxPriceMode
                 });
+            const resolvedSettlementSnapshot = settlementSnapshot || buildManualConversionSettlementSnapshot({
+                attemptId: lockedAttempt.id,
+                amount: finalTotal,
+                currency: lockedAttempt.currency || 'INR',
+                paymentGateway,
+                paymentReference,
+                actorUserId
+            });
+            const resolvedSettlementId = String(settlementId || resolvedSettlementSnapshot?.id || '').trim() || null;
 
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders
@@ -2433,8 +2479,8 @@ class Order {
                     JSON.stringify(normalizeAddress(lockedAttempt.billing_address) || null),
                     JSON.stringify(normalizeAddress(lockedAttempt.shipping_address) || null),
                     JSON.stringify(companySnapshot),
-                    String(settlementId || '').trim() || null,
-                    settlementSnapshot ? JSON.stringify(settlementSnapshot) : null
+                    resolvedSettlementId,
+                    resolvedSettlementSnapshot ? JSON.stringify(resolvedSettlementSnapshot) : null
                 ]
             );
 
@@ -2698,7 +2744,7 @@ class Order {
         const effectiveEndDate = String(endDate || resolvedNamedRange?.endDateText || '').trim();
         const latestLimit = normalizedQuickRange === 'latest_10' ? 10 : null;
         const normalizedListStatus = String(status || 'all').trim().toLowerCase();
-        const includeAttemptRows = ['all', 'failed', 'attempted'].includes(normalizedListStatus) && String(sourceChannel || 'all').toLowerCase() === 'all';
+        const includeAttemptRows = ['failed', 'attempted'].includes(normalizedListStatus) && String(sourceChannel || 'all').toLowerCase() === 'all';
         const attemptedAttemptStatuses = ['attempted', 'verification_pending', 'paid_unverified', 'reconciliation_pending', 'authorized'];
 
         const buildDateClause = (alias, params) => {
@@ -3442,11 +3488,11 @@ class Order {
             [summaryRows] = await db.execute(
                 `SELECT
                     COUNT(*) as total_orders,
-                    SUM(CASE WHEN scoped.status <> 'cancelled' THEN scoped.total ELSE 0 END) as total_revenue,
+                    SUM(CASE WHEN ${ADMIN_REVENUE_PAYMENT_CONDITION('scoped')} THEN scoped.total ELSE 0 END) as total_revenue,
                     SUM(CASE WHEN scoped.status = 'pending' OR ${ADMIN_OVERDUE_CONFIRMED_CONDITION('scoped')} THEN 1 ELSE 0 END) as pending_orders,
                     SUM(CASE WHEN scoped.status = 'confirmed' AND ${ADMIN_PAID_PAYMENT_CONDITION('scoped')} AND TIMESTAMPDIFF(HOUR, scoped.created_at, NOW()) < 24 THEN 1 ELSE 0 END) as confirmed_orders,
                     SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
-                    SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() AND scoped.status <> 'cancelled' THEN scoped.total ELSE 0 END) as today_revenue
+                    SUM(CASE WHEN DATE(scoped.created_at) = CURDATE() AND ${ADMIN_REVENUE_PAYMENT_CONDITION('scoped')} THEN scoped.total ELSE 0 END) as today_revenue
                  FROM (
                     SELECT o.total, o.status, o.payment_status, o.created_at
                     FROM orders o
@@ -3462,11 +3508,11 @@ class Order {
             [summaryRows] = await db.execute(
                 `SELECT
                     COUNT(*) as total_orders,
-                    SUM(CASE WHEN o.status <> 'cancelled' THEN o.total ELSE 0 END) as total_revenue,
+                    SUM(CASE WHEN ${ADMIN_REVENUE_PAYMENT_CONDITION('o')} THEN o.total ELSE 0 END) as total_revenue,
                     SUM(CASE WHEN o.status = 'pending' OR ${ADMIN_OVERDUE_CONFIRMED_CONDITION('o')} THEN 1 ELSE 0 END) as pending_orders,
                     SUM(CASE WHEN o.status = 'confirmed' AND ${ADMIN_PAID_PAYMENT_CONDITION('o')} AND TIMESTAMPDIFF(HOUR, o.created_at, NOW()) < 24 THEN 1 ELSE 0 END) as confirmed_orders,
                     SUM(CASE WHEN DATE(o.created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
-                    SUM(CASE WHEN DATE(o.created_at) = CURDATE() AND o.status <> 'cancelled' THEN o.total ELSE 0 END) as today_revenue
+                    SUM(CASE WHEN DATE(o.created_at) = CURDATE() AND ${ADMIN_REVENUE_PAYMENT_CONDITION('o')} THEN o.total ELSE 0 END) as today_revenue
                  FROM orders o
                  LEFT JOIN users u ON u.id = o.user_id
                  ${where}`,

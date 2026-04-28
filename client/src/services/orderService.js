@@ -275,13 +275,18 @@ const matchesAdminStatus = (order, query = {}) => {
         .map((entry) => String(entry || '').trim().toLowerCase())
         .filter(Boolean);
     const normalizedStatuses = [...new Set(requestedStatuses)];
-    if (normalizedStatuses.length === 0 || normalizedStatuses.includes('all')) return true;
+    if (normalizedStatuses.length === 0) return true;
     const createdTs = new Date(order?.created_at || order?.createdAt || 0).getTime();
     const ageHours = Number.isFinite(createdTs) && createdTs > 0
         ? (Date.now() - createdTs) / (1000 * 60 * 60)
         : null;
     const normalizedOrderStatus = String(order?.status || '').toLowerCase();
     const normalizedPaymentStatus = String(order?.payment_status || '').toLowerCase();
+    if (normalizedStatuses.includes('all')) {
+        return ['paid', 'captured'].includes(normalizedPaymentStatus)
+            && !['cancelled', 'failed'].includes(normalizedOrderStatus)
+            && !['failed', 'refunded'].includes(normalizedPaymentStatus);
+    }
     const isOverdueConfirmed = normalizedOrderStatus === 'confirmed'
         && Number.isFinite(ageHours)
         && ageHours >= 24;
@@ -671,7 +676,7 @@ export const orderService = {
     }) => {
         const normalizedQuickRange = normalizeAdminQuickRange(quickRange || DEFAULT_ADMIN_QUICK_RANGE);
         const queryMeta = { page, limit, status, search, startDate, endDate, quickRange: normalizedQuickRange, sortBy, sourceChannel };
-        const cacheKey = `${page}_${limit}_${status}_${search}_${startDate}_${endDate}_${normalizedQuickRange}_${sortBy}_${sourceChannel}`;
+        const cacheKey = `sales-v2_${page}_${limit}_${status}_${search}_${startDate}_${endDate}_${normalizedQuickRange}_${sortBy}_${sourceChannel}`;
         const cached = adminOrdersCache[cacheKey];
         const shouldDebug = typeof window !== 'undefined' && window.location?.search?.includes('debugOrders=1');
         if (cached && Date.now() - cached.ts < ADMIN_CACHE_TTL) {

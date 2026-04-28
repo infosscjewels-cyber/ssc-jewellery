@@ -420,7 +420,13 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 `SELECT
                     COUNT(*) AS total_orders,
                     SUM(COALESCE(scoped.subtotal, 0) + COALESCE(scoped.shipping_fee, 0)) AS gross_sales,
-                    SUM(CASE WHEN scoped.status <> 'cancelled' THEN COALESCE(scoped.total, 0) ELSE 0 END) AS net_sales,
+                    SUM(CASE
+                        WHEN LOWER(COALESCE(scoped.status, '')) NOT IN ('cancelled', 'failed')
+                         AND LOWER(COALESCE(scoped.payment_status, '')) IN ('paid', 'captured')
+                         AND LOWER(COALESCE(scoped.payment_status, '')) NOT IN ('failed', 'refunded')
+                        THEN COALESCE(scoped.total, 0)
+                        ELSE 0
+                    END) AS net_sales,
                     SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'paid' THEN 1 ELSE 0 END) AS paid_orders,
                     SUM(CASE WHEN LOWER(COALESCE(scoped.status, '')) = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_orders,
                     SUM(CASE WHEN LOWER(COALESCE(scoped.payment_status, '')) = 'refunded' OR COALESCE(scoped.refund_amount, 0) > 0 THEN COALESCE(scoped.refund_amount, 0) ELSE 0 END) AS refunded_amount
@@ -1636,7 +1642,13 @@ const refreshDashboardDailyAggregates = async ({ lookbackDays = 120 } = {}) => {
             DATE(o.created_at) AS day_date,
             COUNT(*) AS total_orders,
             SUM(COALESCE(o.subtotal, 0) + COALESCE(o.shipping_fee, 0)) AS gross_sales,
-            SUM(CASE WHEN o.status <> 'cancelled' THEN COALESCE(o.total, 0) ELSE 0 END) AS net_sales,
+            SUM(CASE
+                WHEN LOWER(COALESCE(o.status, '')) NOT IN ('cancelled', 'failed')
+                 AND LOWER(COALESCE(o.payment_status, '')) IN ('paid', 'captured')
+                 AND LOWER(COALESCE(o.payment_status, '')) NOT IN ('failed', 'refunded')
+                THEN COALESCE(o.total, 0)
+                ELSE 0
+            END) AS net_sales,
             SUM(CASE WHEN LOWER(COALESCE(o.payment_status, '')) = 'paid' THEN 1 ELSE 0 END) AS paid_orders,
             SUM(CASE WHEN LOWER(COALESCE(o.status, '')) = 'shipped' THEN 1 ELSE 0 END) AS shipped_orders,
             SUM(CASE WHEN LOWER(COALESCE(o.status, '')) = 'completed' THEN 1 ELSE 0 END) AS completed_orders,
