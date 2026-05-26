@@ -2575,6 +2575,11 @@ export function Orders({
         }
     };
 
+    const selectedOrderGateway = String(
+        selectedOrder?.payment_gateway || selectedOrder?.paymentGateway || 'razorpay'
+    ).trim().toLowerCase();
+    const isSelectedOrderIcici = selectedOrderGateway === 'icici';
+
     const handleStatusUpdate = useCallback(async () => {
         if (!selectedOrder || !pendingStatus) return;
         const isPaid = isPaidPayment(selectedOrder);
@@ -3113,12 +3118,6 @@ export function Orders({
         { value: 'priority', label: 'Fulfillment Priority' }
     ];
 
-    
-    const selectedOrderGateway = String(
-        selectedOrder?.payment_gateway || selectedOrder?.paymentGateway || 'razorpay'
-    ).trim().toLowerCase();
-
-    const isSelectedOrderIcici = selectedOrderGateway === 'icici';
     const visibleCancellationModes = CANCELLATION_MODES.filter((mode) => {
         if (selectedOrderGateway === 'icici') return mode.value !== 'razorpay';
         if (selectedOrderGateway === 'razorpay') return mode.value !== 'icici';
