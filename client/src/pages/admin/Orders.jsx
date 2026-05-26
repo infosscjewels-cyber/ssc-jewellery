@@ -3084,12 +3084,7 @@ export function Orders({
         { value: 'priority', label: 'Fulfillment Priority' }
     ];
 
-    useEffect(() => {
-        if (!selectedOrder) return;
-        if (isSelectedOrderIcici && cancellationMode === 'razorpay') {
-            setCancellationMode('');
-        }
-    }, [selectedOrder, isSelectedOrderIcici, cancellationMode]);
+    
     const selectedOrderGateway = String(
         selectedOrder?.payment_gateway || selectedOrder?.paymentGateway || 'razorpay'
     ).trim().toLowerCase();
@@ -3098,6 +3093,13 @@ export function Orders({
     const visibleCancellationModes = CANCELLATION_MODES.filter(
         (mode) => !isSelectedOrderIcici || mode.value !== 'razorpay'
     );
+
+    useEffect(() => {
+        if (!selectedOrder) return;
+        if (isSelectedOrderIcici && cancellationMode === 'razorpay') {
+            setCancellationMode('');
+        }
+    }, [selectedOrder, isSelectedOrderIcici, cancellationMode]);
     return (
         <div className="animate-fade-in overflow-x-hidden md:overflow-x-visible">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4 mb-3 md:mb-6">
