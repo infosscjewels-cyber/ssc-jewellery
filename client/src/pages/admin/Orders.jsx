@@ -469,6 +469,24 @@ const getSettlementStatusMeta = (status = '') => {
             timelineLine: 'border-rose-200'
         };
     }
+    if (normalized === 'manual') {
+        return {
+            label: 'Manual',
+            chip: 'bg-sky-50 text-sky-800 border border-sky-200',
+            dot: 'bg-sky-500',
+            iconTone: 'text-sky-700',
+            timelineLine: 'border-sky-200'
+        };
+    }
+    if (normalized === 'unavailable') {
+        return {
+            label: 'Warning',
+            chip: 'bg-amber-50 text-amber-900 border border-amber-300',
+            dot: 'bg-amber-500',
+            iconTone: 'text-amber-800',
+            timelineLine: 'border-amber-300'
+        };
+    }
     return {
         label: normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : 'Unknown',
         chip: 'bg-slate-50 text-slate-700 border border-slate-200',
@@ -4277,10 +4295,20 @@ export function Orders({
                                                             const paymentReference = getPaymentReference(selectedOrder);
                                                             const paidAtLabel = formatSettlementDateTime(selectedOrder?.created_at || selectedOrder?.createdAt);
                                                             const settlementStatus = String(settlement?.status || '').trim().toLowerCase();
+                                                            const settlementSource = String(settlement?.source || '').trim().toLowerCase();
+                                                            const settlementId = String(settlement?.id || selectedOrder?.settlement_id || '').trim();
+                                                            const lastRefreshStatus = String(settlement?.last_refresh_status || '').trim().toLowerCase();
                                                             const isSettled = settlementStatus === 'settled';
+                                                            const isManualSettlement = settlementSource === 'manual_attempt_conversion' || settlementId.startsWith('manual_settled_attempt_');
+                                                            const hasSettlementWarning = !isSettled && !isManualSettlement && lastRefreshStatus === 'failed';
                                                             const isSettlementAwaited = !settlement || ['pending', 'processing', 'queued', 'failed'].includes(settlementStatus);
-                                                            const settlementStatusMeta = getSettlementStatusMeta(isSettlementAwaited ? 'pending' : settlementStatus);
+                                                            const settlementStatusMeta = getSettlementStatusMeta(
+                                                                isManualSettlement
+                                                                    ? 'manual'
+                                                                    : (hasSettlementWarning ? 'unavailable' : (isSettlementAwaited ? 'pending' : settlementStatus))
+                                                            );
                                                             const settledAtLabel = settlement?.created_at ? formatSettlementDateTime(settlement?.created_at) : 'Awaited';
+                                                            const canShowSettlementBreakdown = isSettled || isManualSettlement;
                                                             const settlementAmount = settlement ? toSettlementRupees(settlement?.amount, settlement) : 0;
                                                             const settlementFees = settlement ? toSettlementRupees(settlement?.fees, settlement) : 0;
                                                             const settlementTax = settlement ? toSettlementRupees(settlement?.tax, settlement) : 0;
@@ -4289,6 +4317,28 @@ export function Orders({
                                                                     ? toSettlementRupees(settlement?.net_amount, settlement)
                                                                     : Math.max(0, settlementAmount - settlementFees - settlementTax))
                                                                 : 0;
+                                                            const settlementHeadline = isManualSettlement
+                                                                ? 'Settlement recorded manually'
+                                                                : (isSettled
+                                                                    ? 'Money deposited in your bank'
+                                                                    : 'Settlement awaited');
+                                                            const settlementDetail = isManualSettlement
+                                                                ? (settlement?.created_at
+                                                                    ? `Recorded locally: ${settledAtLabel}`
+                                                                    : 'Recorded locally by an admin or recovery flow')
+                                                                : (isSettled
+                                                                    ? `Settled: ${settledAtLabel}`
+                                                                    : (hasSettlementWarning
+                                                                        ? (String(settlement?.last_refresh_error || '').trim() || 'Unable to refresh settlement confirmation from gateway')
+                                                                        : 'Awaiting settlement confirmation from gateway'));
+                                                            const settlementStatusLabel = isManualSettlement
+                                                                ? settlementStatusMeta.label
+                                                                : (hasSettlementWarning
+                                                                    ? 'Awaited'
+                                                                    : (isSettlementAwaited ? 'Awaited' : settlementStatusMeta.label));
+                                                            const displaySettlementId = isManualSettlement
+                                                                ? 'Admin-recorded'
+                                                                : (settlementId || '—');
                                                             return (
                                                                 <div className="mt-3 space-y-3">
                                                                     <div className="rounded-xl border border-white/70 bg-white/70 p-3 backdrop-blur-[1px]">
@@ -4328,15 +4378,20 @@ export function Orders({
                                                                                     </span>
                                                                                     <div className="pt-0.5">
                                                                                         <p className="text-sm font-medium text-gray-800">
-                                                                                            {isSettled ? 'Money deposited in your bank' : 'Settlement awaited'}
+                                                                                            {settlementHeadline}
                                                                                         </p>
                                                                                         <p className="text-xs text-gray-500">
-                                                                                            {isSettled ? `Settled: ${settledAtLabel}` : 'Awaiting settlement confirmation from gateway'}
-                                                                                            {settlement?.utr ? ` | UTR: ${settlement.utr}` : ''}
+                                                                                            {settlementDetail}
+                                                                                            {(isSettled || isManualSettlement) && settlement?.utr ? ` | UTR: ${settlement.utr}` : ''}
                                                                                         </p>
                                                                                         {!isSettled && settlementContext?.isTestMode && (
                                                                                             <p className="mt-1 text-xs text-amber-700">
                                                                                                 Razorpay test mode usually does not generate real settlement records.
+                                                                                            </p>
+                                                                                        )}
+                                                                                        {hasSettlementWarning && (
+                                                                                            <p className="mt-1 text-xs text-amber-700">
+                                                                                                Auto-retry will continue using the ICICI settlement sync job.
                                                                                             </p>
                                                                                         )}
                                                                                     </div>
@@ -4348,18 +4403,18 @@ export function Orders({
                                                                         <div className="flex items-center justify-between gap-3">
                                                                             <span className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}>Settlement Status</span>
                                                                             <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${settlementStatusMeta.chip}`}>
-                                                                                {isSettlementAwaited ? 'Awaited' : settlementStatusMeta.label}
+                                                                                {settlementStatusLabel}
                                                                             </span>
                                                                         </div>
                                                                         <div className="mt-3 overflow-hidden rounded-xl border border-white/70">
                                                                             {[
-                                                                                { label: 'Settlement ID', value: <span className="font-mono text-xs">{settlement?.id || selectedOrder?.settlement_id || '—'}</span> },
-                                                                                { label: 'Settlement Amount', value: settlement ? formatSettlementAmount(settlementAmount) : 'Awaited' },
-                                                                                { label: 'Charges (Fees)', value: settlement ? formatSettlementAmount(settlementFees) : 'Awaited' },
-                                                                                { label: 'Tax', value: settlement ? formatSettlementAmount(settlementTax) : 'Awaited' },
-                                                                                { label: 'Net Credited', value: settlement ? formatSettlementAmount(settlementNet) : 'Awaited' },
-                                                                                { label: 'Settled Date', value: settledAtLabel },
-                                                                                { label: 'UTR', value: <span className="font-mono text-xs">{settlement?.utr || '—'}</span> }
+                                                                                { label: 'Settlement ID', value: <span className={`${isManualSettlement ? '' : 'font-mono'} text-xs`}>{displaySettlementId}</span> },
+                                                                                { label: 'Settlement Amount', value: canShowSettlementBreakdown ? formatSettlementAmount(settlementAmount) : settlementStatusLabel },
+                                                                                { label: 'Charges (Fees)', value: canShowSettlementBreakdown ? formatSettlementAmount(settlementFees) : settlementStatusLabel },
+                                                                                { label: 'Tax', value: canShowSettlementBreakdown ? formatSettlementAmount(settlementTax) : settlementStatusLabel },
+                                                                                { label: 'Net Credited', value: canShowSettlementBreakdown ? formatSettlementAmount(settlementNet) : settlementStatusLabel },
+                                                                                { label: 'Settled Date', value: canShowSettlementBreakdown ? settledAtLabel : settlementStatusLabel },
+                                                                                { label: 'UTR', value: <span className="font-mono text-xs">{canShowSettlementBreakdown ? (settlement?.utr || '—') : '—'}</span> }
                                                                             ].map((row) => (
                                                                                 <div key={row.label} className="grid grid-cols-[132px_minmax(0,1fr)] gap-4 border-t border-white/60 px-3 py-2 text-sm first:border-t-0">
                                                                                     <div className="text-gray-500">{row.label}</div>

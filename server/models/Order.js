@@ -2437,14 +2437,20 @@ class Order {
                     discountTotal,
                     taxPriceMode: finalTaxPriceMode
                 });
-            const resolvedSettlementSnapshot = settlementSnapshot || buildManualConversionSettlementSnapshot({
-                attemptId: lockedAttempt.id,
-                amount: finalTotal,
-                currency: lockedAttempt.currency || 'INR',
-                paymentGateway,
-                paymentReference,
-                actorUserId
-            });
+            const normalizedPaymentGateway = String(paymentGateway || 'manual').trim().toLowerCase() || 'manual';
+            const normalizedSourceChannel = String(sourceChannel || '').trim().toLowerCase();
+            const shouldSuppressManualSettlementFallback = normalizedPaymentGateway === 'icici'
+                && ['checkout', 'checkout_reconciler', 'abandoned_recovery'].includes(normalizedSourceChannel);
+            const resolvedSettlementSnapshot = settlementSnapshot || (shouldSuppressManualSettlementFallback
+                ? null
+                : buildManualConversionSettlementSnapshot({
+                    attemptId: lockedAttempt.id,
+                    amount: finalTotal,
+                    currency: lockedAttempt.currency || 'INR',
+                    paymentGateway,
+                    paymentReference,
+                    actorUserId
+                }));
             const resolvedSettlementId = String(settlementId || resolvedSettlementSnapshot?.id || '').trim() || null;
 
             const [orderResult] = await connection.execute(
@@ -2456,7 +2462,7 @@ class Order {
                     userId,
                     'confirmed',
                     String(paymentStatus || 'paid').slice(0, 30),
-                    String(paymentGateway || 'manual').slice(0, 30),
+                    String(normalizedPaymentGateway || 'manual').slice(0, 30),
                     String(gatewayOrderRef || razorpayOrderId || '').trim() || null,
                     String(gatewayPaymentRef || paymentReference || razorpayPaymentId || '').trim() || null,
                     String(gatewaySignature || razorpaySignature || '').trim() || null,
@@ -2714,6 +2720,8 @@ class Order {
                     OR settlement_snapshot IS NULL
                     OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(settlement_snapshot, '$.status')), '')) IN ('pending', 'processing')
                     OR UPPER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(settlement_snapshot, '$.settlement_status')), '')) = 'NSD'
+                    OR COALESCE(NULLIF(settlement_id, ''), '') LIKE 'manual_settled_attempt_%'
+                    OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(settlement_snapshot, '$.source')), '')) = 'manual_attempt_conversion'
                )
              ORDER BY created_at ASC
              LIMIT ?`,

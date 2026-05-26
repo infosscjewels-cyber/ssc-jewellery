@@ -81,12 +81,58 @@ const normalizeIciciSettlementLifecycleStatus = (payload = {}) => {
     return 'pending';
 };
 
+const buildIciciPendingSettlementSnapshot = ({
+    paymentReference = null,
+    paymentMode = 'icici',
+    currency = 'INR',
+    gatewayPayload = null,
+    source = 'icici_payment_confirmation',
+    responseDescription = 'Awaiting settlement confirmation from ICICI'
+} = {}) => ({
+    id: null,
+    entity: 'settlement_recon',
+    status: 'pending',
+    amount: null,
+    fees: null,
+    tax: null,
+    net_amount: null,
+    currency: toTrimmed(currency) || 'INR',
+    method: toTrimmed(paymentMode).toLowerCase() || 'icici',
+    payment_reference: toTrimmed(paymentReference) || null,
+    utr: null,
+    created_at: null,
+    fetched_at: Math.floor(Date.now() / 1000),
+    settlement_status: 'NSD',
+    response_code: null,
+    response_description: toTrimmed(responseDescription) || 'Awaiting settlement confirmation from ICICI',
+    settlement_id: null,
+    settlement_date: null,
+    settled_amount: null,
+    txn_amount: null,
+    txn_charges: null,
+    service_tax: null,
+    txn_status: null,
+    txn_response_code: null,
+    txn_id: null,
+    settlement_account: null,
+    settlement_account_ifsc: null,
+    payment_mode: toTrimmed(paymentMode) || 'icici',
+    payment_sub_instrument_type: null,
+    card_network: null,
+    source,
+    last_refresh_status: null,
+    last_refresh_error: null,
+    last_refresh_at: null,
+    gateway_payload: gatewayPayload || null
+});
+
 const normalizeIciciSettlementSnapshot = (payload = {}, extras = {}) => {
     const amount = toNumberOrNull(payload?.settledAmount ?? payload?.pay_amount);
     const fees = toNumberOrNull(payload?.txnCharges);
     const tax = toNumberOrNull(payload?.serviceTax);
     const method = toTrimmed(payload?.paymentMode || extras.paymentMode).toLowerCase() || 'icici';
     const normalizedSettlementId = toTrimmed(payload?.settlementID || extras.settlementID) || null;
+    const fetchedAt = Math.floor(Date.now() / 1000);
     return {
         id: normalizedSettlementId,
         entity: 'settlement_recon',
@@ -106,7 +152,7 @@ const normalizeIciciSettlementSnapshot = (payload = {}, extras = {}) => {
             payload?.settlementDate,
             extras.settlementDate
         ),
-        fetched_at: Math.floor(Date.now() / 1000),
+        fetched_at: fetchedAt,
         settlement_status: toTrimmed(payload?.settlementStatus) || null,
         response_code: toTrimmed(payload?.responseCode || payload?.error_code) || null,
         response_description: toTrimmed(payload?.respDescription || payload?.txnRespDescription || payload?.message) || null,
@@ -124,7 +170,42 @@ const normalizeIciciSettlementSnapshot = (payload = {}, extras = {}) => {
         payment_mode: toTrimmed(payload?.paymentMode || extras.paymentMode) || null,
         payment_sub_instrument_type: toTrimmed(payload?.paymentSubInstType) || null,
         card_network: toTrimmed(payload?.cardNetwork) || null,
+        source: 'icici_settlement_recon',
+        last_refresh_status: 'ok',
+        last_refresh_error: null,
+        last_refresh_at: fetchedAt,
         gateway_payload: payload
+    };
+};
+
+const annotateIciciSettlementRefreshFailure = ({
+    currentSnapshot = null,
+    paymentReference = null,
+    paymentMode = 'icici',
+    gatewayPayload = null,
+    error = null
+} = {}) => {
+    const baseSnapshot = currentSnapshot && typeof currentSnapshot === 'object'
+        ? { ...currentSnapshot }
+        : buildIciciPendingSettlementSnapshot({
+            paymentReference,
+            paymentMode,
+            gatewayPayload
+        });
+    const snapshotId = toTrimmed(baseSnapshot.id || baseSnapshot.settlement_id);
+    const isManualPlaceholder = snapshotId.startsWith('manual_settled_attempt_')
+        || toTrimmed(baseSnapshot.source).toLowerCase() === 'manual_attempt_conversion';
+    return {
+        ...baseSnapshot,
+        id: isManualPlaceholder ? null : (snapshotId || null),
+        status: 'pending',
+        settlement_status: toTrimmed(baseSnapshot.settlement_status) || 'NSD',
+        settlement_id: isManualPlaceholder ? null : (toTrimmed(baseSnapshot.settlement_id) || snapshotId || null),
+        source: 'icici_settlement_recon',
+        last_refresh_status: 'failed',
+        last_refresh_error: toTrimmed(error?.message || error) || 'ICICI settlement refresh failed',
+        last_refresh_at: Math.floor(Date.now() / 1000),
+        gateway_payload: gatewayPayload || baseSnapshot.gateway_payload || null
     };
 };
 
@@ -403,7 +484,16 @@ const runIciciSettlementSyncPass = async ({
             if (snapshot.status === 'settled') summary.updated += 1;
             else if (snapshot.status === 'pending') summary.pending += 1;
             else summary.failed += 1;
-        } catch {
+        } catch (error) {
+            await Order.updateSettlementByOrderId({
+                orderId: order.id,
+                settlementId: null,
+                settlementSnapshot: annotateIciciSettlementRefreshFailure({
+                    currentSnapshot: order?.settlement_snapshot || order?.settlementSnapshot || null,
+                    paymentReference: order?.gateway_payment_ref || null,
+                    error
+                })
+            }).catch(() => {});
             summary.failed += 1;
         }
     }
@@ -434,12 +524,14 @@ const runIciciSettlementSyncPass = async ({
 };
 
 module.exports = {
+    buildIciciPendingSettlementSnapshot,
     buildSettlementStatusRequestPayload,
     buildSettlementSummaryRequestPayload,
     buildSettlementDetailsRequestPayload,
     fetchIciciSettlementStatus,
     fetchIciciSettlementSummary,
     fetchIciciSettlementDetails,
+    annotateIciciSettlementRefreshFailure,
     normalizeIciciSettlementSnapshot,
     normalizeSettlementSyncStatus: normalizeIciciSettlementLifecycleStatus,
     runIciciSettlementSyncPass

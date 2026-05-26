@@ -4,6 +4,7 @@ const { PaymentAttempt, PAYMENT_STATUS } = require('../models/PaymentAttempt');
 const Order = require('../models/Order');
 const { markRecoveredByOrder } = require('./abandonedCartRecoveryService');
 const { maybeSendRecoveryCommunications } = require('./paymentReconciliationService');
+const { buildIciciPendingSettlementSnapshot } = require('./iciciSettlementService');
 
 const buildStatusRequestPayload = ({
     merchantTxnNo,
@@ -157,6 +158,12 @@ const reconcileIciciAttemptById = async ({ attemptId, source = 'scheduler' } = {
         gatewaySignature: payload?.secureHash || null,
         gatewayPayload: payload,
         paymentStatus: PAYMENT_STATUS.PAID,
+        settlementSnapshot: buildIciciPendingSettlementSnapshot({
+            paymentReference: gatewayPaymentRef || merchantTxnNo,
+            paymentMode: payload?.paymentMode || 'icici',
+            gatewayPayload: payload,
+            source
+        }),
         sourceChannel: source === 'scheduler' ? 'checkout_reconciler' : 'checkout'
     });
     if (order?.id) {

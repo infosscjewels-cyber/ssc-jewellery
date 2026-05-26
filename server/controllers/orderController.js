@@ -23,7 +23,7 @@ const { getPaymentGatewayAdapter, PAYMENT_GATEWAYS } = require('../services/paym
 const { verifyIciciSecureHash, buildIciciPlainHashText } = require('../services/iciciHashService');
 const { buildInitiateSalePayload, buildRedirectUrl, normalizeIciciFinalStatus, initiateSale, assertIciciConfigured, doesIciciAmountMatchAttempt } = require('../services/iciciService');
 const { fetchIciciTransactionStatus } = require('../services/iciciStatusService');
-const { normalizeIciciSettlementSnapshot } = require('../services/iciciSettlementService');
+const { normalizeIciciSettlementSnapshot, buildIciciPendingSettlementSnapshot } = require('../services/iciciSettlementService');
 const { buildInvoicePdfBuffer } = require('../utils/invoicePdf');
 const { sendOrderLifecycleCommunication, sendPaymentLifecycleCommunication } = require('../services/communications/communicationService');
 const { verifyDeliveryToken } = require('../services/deliveryConfirmationService');
@@ -2483,6 +2483,12 @@ const finalizeIciciAttemptAndOrder = async (req, {
         gatewayPaymentRef,
         gatewaySignature: payload?.secureHash || null,
         gatewayPayload: payload,
+        settlementSnapshot: buildIciciPendingSettlementSnapshot({
+            paymentReference: gatewayPaymentRef || merchantTxnNo,
+            paymentMode: payload?.paymentMode || PAYMENT_GATEWAYS.ICICI,
+            gatewayPayload: payload,
+            source
+        }),
         returnMeta: true
     });
     const finalOrder = checkoutOrderResult?.order?.id
@@ -4539,6 +4545,12 @@ const fetchIciciPaymentStatusForContext = async ({ order = null, attempt = null 
             gatewaySignature: payload?.secureHash || null,
             gatewayPayload: payload,
             paymentStatus: PAYMENT_STATUS.PAID,
+            settlementSnapshot: buildIciciPendingSettlementSnapshot({
+                paymentReference,
+                paymentMode: payload?.paymentMode || PAYMENT_GATEWAYS.ICICI,
+                gatewayPayload: payload,
+                source: 'icici_status_poll'
+            }),
             sourceChannel: 'checkout_reconciler'
         }).catch(() => null);
         createdOrder = Boolean(linkedOrder?.id);

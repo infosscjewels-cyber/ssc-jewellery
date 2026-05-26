@@ -205,6 +205,24 @@ test('ICICI settlement status request payload uses SETTLSTATUS and settlement sn
     assert.equal(snapshot.settled_amount, 100);
 });
 
+test('ICICI pending settlement snapshot stays awaited until a real settlement signal arrives', () => {
+    const { buildIciciPendingSettlementSnapshot } = require('../services/iciciSettlementService');
+
+    const snapshot = buildIciciPendingSettlementSnapshot({
+        paymentReference: 'PAY001',
+        paymentMode: 'upi',
+        source: 'icici_return'
+    });
+
+    assert.equal(snapshot.status, 'pending');
+    assert.equal(snapshot.settlement_status, 'NSD');
+    assert.equal(snapshot.payment_reference, 'PAY001');
+    assert.equal(snapshot.payment_mode, 'upi');
+    assert.equal(snapshot.source, 'icici_return');
+    assert.equal(snapshot.id, null);
+    assert.equal(snapshot.last_refresh_status, null);
+});
+
 test('ICICI settlement summary and details request payloads follow documented transaction types and fields', () => {
     process.env.ICICI_PG_MERCHANT_ID = '100000000007164';
     process.env.ICICI_PG_AGGREGATOR_ID = 'A100000000007164';
@@ -401,5 +419,64 @@ test('ICICI settlement sync pass covers status candidates and summary/details en
         Order.getByGatewayOrderRef = originalGetByGatewayOrderRef;
         Order.updateSettlementByOrderId = originalUpdateSettlementByOrderId;
         Order.updateGatewayPaymentByOrderId = originalUpdateGatewayPaymentByOrderId;
+    }
+});
+
+test('ICICI settlement sync keeps orders awaited and records warning metadata when settlement status lookup fails', async () => {
+    process.env.ICICI_PG_MERCHANT_ID = '100000000007164';
+    process.env.ICICI_PG_AGGREGATOR_ID = 'A100000000007164';
+    process.env.ICICI_PG_SECRET_KEY = 'db06cca0-838b-4e01-8b20-6ac446ffb6bd';
+    process.env.ICICI_PG_RETURN_URL = 'https://example.com/api/orders/icici/return';
+    process.env.ICICI_PG_SALE_URL = 'https://pgpayuat.icicibank.com/tsp/pg/api/v2/initiateSale';
+    process.env.ICICI_PG_COMMAND_URL = 'https://pgpayuat.icicibank.com/tsp/pg/api/command';
+
+    const settlementService = require('../services/iciciSettlementService');
+    const Order = require('../models/Order');
+
+    const originalFetch = global.fetch;
+    const originalListCandidates = Order.listIciciSettlementSyncCandidates;
+    const originalUpdateSettlementByOrderId = Order.updateSettlementByOrderId;
+
+    const settlementUpdates = [];
+
+    Order.listIciciSettlementSyncCandidates = async () => ([{
+        id: 52,
+        payment_gateway: 'icici',
+        gateway_order_ref: 'ICICI_FAIL_1',
+        gateway_payment_ref: 'PAY_FAIL_1',
+        settlement_snapshot: {
+            status: 'pending',
+            settlement_status: 'NSD',
+            source: 'icici_payment_confirmation'
+        }
+    }]);
+    Order.updateSettlementByOrderId = async (payload) => {
+        settlementUpdates.push(payload);
+        return 1;
+    };
+
+    global.fetch = async () => {
+        throw new Error('ICICI settlement status endpoint unavailable');
+    };
+
+    try {
+        const summary = await settlementService.runIciciSettlementSyncPass({
+            limit: 10,
+            minAgeHours: 1,
+            lookbackDays: 1
+        });
+
+        assert.equal(summary.scanned, 1);
+        assert.ok(summary.failed >= 1);
+        assert.equal(settlementUpdates.length, 1);
+        assert.equal(settlementUpdates[0]?.settlementId, null);
+        assert.equal(settlementUpdates[0]?.settlementSnapshot?.status, 'pending');
+        assert.equal(settlementUpdates[0]?.settlementSnapshot?.settlement_status, 'NSD');
+        assert.equal(settlementUpdates[0]?.settlementSnapshot?.last_refresh_status, 'failed');
+        assert.match(String(settlementUpdates[0]?.settlementSnapshot?.last_refresh_error || ''), /endpoint unavailable/i);
+    } finally {
+        global.fetch = originalFetch;
+        Order.listIciciSettlementSyncCandidates = originalListCandidates;
+        Order.updateSettlementByOrderId = originalUpdateSettlementByOrderId;
     }
 });
