@@ -111,6 +111,22 @@ const getGatewayOrderReference = (order = null, attempt = null) => (
     || null
 );
 
+const getCouponShippingDiscountForOrder = (order = null) => {
+    const type = String(order?.coupon_type || '').trim().toLowerCase();
+    const couponTotal = Math.max(0, Number(order?.coupon_discount_value || 0));
+    const shippingBase = Math.max(0, Number(order?.shipping_fee || 0));
+    if (!couponTotal || !shippingBase) return 0;
+    if (type !== 'shipping_full' && type !== 'shipping_partial') return 0;
+    return Math.min(couponTotal, shippingBase);
+};
+
+const getEffectiveShippingPaidForOrder = (order = null) => {
+    const shippingBase = Math.max(0, Number(order?.shipping_fee || 0));
+    const couponShippingDiscount = getCouponShippingDiscountForOrder(order);
+    const loyaltyShippingDiscount = Math.max(0, Number(order?.loyalty_shipping_discount_total || 0));
+    return Math.max(0, shippingBase - couponShippingDiscount - loyaltyShippingDiscount);
+};
+
 const collectOrderProductIds = (order = null) => (
     [...new Set((Array.isArray(order?.items) ? order.items : [])
         .map((item) => String(item?.product_id || item?.productId || '').trim())
@@ -3913,9 +3929,10 @@ const updateOrderStatus = async (req, res) => {
             return res.status(400).json({ message: 'Cancelled orders with initiated refunds cannot be moved to other statuses' });
         }
 
+        const effectiveShippingPaid = getEffectiveShippingPaidForOrder(existingOrder);
         const refundableBaseAmount = Math.max(
             0,
-            Number(existingOrder?.total || 0) - Number(existingOrder?.shipping_fee || 0)
+            Number(existingOrder?.total || 0) - effectiveShippingPaid
         );
         const paymentGateway = String(existingOrder?.payment_gateway || '').toLowerCase();
         const paymentStatus = String(existingOrder?.payment_status || '').toLowerCase();
@@ -3969,7 +3986,7 @@ const updateOrderStatus = async (req, res) => {
                     notes: {
                         order_ref: existingOrder.order_ref || '',
                         order_id: String(existingOrder.id),
-                        non_refundable_shipping_fee: String(Number(existingOrder?.shipping_fee || 0))
+                        non_refundable_shipping_fee: String(effectiveShippingPaid)
                     },
                     receipt: `rfnd-${existingOrder.order_ref || existingOrder.id}-${Date.now()}`
                 };
@@ -4029,7 +4046,7 @@ const updateOrderStatus = async (req, res) => {
                     return res.status(400).json({ message: 'Enter refunded amount for manual refund' });
                 }
                 if (amount > refundableBaseAmount) {
-                    return res.status(400).json({ message: `Refund amount cannot exceed ₹${refundableBaseAmount.toLocaleString('en-IN')}. Shipping charge is non-refundable.` });
+                    return res.status(400).json({ message: `Refund amount cannot exceed ₹${refundableBaseAmount.toLocaleString('en-IN')}. Shipping actually paid by the customer is non-refundable.` });
                 }
                 const ref = String(manualRefundRef || '').trim();
                 const utr = String(manualRefundUtr || '').trim();
@@ -4093,7 +4110,7 @@ const updateOrderStatus = async (req, res) => {
                 notes: {
                     order_ref: existingOrder.order_ref || '',
                     order_id: String(existingOrder.id),
-                    non_refundable_shipping_fee: String(Number(existingOrder?.shipping_fee || 0))
+                    non_refundable_shipping_fee: String(effectiveShippingPaid)
                 },
                 receipt: `rfnd-${existingOrder.order_ref || existingOrder.id}-${Date.now()}`
             };
@@ -4133,8 +4150,8 @@ const updateOrderStatus = async (req, res) => {
                     manualRefundMethod: resolvedRefundMethod || null,
                     manualRefundRef: resolvedManualRef || null,
                     manualRefundUtr: resolvedManualUtr || null,
-                    refundableBaseAmount,
-                    nonRefundableShippingFee: Number(existingOrder?.shipping_fee || 0),
+                refundableBaseAmount,
+                nonRefundableShippingFee: effectiveShippingPaid,
                 refundAmount: resolvedRefundAmount,
                 refundReference: resolvedRefundReference,
                 refundStatus: resolvedRefundStatus,
