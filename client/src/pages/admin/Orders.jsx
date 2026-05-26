@@ -117,6 +117,7 @@ const applyKpiThemeRotation = (cards = [], startIndex = 0) => cards.map((card, i
 }));
 const CANCELLATION_MODES = [
     { value: 'razorpay', label: 'Razorpay Refund' },
+    { value: 'icici', label: 'ICICI Refund' },
     { value: 'manual', label: 'Manual Refund' }
 ];
 const MANUAL_REFUND_METHODS = ['Cash', 'NEFT/RTGS', 'UPI', 'Bank A/c Transfer', 'Voucher code'];
@@ -2578,13 +2579,21 @@ export function Orders({
         if (!selectedOrder || !pendingStatus) return;
         const isPaid = isPaidPayment(selectedOrder);
         const refundableBase = Math.max(0, Number(selectedOrder?.total || 0) - Number(selectedOrder?.shipping_fee || 0));
-        const normalizedCancellationMode = 
-            pendingStatus === 'cancelled' && isSelectedOrderIcici && cancellationMode === 'razorpay'
-                ? ''
+        const normalizedCancellationMode =
+            pendingStatus === 'cancelled'
+                ? (selectedOrderGateway === 'icici' && cancellationMode === 'razorpay'
+                    ? ''
+                    : (selectedOrderGateway === 'razorpay' && cancellationMode === 'icici'
+                        ? ''
+                        : cancellationMode))
                 : cancellationMode;
         if (pendingStatus === 'cancelled' && isPaid) {
             if (isSelectedOrderIcici && cancellationMode === 'razorpay') {
                 toast.error('Razorpay refund is not available for ICICI orders');
+                return;
+            }
+            if (selectedOrderGateway === 'razorpay' && cancellationMode === 'icici') {
+                toast.error('ICICI refund is not available for Razorpay orders');
                 return;
             }
             if (!normalizedCancellationMode) {
@@ -2635,6 +2644,8 @@ export function Orders({
                 fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
                 if (pendingStatus === 'cancelled' && normalizedCancellationMode === 'razorpay' && data?.refund?.id) {
                     toast.success(`Order cancelled and refund initiated (${data.refund.id})`);
+                } else if (pendingStatus === 'cancelled' && normalizedCancellationMode === 'icici' && data?.refund?.id) {
+                    toast.success(`Order cancelled and ICICI refund initiated (${data.refund.id})`);
                 } else if (pendingStatus === 'cancelled' && normalizedCancellationMode === 'manual') {
                     toast.success('Order cancelled and manual refund details recorded');
                 } else {
@@ -2646,7 +2657,7 @@ export function Orders({
         } finally {
             setIsUpdatingStatus(false);
         }
-    }, [cancellationMode, fetchOrderMetrics, manualRefundAmount, manualRefundMethod, manualRefundRef, manualRefundUtr, markOrderMetricsDirty, metricsQuery, patchOrderRow, pendingStatus, selectedOrder, toast]);
+    }, [cancellationMode, fetchOrderMetrics, manualRefundAmount, manualRefundMethod, manualRefundRef, manualRefundUtr, markOrderMetricsDirty, metricsQuery, patchOrderRow, pendingStatus, selectedOrder, selectedOrderGateway, isSelectedOrderIcici, toast]);
 
     const handleQuickComplete = useCallback(async (order, event) => {
         event?.stopPropagation?.();
@@ -3108,16 +3119,22 @@ export function Orders({
     ).trim().toLowerCase();
 
     const isSelectedOrderIcici = selectedOrderGateway === 'icici';
-    const visibleCancellationModes = CANCELLATION_MODES.filter(
-        (mode) => !isSelectedOrderIcici || mode.value !== 'razorpay'
-    );
+    const visibleCancellationModes = CANCELLATION_MODES.filter((mode) => {
+        if (selectedOrderGateway === 'icici') return mode.value !== 'razorpay';
+        if (selectedOrderGateway === 'razorpay') return mode.value !== 'icici';
+        return mode.value === 'manual';
+    });
 
     useEffect(() => {
         if (!selectedOrder) return;
-        if (isSelectedOrderIcici && cancellationMode === 'razorpay') {
+        if (
+            (selectedOrderGateway === 'icici' && cancellationMode === 'razorpay')
+            || (selectedOrderGateway === 'razorpay' && cancellationMode === 'icici')
+            || (selectedOrderGateway !== 'icici' && selectedOrderGateway !== 'razorpay' && ['razorpay', 'icici'].includes(cancellationMode))
+        ) {
             setCancellationMode('');
         }
-    }, [selectedOrder, isSelectedOrderIcici, cancellationMode]);
+    }, [selectedOrder, selectedOrderGateway, cancellationMode]);
     return (
         <div className="animate-fade-in overflow-x-hidden md:overflow-x-visible">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4 mb-3 md:mb-6">

@@ -223,6 +223,55 @@ test('ICICI pending settlement snapshot stays awaited until a real settlement si
     assert.equal(snapshot.last_refresh_status, null);
 });
 
+test('ICICI refund payload uses command request fields from the gateway spec', () => {
+    process.env.ICICI_PG_MERCHANT_ID = '100000000007164';
+    process.env.ICICI_PG_AGGREGATOR_ID = 'A100000000007164';
+    process.env.ICICI_PG_SECRET_KEY = 'db06cca0-838b-4e01-8b20-6ac446ffb6bd';
+    process.env.ICICI_PG_RETURN_URL = 'https://example.com/api/orders/icici/return';
+    process.env.ICICI_PG_SALE_URL = 'https://pgpayuat.icicibank.com/tsp/pg/api/v2/initiateSale';
+    process.env.ICICI_PG_COMMAND_URL = 'https://pgpayuat.icicibank.com/tsp/pg/api/command';
+
+    const {
+        buildIciciRefundMerchantTxnNo,
+        buildIciciRefundRequestPayload,
+        normalizeIciciRefundResponse
+    } = require('../services/iciciRefundService');
+
+    const merchantTxnNo = buildIciciRefundMerchantTxnNo({ orderId: 48 });
+    assert.ok(merchantTxnNo.startsWith('RF'));
+    assert.ok(merchantTxnNo.length <= 20);
+
+    const payload = buildIciciRefundRequestPayload({
+        merchantTxnNo,
+        originalTxnNo: '7700206371536',
+        amount: 150,
+        addlParam1: '080426004'
+    });
+
+    assert.equal(payload.merchantID, '100000000007164');
+    assert.equal(payload.aggregatorID, 'A100000000007164');
+    assert.equal(payload.transactionType, 'REFUND');
+    assert.equal(payload.merchantTxnNo, merchantTxnNo);
+    assert.equal(payload.originalTxnNo, '7700206371536');
+    assert.equal(payload.amount, '150.00');
+    assert.equal(payload.addlParam1, '080426004');
+    assert.match(String(payload.secureHash || ''), /^[a-f0-9]{64}$/);
+
+    const normalized = normalizeIciciRefundResponse({
+        responseCode: 'R1000',
+        respDescription: 'Request processed successfully',
+        merchantTxnNo,
+        txnID: '7700206371606',
+        txnAuthID: '54472510906'
+    });
+
+    assert.equal(normalized.ok, true);
+    assert.equal(normalized.id, '7700206371606');
+    assert.equal(normalized.merchantTxnNo, merchantTxnNo);
+    assert.equal(normalized.txnID, '7700206371606');
+    assert.equal(normalized.txnAuthID, '54472510906');
+});
+
 test('ICICI settlement summary and details request payloads follow documented transaction types and fields', () => {
     process.env.ICICI_PG_MERCHANT_ID = '100000000007164';
     process.env.ICICI_PG_AGGREGATOR_ID = 'A100000000007164';

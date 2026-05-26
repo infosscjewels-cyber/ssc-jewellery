@@ -888,7 +888,11 @@ const buildOrderLifecycleTemplate = ({ stage = 'updated', customer = {}, order =
         ? [
             refundAmount > 0 ? `Refund amount (excluding shipping): <strong>${formatCurrency(refundAmount)}</strong>` : null,
             nonRefundableShippingFee > 0 ? `Non-refundable shipping charge: <strong>${formatCurrency(nonRefundableShippingFee)}</strong>` : null,
-            refundMode ? `Refund mode: <strong>${refundMode === 'razorpay' ? 'Razorpay' : 'Manual'}</strong>` : null,
+            refundMode ? `Refund mode: <strong>${
+                refundMode === 'razorpay'
+                    ? 'Razorpay'
+                    : (refundMode === 'icici' ? 'ICICI' : 'Manual')
+            }</strong>` : null,
             refundMethod ? `Refund method: <strong>${refundMethod}</strong>` : null,
             refundReference ? `Gateway refund reference: <strong>${refundReference}</strong>` : null,
             manualRefundRef ? `Manual refund reference: <strong>${manualRefundRef}</strong>` : null,

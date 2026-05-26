@@ -24,6 +24,7 @@ const { verifyIciciSecureHash, buildIciciPlainHashText } = require('../services/
 const { buildInitiateSalePayload, buildRedirectUrl, normalizeIciciFinalStatus, initiateSale, assertIciciConfigured, doesIciciAmountMatchAttempt } = require('../services/iciciService');
 const { fetchIciciTransactionStatus } = require('../services/iciciStatusService');
 const { normalizeIciciSettlementSnapshot, buildIciciPendingSettlementSnapshot } = require('../services/iciciSettlementService');
+const { issueIciciRefund, buildIciciRefundMerchantTxnNo } = require('../services/iciciRefundService');
 const { buildInvoicePdfBuffer } = require('../utils/invoicePdf');
 const { sendOrderLifecycleCommunication, sendPaymentLifecycleCommunication } = require('../services/communications/communicationService');
 const { verifyDeliveryToken } = require('../services/deliveryConfirmationService');
@@ -3923,6 +3924,14 @@ const updateOrderStatus = async (req, res) => {
             && paymentStatus === PAYMENT_STATUS.PAID
             && String(existingOrder?.razorpay_payment_id || '').trim()
         );
+        const canIciciRefund = (
+            paymentGateway === PAYMENT_GATEWAYS.ICICI
+            && paymentStatus === PAYMENT_STATUS.PAID
+            && (
+                String(existingOrder?.gateway_payment_ref || '').trim()
+                || String(existingOrder?.gateway_order_ref || '').trim()
+            )
+        );
 
         let refund = null;
         let resolvedPaymentStatus = String(existingOrder?.payment_status || '').toLowerCase();
@@ -3934,11 +3943,12 @@ const updateOrderStatus = async (req, res) => {
         let resolvedRefundAmount = null;
         let resolvedRefundReference = null;
         let resolvedRefundStatus = null;
+        let resolvedGatewayRefundMerchantTxnNo = null;
 
         if (nextStatus === 'cancelled' && paymentStatus === PAYMENT_STATUS.PAID) {
             const mode = String(cancellationMode || '').trim().toLowerCase();
-            if (!['razorpay', 'manual'].includes(mode)) {
-                return res.status(400).json({ message: 'Select cancellation mode (Razorpay or Manual Refund)' });
+            if (!['razorpay', 'icici', 'manual'].includes(mode)) {
+                return res.status(400).json({ message: 'Select cancellation mode (Razorpay, ICICI, or Manual Refund)' });
             }
             resolvedRefundMode = mode;
 
@@ -3978,6 +3988,37 @@ const updateOrderStatus = async (req, res) => {
                     refundAmount: resolvedRefundAmount,
                     refundStatus: resolvedRefundStatus
                 });
+            } else if (mode === 'icici') {
+                resolvedRefundMethod = 'ICICI Gateway';
+                if (!canIciciRefund) {
+                    return res.status(400).json({ message: 'ICICI refund is not available for this order' });
+                }
+                const refundAmount = Math.max(0, refundableBaseAmount);
+                if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+                    return res.status(400).json({ message: 'Refundable amount is zero after excluding shipping charges' });
+                }
+                const originalTxnNo = String(
+                    existingOrder?.gateway_payment_ref
+                    || existingOrder?.gateway_order_ref
+                    || ''
+                ).trim();
+                if (!originalTxnNo) {
+                    return res.status(400).json({ message: 'ICICI original transaction reference is missing for this order' });
+                }
+                resolvedGatewayRefundMerchantTxnNo = buildIciciRefundMerchantTxnNo({
+                    orderId: existingOrder?.id
+                });
+                refund = await issueIciciRefund({
+                    merchantTxnNo: resolvedGatewayRefundMerchantTxnNo,
+                    originalTxnNo,
+                    amount: refundAmount,
+                    addlParam1: String(existingOrder?.order_ref || existingOrder?.id || '').trim(),
+                    addlParam2: String(existingOrder?.gateway_order_ref || '').trim()
+                });
+                resolvedRefundReference = refund?.txnID || refund?.txnAuthID || refund?.merchantTxnNo || resolvedGatewayRefundMerchantTxnNo;
+                resolvedRefundAmount = refundAmount;
+                resolvedRefundStatus = 'processed';
+                resolvedPaymentStatus = PAYMENT_STATUS.REFUNDED;
             } else {
                 const method = String(manualRefundMethod || '').trim();
                 const amount = Number(manualRefundAmount);
@@ -4085,14 +4126,15 @@ const updateOrderStatus = async (req, res) => {
             refundMethod: resolvedRefundMethod || null,
             manualRefundRef: resolvedManualRef || null,
             manualRefundUtr: resolvedManualUtr || null,
-            refundCouponCode: resolvedRefundCouponCode || null,
-            refundNotes: nextStatus === 'cancelled' ? {
-                cancellationMode: resolvedRefundMode || null,
-                manualRefundMethod: resolvedRefundMethod || null,
-                manualRefundRef: resolvedManualRef || null,
-                manualRefundUtr: resolvedManualUtr || null,
-                refundableBaseAmount,
-                nonRefundableShippingFee: Number(existingOrder?.shipping_fee || 0),
+                refundCouponCode: resolvedRefundCouponCode || null,
+                refundNotes: nextStatus === 'cancelled' ? {
+                    cancellationMode: resolvedRefundMode || null,
+                    gatewayRefundMerchantTxnNo: resolvedGatewayRefundMerchantTxnNo || null,
+                    manualRefundMethod: resolvedRefundMethod || null,
+                    manualRefundRef: resolvedManualRef || null,
+                    manualRefundUtr: resolvedManualUtr || null,
+                    refundableBaseAmount,
+                    nonRefundableShippingFee: Number(existingOrder?.shipping_fee || 0),
                 refundAmount: resolvedRefundAmount,
                 refundReference: resolvedRefundReference,
                 refundStatus: resolvedRefundStatus,
