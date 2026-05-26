@@ -1224,7 +1224,13 @@ const createCheckoutIciciSessionForUser = async ({
     });
     const saleResponse = await initiateSale(saleRequest);
     if (String(saleResponse?.responseCode || '').trim().toUpperCase() !== 'R1000') {
-        const error = new Error(saleResponse?.responseMessage || saleResponse?.message || 'ICICI did not accept the payment request');
+        const error = new Error(
+            saleResponse?.responseDescription
+            || saleResponse?.respDescription
+            || saleResponse?.responseMessage
+            || saleResponse?.message
+            || 'ICICI did not accept the payment request'
+        );
         error.statusCode = 400;
         throw error;
     }

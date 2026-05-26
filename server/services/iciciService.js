@@ -114,7 +114,13 @@ const initiateSale = async (requestPayload = {}) => {
     });
     const payload = await parseGatewayPayload(response);
     if (!response.ok) {
-        throw new Error(payload?.responseMessage || payload?.message || 'ICICI initiateSale failed');
+        throw new Error(
+            payload?.responseDescription
+            || payload?.respDescription
+            || payload?.responseMessage
+            || payload?.message
+            || 'ICICI initiateSale failed'
+        );
     }
     const responseHash = String(payload?.secureHash || '').trim();
     if (responseHash && !verifyIciciSecureHash({
