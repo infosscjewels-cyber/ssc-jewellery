@@ -6,6 +6,28 @@ const { markRecoveredByOrder } = require('./abandonedCartRecoveryService');
 const { maybeSendRecoveryCommunications } = require('./paymentReconciliationService');
 const { buildIciciPendingSettlementSnapshot } = require('./iciciSettlementService');
 
+const parseJsonSafe = (value) => {
+    if (!value) return null;
+    if (typeof value !== 'string') return value;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return null;
+    }
+};
+
+const toTrimmed = (value) => String(value || '').trim();
+
+const resolveIciciTxnId = (...sources) => {
+    for (const source of sources) {
+        if (!source) continue;
+        const parsed = parseJsonSafe(source);
+        const txnId = toTrimmed(parsed?.txnID || parsed?.txnId || parsed?.txn_id);
+        if (txnId) return txnId;
+    }
+    return '';
+};
+
 const buildStatusRequestPayload = ({
     merchantTxnNo,
     originalTxnNo = null
@@ -88,7 +110,10 @@ const reconcileIciciAttemptById = async ({ attemptId, source = 'scheduler' } = {
     }
     const payload = await fetchIciciTransactionStatus({
         merchantTxnNo,
-        originalTxnNo: merchantTxnNo
+        originalTxnNo: resolveIciciTxnId(
+            attempt?.gateway_status_payload_json,
+            attempt?.gateway_payload_json
+        ) || merchantTxnNo
     });
     let normalizedGatewayStatus = normalizeIciciFinalStatus(payload);
     const amountMatchesAttempt = doesIciciAmountMatchAttempt({
@@ -98,7 +123,7 @@ const reconcileIciciAttemptById = async ({ attemptId, source = 'scheduler' } = {
     if (normalizedGatewayStatus === 'paid' && !amountMatchesAttempt) {
         normalizedGatewayStatus = 'failed';
     }
-    const gatewayPaymentRef = String(payload?.paymentID || payload?.txnID || '').trim() || null;
+    const gatewayPaymentRef = toTrimmed(payload?.txnID || payload?.paymentID) || null;
     await PaymentAttempt.markGatewayStatus({
         id: attempt.id,
         status: mapIciciStateToAttemptStatus(normalizedGatewayStatus),

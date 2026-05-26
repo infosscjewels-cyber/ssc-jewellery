@@ -111,6 +111,44 @@ const getGatewayOrderReference = (order = null, attempt = null) => (
     || null
 );
 
+const parseJsonSafeOrNull = (value) => {
+    if (!value) return null;
+    if (typeof value !== 'string') return value;
+    try {
+        return JSON.parse(value);
+    } catch {
+        return null;
+    }
+};
+
+const getIciciTxnIdFromSources = (...sources) => {
+    for (const source of sources) {
+        if (!source) continue;
+        const parsed = parseJsonSafeOrNull(source);
+        const txnId = String(
+            parsed?.txnID
+            || parsed?.txnId
+            || parsed?.txn_id
+            || ''
+        ).trim();
+        if (txnId) return txnId;
+    }
+    return '';
+};
+
+const getIciciOriginalTxnNo = ({ order = null, attempt = null, payload = null } = {}) => (
+    getIciciTxnIdFromSources(
+        payload,
+        order?.gateway_payload_json,
+        order?.settlement_snapshot?.gateway_payload,
+        { txnID: order?.settlement_snapshot?.txn_id || '' },
+        attempt?.gateway_status_payload_json,
+        attempt?.gateway_payload_json,
+        { txnID: order?.gateway_payment_ref || attempt?.gateway_payment_ref || '' }
+    )
+    || String(order?.gateway_order_ref || attempt?.gateway_order_ref || '').trim()
+);
+
 const getCouponShippingDiscountForOrder = (order = null) => {
     const type = String(order?.coupon_type || '').trim().toLowerCase();
     const couponTotal = Math.max(0, Number(order?.coupon_discount_value || 0));
@@ -2444,7 +2482,7 @@ const finalizeIciciAttemptAndOrder = async (req, {
     source = 'icici'
 } = {}) => {
     const merchantTxnNo = String(payload?.merchantTxnNo || attempt?.gateway_order_ref || '').trim();
-    const gatewayPaymentRef = String(payload?.paymentID || payload?.txnID || attempt?.gateway_payment_ref || '').trim() || null;
+    const gatewayPaymentRef = String(payload?.txnID || payload?.paymentID || attempt?.gateway_payment_ref || '').trim() || null;
     let normalizedGatewayStatus = normalizeIciciFinalStatus(payload);
     const amountMatchesAttempt = doesIciciAmountMatchAttempt({
         payload,
@@ -2616,7 +2654,7 @@ const getIciciAttemptStatusImpl = async (req, res) => {
         }
         const statusPayload = await fetchIciciTransactionStatus({
             merchantTxnNo,
-            originalTxnNo: merchantTxnNo
+            originalTxnNo: getIciciOriginalTxnNo({ attempt })
         });
         const outcome = await finalizeIciciAttemptAndOrder(req, {
             attempt,
@@ -2770,7 +2808,7 @@ const handleIciciSettlementWebhookImpl = async (req, res) => {
                 orderId: order.id,
                 paymentGateway: PAYMENT_GATEWAYS.ICICI,
                 gatewayOrderRef: merchantTxnNo,
-                gatewayPaymentRef: String(payload?.paymentID || payload?.txnID || order.gateway_payment_ref || '').trim() || null,
+                gatewayPaymentRef: String(payload?.txnID || payload?.paymentID || order.gateway_payment_ref || '').trim() || null,
                 gatewayPayload: payload
             }),
             Order.updateSettlementByOrderId({
@@ -4014,11 +4052,7 @@ const updateOrderStatus = async (req, res) => {
                 if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
                     return res.status(400).json({ message: 'Refundable amount is zero after excluding shipping charges' });
                 }
-                const originalTxnNo = String(
-                    existingOrder?.gateway_payment_ref
-                    || existingOrder?.gateway_order_ref
-                    || ''
-                ).trim();
+                const originalTxnNo = getIciciOriginalTxnNo({ order: existingOrder });
                 if (!originalTxnNo) {
                     return res.status(400).json({ message: 'ICICI original transaction reference is missing for this order' });
                 }
@@ -4567,13 +4601,13 @@ const fetchIciciPaymentStatusForContext = async ({ order = null, attempt = null 
     }
     const payload = await fetchIciciTransactionStatus({
         merchantTxnNo,
-        originalTxnNo: merchantTxnNo
+        originalTxnNo: getIciciOriginalTxnNo({ order, attempt })
     });
     const normalizedStatus = normalizeIciciFinalStatus(payload);
     const paymentStatus = normalizedStatus === 'paid'
         ? PAYMENT_STATUS.PAID
         : (normalizedStatus === 'pending' ? PAYMENT_STATUS.RECONCILIATION_PENDING : PAYMENT_STATUS.FAILED);
-    const paymentReference = String(payload?.paymentID || payload?.txnID || '').trim() || null;
+    const paymentReference = String(payload?.txnID || payload?.paymentID || '').trim() || null;
 
     if (attempt?.id) {
         await PaymentAttempt.markGatewayStatus({

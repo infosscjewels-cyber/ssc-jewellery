@@ -258,7 +258,7 @@ test('ICICI refund payload uses command request fields from the gateway spec', (
     assert.match(String(payload.secureHash || ''), /^[a-f0-9]{64}$/);
 
     const normalized = normalizeIciciRefundResponse({
-        responseCode: 'R1000',
+        responseCode: '000',
         respDescription: 'Request processed successfully',
         merchantTxnNo,
         txnID: '7700206371606',
