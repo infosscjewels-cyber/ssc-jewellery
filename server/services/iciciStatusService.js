@@ -83,7 +83,19 @@ const fetchIciciTransactionStatus = async ({
         secureHash: responseHash,
         secretKey: config.secretKey
     })) {
-        throw new Error('ICICI status response hash validation failed');
+        console.warn('[icici_status_hash_mismatch]', JSON.stringify({
+            merchantTxnNo: String(merchantTxnNo || '').trim() || null,
+            originalTxnNo: String(originalTxnNo || merchantTxnNo || '').trim() || null,
+            responseCode: String(payload?.responseCode || '').trim() || null,
+            txnStatus: String(payload?.txnStatus || '').trim() || null,
+            txnResponseCode: String(payload?.txnResponseCode || '').trim() || null,
+            txnID: String(payload?.txnID || '').trim() || null,
+            paymentID: String(payload?.paymentID || '').trim() || null
+        }));
+        return {
+            ...payload,
+            _hashValidationFailed: true
+        };
     }
     return payload;
 };

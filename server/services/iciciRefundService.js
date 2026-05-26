@@ -1,7 +1,7 @@
 const { generateIciciSecureHash, verifyIciciSecureHash } = require('./iciciHashService');
 const { assertIciciConfigured, parseGatewayPayload } = require('./iciciService');
 
-const ICICI_REFUND_SUCCESS_CODES = new Set(['000']);
+const ICICI_REFUND_SUCCESS_CODES = new Set(['000', 'R1000']);
 
 const toTrimmed = (value) => String(value || '').trim();
 

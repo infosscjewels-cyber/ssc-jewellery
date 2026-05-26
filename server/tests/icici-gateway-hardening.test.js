@@ -258,7 +258,7 @@ test('ICICI refund payload uses command request fields from the gateway spec', (
     assert.match(String(payload.secureHash || ''), /^[a-f0-9]{64}$/);
 
     const normalized = normalizeIciciRefundResponse({
-        responseCode: '000',
+        responseCode: 'R1000',
         respDescription: 'Request processed successfully',
         merchantTxnNo,
         txnID: '7700206371606',
@@ -270,6 +270,52 @@ test('ICICI refund payload uses command request fields from the gateway spec', (
     assert.equal(normalized.merchantTxnNo, merchantTxnNo);
     assert.equal(normalized.txnID, '7700206371606');
     assert.equal(normalized.txnAuthID, '54472510906');
+});
+
+test('ICICI STATUS lookup does not hard-fail on response hash mismatch and marks the payload for diagnostics', async () => {
+    process.env.ICICI_PG_MERCHANT_ID = '100000000007164';
+    process.env.ICICI_PG_AGGREGATOR_ID = 'A100000000007164';
+    process.env.ICICI_PG_SECRET_KEY = 'db06cca0-838b-4e01-8b20-6ac446ffb6bd';
+    process.env.ICICI_PG_RETURN_URL = 'https://example.com/api/orders/icici/return';
+    process.env.ICICI_PG_SALE_URL = 'https://pgpayuat.icicibank.com/tsp/pg/api/v2/initiateSale';
+    process.env.ICICI_PG_COMMAND_URL = 'https://pgpayuat.icicibank.com/tsp/pg/api/command';
+
+    const { fetchIciciTransactionStatus } = require('../services/iciciStatusService');
+
+    const originalFetch = global.fetch;
+    const originalWarn = console.warn;
+    const warnings = [];
+
+    console.warn = (...args) => warnings.push(args.join(' '));
+    global.fetch = async () => ({
+        ok: true,
+        headers: {
+            get: () => 'application/json'
+        },
+        text: async () => JSON.stringify({
+            responseCode: '000',
+            txnStatus: 'SUC',
+            txnResponseCode: '0000',
+            merchantId: 'T_S00067',
+            merchantTxnNo: '7700206371536',
+            txnID: '7700206371536',
+            secureHash: 'definitely-invalid'
+        })
+    });
+
+    try {
+        const payload = await fetchIciciTransactionStatus({
+            merchantTxnNo: '7700206371536',
+            originalTxnNo: '7700206371536'
+        });
+
+        assert.equal(payload.responseCode, '000');
+        assert.equal(payload._hashValidationFailed, true);
+        assert.ok(warnings.some((entry) => entry.includes('[icici_status_hash_mismatch]')));
+    } finally {
+        global.fetch = originalFetch;
+        console.warn = originalWarn;
+    }
 });
 
 test('ICICI settlement summary and details request payloads follow documented transaction types and fields', () => {
