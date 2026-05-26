@@ -50,6 +50,8 @@ if (!String(process.env.JWT_SECRET || '').trim()) {
     console.error('FATAL: JWT_SECRET is missing. Set JWT_SECRET in your environment before starting the server.');
     process.exit(1);
 }
+const { assertSupportedPaymentGateway } = require('./services/paymentGatewayService');
+assertSupportedPaymentGateway();
 console.log('Boot: JWT secret present');
 
 const { getSocketRoomsForUser, canAuthenticateSocketUser } = require('./utils/socketAudience');
@@ -95,7 +97,7 @@ const { sendToAdmins } = require('./services/pushNotificationService');
 const {
     runPaymentAttemptReconciliationPass,
     runSettlementSyncPass
-} = require('./services/paymentReconciliationService');
+} = require('./services/paymentReconciliationDispatcher');
 const {
     buildRobotsTxt,
     buildSitemapXml,
@@ -270,7 +272,24 @@ app.use((req, _res, next) => {
 });
 app.use(express.json({
     verify: (req, _res, buf) => {
-        if (req.originalUrl?.startsWith('/api/orders/razorpay/webhook')) {
+        if (
+            req.originalUrl?.startsWith('/api/orders/razorpay/webhook')
+            || req.originalUrl?.startsWith('/api/orders/icici/return')
+            || req.originalUrl?.startsWith('/api/orders/icici/webhook')
+            || req.originalUrl?.startsWith('/api/orders/icici/settlement-webhook')
+        ) {
+            req.rawBody = buf.toString('utf8');
+        }
+    }
+}));
+app.use(express.urlencoded({
+    extended: false,
+    verify: (req, _res, buf) => {
+        if (
+            req.originalUrl?.startsWith('/api/orders/icici/return')
+            || req.originalUrl?.startsWith('/api/orders/icici/webhook')
+            || req.originalUrl?.startsWith('/api/orders/icici/settlement-webhook')
+        ) {
             req.rawBody = buf.toString('utf8');
         }
     }

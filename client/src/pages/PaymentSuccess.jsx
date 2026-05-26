@@ -24,6 +24,7 @@ export default function PaymentSuccess() {
     const [order, setOrder] = useState(null);
     const [pollState, setPollState] = useState({ attempts: 0, exhausted: false });
     const [pendingMessage, setPendingMessage] = useState('');
+    const [isDownloadingInvoice, setIsDownloadingInvoice] = useState(false);
     const clearedRecoveryCartRef = useRef(false);
     const celebratedRef = useRef(false);
 
@@ -104,6 +105,7 @@ export default function PaymentSuccess() {
     const orderGstContext = useMemo(() => getOrderGstContext(order || {}), [order]);
     const isRecoveryOrder = Boolean(order?.is_abandoned_recovery || order?.isAbandonedRecovery);
     const orderRef = order?.order_ref || order?.orderRef || null;
+    const displayPaymentRef = order?.gateway_payment_ref || order?.gatewayPaymentRef || paymentRef || null;
     const getItemImage = (item) => (
         item?.image_url
         || item?.imageUrl
@@ -132,6 +134,23 @@ export default function PaymentSuccess() {
         playCue(successDing);
     }, [isFailed, order?.id]);
 
+    const canDownloadInvoice = Boolean(
+        user
+        && order?.id
+        && ['paid', 'refunded'].includes(String(order?.payment_status || order?.paymentStatus || '').toLowerCase())
+    );
+    const handleDownloadInvoice = async () => {
+        if (!canDownloadInvoice || isDownloadingInvoice) return;
+        setIsDownloadingInvoice(true);
+        try {
+            await orderService.downloadMyInvoice(order.id);
+        } catch (error) {
+            toast.error(error?.message || 'Unable to generate invoice');
+        } finally {
+            setIsDownloadingInvoice(false);
+        }
+    };
+
     return (
         <div className="min-h-screen bg-secondary px-4 py-10 md:py-12">
             <div className="max-w-3xl mx-auto space-y-6">
@@ -147,11 +166,12 @@ export default function PaymentSuccess() {
                             : 'Your payment was completed successfully.'}
                     </p>
 
-                    {(orderRef || orderId || paymentRef) && (
+                    {(orderRef || orderId || displayPaymentRef || attemptId) && (
                         <div className="mt-4 text-xs text-gray-500 space-y-1">
                             {orderRef && <p>Order Ref: <span className="font-mono">{orderRef}</span></p>}
                             {orderId && <p>Order ID: <span className="font-mono">{orderId}</span></p>}
-                            {paymentRef && <p>Payment Ref: <span className="font-mono">{paymentRef}</span></p>}
+                            {displayPaymentRef && <p>Payment Ref: <span className="font-mono">{displayPaymentRef}</span></p>}
+                            {!displayPaymentRef && attemptId && <p>Attempt Ref: <span className="font-mono">{attemptId}</span></p>}
                         </div>
                     )}
 
@@ -244,10 +264,15 @@ export default function PaymentSuccess() {
                         <Link to="/" className="px-4 py-2 rounded-xl bg-primary text-accent font-semibold">
                             Home
                         </Link>
-                        {user && (
-                            <Link to="/orders" className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 font-semibold">
-                                View Orders
-                            </Link>
+                        {canDownloadInvoice && (
+                            <button
+                                type="button"
+                                onClick={handleDownloadInvoice}
+                                disabled={isDownloadingInvoice}
+                                className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 font-semibold disabled:opacity-60"
+                            >
+                                {isDownloadingInvoice ? 'Generating...' : 'Download Invoice'}
+                            </button>
                         )}
                         {isFailed && (
                             <Link to="/checkout" className="px-4 py-2 rounded-xl border border-red-200 text-red-700 font-semibold">

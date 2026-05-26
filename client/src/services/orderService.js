@@ -533,6 +533,18 @@ export const orderService = {
         });
         return handleResponse(res);
     },
+    createPaymentSession: async ({ billingAddress, shippingAddress, notes, couponCode } = {}) => (
+        (() => {
+            const payload = { billingAddress, shippingAddress, notes };
+            const normalizedCoupon = String(couponCode ?? '').trim().toUpperCase();
+            if (normalizedCoupon) payload.couponCode = normalizedCoupon;
+            return fetch(`${API_URL}/payment/session`, {
+                method: 'POST',
+                headers: getAuthHeader(),
+                body: JSON.stringify(payload)
+            }).then(handleResponse);
+        })()
+    ),
     createRazorpayOrder: async ({ billingAddress, shippingAddress, notes, couponCode } = {}) => {
         const payload = { billingAddress, shippingAddress, notes };
         const normalizedCoupon = String(couponCode ?? '').trim().toUpperCase();
@@ -544,6 +556,18 @@ export const orderService = {
         });
         return handleResponse(res);
     },
+    createPublicPaymentSession: async ({ guest, billingAddress, shippingAddress, notes, couponCode, items = [] } = {}) => (
+        (() => {
+            const payload = { guest, billingAddress, shippingAddress, notes, items };
+            const normalizedCoupon = String(couponCode ?? '').trim().toUpperCase();
+            if (normalizedCoupon) payload.couponCode = normalizedCoupon;
+            return fetch(`${API_URL}/payment/session/public`, {
+                method: 'POST',
+                headers: getAuthHeader(),
+                body: JSON.stringify(payload)
+            }).then(handleResponse);
+        })()
+    ),
     createPublicRazorpayOrder: async ({ guest, billingAddress, shippingAddress, notes, couponCode, items = [] } = {}) => {
         const payload = { guest, billingAddress, shippingAddress, notes, items };
         const normalizedCoupon = String(couponCode ?? '').trim().toUpperCase();
@@ -603,6 +627,13 @@ export const orderService = {
     // Legacy helper retained for backward compatibility while we verify no clients still depend on
     // POST /api/orders/razorpay/retry. Safe removal: after server logs show zero calls for at least
     // one full release cycle and all retry UX paths route users back through /checkout.
+    retryPayment: async ({ attemptId, orderId } = {}) => (
+        fetch(`${API_URL}/payment/retry`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify({ attemptId, orderId })
+        }).then(handleResponse)
+    ),
     retryRazorpayOrder: async ({ attemptId, orderId } = {}) => {
         const res = await fetch(`${API_URL}/razorpay/retry`, {
             method: 'POST',
@@ -610,6 +641,18 @@ export const orderService = {
             body: JSON.stringify({ attemptId, orderId })
         });
         return handleResponse(res);
+    },
+    verifyPayment: async (payload) => {
+        const res = await fetch(`${API_URL}/payment/verify`, {
+            method: 'POST',
+            headers: getAuthHeader(),
+            body: JSON.stringify(payload || {})
+        });
+        const data = await handleResponse(res);
+        if (data?.order) {
+            orderService.patchMyOrdersCache(data.order);
+        }
+        return data;
     },
     verifyRazorpayPayment: async (payload) => {
         const res = await fetch(`${API_URL}/razorpay/verify`, {
@@ -623,6 +666,14 @@ export const orderService = {
         }
         return data;
     },
+    verifyPublicPayment: async (payload = {}) => {
+        const res = await fetch(`${API_URL}/payment/verify/public`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload || {})
+        });
+        return handleResponse(res);
+    },
     verifyPublicRazorpayPayment: async (payload = {}) => {
         const res = await fetch(`${API_URL}/razorpay/verify/public`, {
             method: 'POST',
@@ -632,7 +683,7 @@ export const orderService = {
         return handleResponse(res);
     },
     getPaymentAttemptStatus: async (attemptId) => {
-        const res = await fetch(`${API_URL}/razorpay/attempt/${encodeURIComponent(attemptId)}`, {
+        const res = await fetch(`${API_URL}/payment/attempt/${encodeURIComponent(attemptId)}`, {
             method: 'GET',
             headers: getAuthHeader()
         });
@@ -645,7 +696,7 @@ export const orderService = {
     getPublicPaymentAttemptStatus: async (attemptId, attemptToken = '') => {
         const token = String(attemptToken || '').trim();
         const query = token ? `?attemptToken=${encodeURIComponent(token)}` : '';
-        const res = await fetch(`${API_URL}/razorpay/attempt/public/${encodeURIComponent(attemptId)}${query}`, {
+        const res = await fetch(`${API_URL}/payment/attempt/public/${encodeURIComponent(attemptId)}${query}`, {
             method: 'GET',
             headers: token ? { 'x-checkout-attempt-token': token } : undefined
         });

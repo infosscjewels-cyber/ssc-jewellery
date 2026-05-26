@@ -567,6 +567,7 @@ const runSettlementSyncPass = async ({
 
 module.exports = {
     ensureCapturedPaymentMatchesAttempt,
+    maybeSendRecoveryCommunications,
     reconcilePaymentAttemptById,
     runPaymentAttemptReconciliationPass,
     runSettlementSyncPass

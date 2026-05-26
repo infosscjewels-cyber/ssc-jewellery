@@ -36,7 +36,10 @@ const hydrateAttemptRow = (row = null) => {
         ...row,
         billing_address: parseJsonField(row.billing_address),
         shipping_address: parseJsonField(row.shipping_address),
-        notes: parseJsonField(row.notes)
+        notes: parseJsonField(row.notes),
+        gateway_payload_json: parseJsonField(row.gateway_payload_json),
+        gateway_status_payload_json: parseJsonField(row.gateway_status_payload_json),
+        gateway_meta_json: parseJsonField(row.gateway_meta_json)
     };
 };
 const summarizeAttemptForLog = (attempt = null) => {
@@ -45,10 +48,13 @@ const summarizeAttemptForLog = (attempt = null) => {
     return {
         id: attempt.id || null,
         userId: attempt.user_id || null,
+        paymentGateway: attempt.payment_gateway || null,
         status: attempt.status || null,
         localOrderId: attempt.local_order_id || null,
         razorpayOrderId: attempt.razorpay_order_id || null,
         razorpayPaymentId: attempt.razorpay_payment_id || null,
+        gatewayOrderRef: attempt.gateway_order_ref || null,
+        gatewayPaymentRef: attempt.gateway_payment_ref || null,
         createdAt: attempt.created_at || null,
         updatedAt: attempt.updated_at || null,
         sessionGroupId: notes?.sessionGroupId || null,
@@ -252,7 +258,14 @@ class PaymentAttempt {
 
     static async create({
         userId,
-        razorpayOrderId,
+        paymentGateway = 'razorpay',
+        razorpayOrderId = null,
+        gatewayOrderRef = null,
+        gatewayPaymentRef = null,
+        gatewaySignature = null,
+        gatewayPayload = null,
+        gatewayStatusPayload = null,
+        gatewayMeta = null,
         amountSubunits,
         currency = 'INR',
         billingAddress = null,
@@ -262,11 +275,18 @@ class PaymentAttempt {
     }) {
         const [result] = await db.execute(
             `INSERT INTO payment_attempts
-                (user_id, razorpay_order_id, amount_subunits, currency, status, expires_at, billing_address, shipping_address, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (user_id, payment_gateway, razorpay_order_id, gateway_order_ref, gateway_payment_ref, gateway_signature, gateway_payload_json, gateway_status_payload_json, gateway_meta_json, amount_subunits, currency, status, expires_at, billing_address, shipping_address, notes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 userId,
+                String(paymentGateway || 'razorpay').trim().toLowerCase() || 'razorpay',
                 razorpayOrderId,
+                String(gatewayOrderRef || '').trim() || null,
+                String(gatewayPaymentRef || '').trim() || null,
+                String(gatewaySignature || '').trim() || null,
+                gatewayPayload ? JSON.stringify(gatewayPayload) : null,
+                gatewayStatusPayload ? JSON.stringify(gatewayStatusPayload) : null,
+                gatewayMeta ? JSON.stringify(gatewayMeta) : null,
                 Number(amountSubunits || 0),
                 currency,
                 PAYMENT_STATUS.CREATED,
@@ -306,6 +326,30 @@ class PaymentAttempt {
         return hydrateAttemptRow(rows[0]);
     }
 
+    static async getByGatewayOrderRef({ paymentGateway, gatewayOrderRef }) {
+        const safeGateway = String(paymentGateway || '').trim().toLowerCase();
+        const safeGatewayOrderRef = String(gatewayOrderRef || '').trim();
+        if (!safeGateway || !safeGatewayOrderRef) return null;
+        const [rows] = await db.execute(
+            'SELECT * FROM payment_attempts WHERE payment_gateway = ? AND gateway_order_ref = ? LIMIT 1',
+            [safeGateway, safeGatewayOrderRef]
+        );
+        if (!rows.length) return null;
+        return hydrateAttemptRow(rows[0]);
+    }
+
+    static async getByGatewayPaymentRef({ paymentGateway, gatewayPaymentRef }) {
+        const safeGateway = String(paymentGateway || '').trim().toLowerCase();
+        const safeGatewayPaymentRef = String(gatewayPaymentRef || '').trim();
+        if (!safeGateway || !safeGatewayPaymentRef) return null;
+        const [rows] = await db.execute(
+            'SELECT * FROM payment_attempts WHERE payment_gateway = ? AND gateway_payment_ref = ? LIMIT 1',
+            [safeGateway, safeGatewayPaymentRef]
+        );
+        if (!rows.length) return null;
+        return hydrateAttemptRow(rows[0]);
+    }
+
     static async getById(id) {
         const [rows] = await db.execute(
             'SELECT * FROM payment_attempts WHERE id = ? LIMIT 1',
@@ -323,6 +367,124 @@ class PaymentAttempt {
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = ?`,
             [PAYMENT_STATUS.CHECKOUT_OPENED, razorpayOrderId || null, id]
+        );
+    }
+
+    static async updateGatewayRefs({
+        id,
+        paymentGateway = null,
+        gatewayOrderRef = null,
+        gatewayPaymentRef = null,
+        gatewaySignature = null,
+        gatewayPayload = undefined,
+        gatewayStatusPayload = undefined,
+        gatewayMeta = undefined
+    } = {}) {
+        await db.execute(
+            `UPDATE payment_attempts
+             SET payment_gateway = COALESCE(?, payment_gateway),
+                 gateway_order_ref = COALESCE(?, gateway_order_ref),
+                 gateway_payment_ref = COALESCE(?, gateway_payment_ref),
+                 gateway_signature = COALESCE(?, gateway_signature),
+                 gateway_payload_json = COALESCE(?, gateway_payload_json),
+                 gateway_status_payload_json = COALESCE(?, gateway_status_payload_json),
+                 gateway_meta_json = COALESCE(?, gateway_meta_json),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [
+                paymentGateway ? String(paymentGateway).trim().toLowerCase() : null,
+                String(gatewayOrderRef || '').trim() || null,
+                String(gatewayPaymentRef || '').trim() || null,
+                String(gatewaySignature || '').trim() || null,
+                typeof gatewayPayload === 'undefined' ? null : JSON.stringify(gatewayPayload || null),
+                typeof gatewayStatusPayload === 'undefined' ? null : JSON.stringify(gatewayStatusPayload || null),
+                typeof gatewayMeta === 'undefined' ? null : JSON.stringify(gatewayMeta || null),
+                id
+            ]
+        );
+    }
+
+    static async markGatewayPending({
+        id,
+        paymentGateway = null,
+        gatewayOrderRef = null,
+        gatewayPaymentRef = null,
+        gatewaySignature = null,
+        gatewayPayload = undefined,
+        gatewayStatusPayload = undefined,
+        gatewayMeta = undefined
+    } = {}) {
+        await PaymentAttempt.updateGatewayRefs({
+            id,
+            paymentGateway,
+            gatewayOrderRef,
+            gatewayPaymentRef,
+            gatewaySignature,
+            gatewayPayload,
+            gatewayStatusPayload,
+            gatewayMeta
+        });
+        await db.execute(
+            `UPDATE payment_attempts
+             SET status = ?,
+                 failure_reason = NULL,
+                 last_gateway_error = NULL,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [PAYMENT_STATUS.CHECKOUT_OPENED, id]
+        );
+    }
+
+    static async markGatewayStatus({
+        id,
+        status,
+        paymentGateway = null,
+        gatewayOrderRef = null,
+        gatewayPaymentRef = null,
+        gatewaySignature = null,
+        gatewayPayload = undefined,
+        gatewayStatusPayload = undefined,
+        gatewayMeta = undefined,
+        errorMessage = null
+    } = {}) {
+        await PaymentAttempt.updateGatewayRefs({
+            id,
+            paymentGateway,
+            gatewayOrderRef,
+            gatewayPaymentRef,
+            gatewaySignature,
+            gatewayPayload,
+            gatewayStatusPayload,
+            gatewayMeta
+        });
+        await db.execute(
+            `UPDATE payment_attempts
+             SET status = ?,
+                 verify_started_at = NULL,
+                 finalized_at = CASE WHEN ? IN (?, ?, ?) THEN COALESCE(finalized_at, CURRENT_TIMESTAMP) ELSE finalized_at END,
+                 verified_at = CASE WHEN ? = ? THEN COALESCE(verified_at, CURRENT_TIMESTAMP) ELSE verified_at END,
+                 failure_reason = CASE WHEN ? IN (?, ?) THEN ? ELSE failure_reason END,
+                 last_gateway_error = CASE WHEN ? IN (?, ?) THEN ? ELSE last_gateway_error END,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [
+                String(status || PAYMENT_STATUS.CREATED).trim().toLowerCase(),
+                String(status || '').trim().toLowerCase(),
+                PAYMENT_STATUS.PAID,
+                PAYMENT_STATUS.FAILED,
+                PAYMENT_STATUS.EXPIRED,
+                String(status || '').trim().toLowerCase(),
+                PAYMENT_STATUS.PAID,
+                String(status || '').trim().toLowerCase(),
+                PAYMENT_STATUS.FAILED,
+                PAYMENT_STATUS.EXPIRED,
+                sanitizeFailureReason(errorMessage),
+                String(status || '').trim().toLowerCase(),
+                PAYMENT_STATUS.FAILED,
+                PAYMENT_STATUS.EXPIRED,
+                sanitizeFailureReason(errorMessage),
+                id
+            ]
         );
     }
 

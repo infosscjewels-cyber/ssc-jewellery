@@ -2207,6 +2207,10 @@ class Order {
         attempt = null,
         paymentGateway = 'manual',
         paymentReference = '',
+        gatewayOrderRef = null,
+        gatewayPaymentRef = null,
+        gatewaySignature = null,
+        gatewayPayload = null,
         actorUserId = null,
         auditReason = '',
         paymentStatus = 'paid',
@@ -2445,14 +2449,18 @@ class Order {
 
             const [orderResult] = await connection.execute(
                 `INSERT INTO orders
-                (order_ref, user_id, status, payment_status, payment_gateway, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, round_off_amount, tax_price_mode, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (order_ref, user_id, status, payment_status, payment_gateway, gateway_order_ref, gateway_payment_ref, gateway_signature, gateway_payload_json, razorpay_order_id, razorpay_payment_id, razorpay_signature, coupon_code, coupon_type, coupon_discount_value, coupon_meta, loyalty_tier, loyalty_discount_total, loyalty_shipping_discount_total, loyalty_meta, source_channel, is_abandoned_recovery, abandoned_journey_id, subtotal, shipping_fee, discount_total, tax_total, round_off_amount, tax_price_mode, tax_breakup_json, total, currency, billing_address, shipping_address, company_snapshot, settlement_id, settlement_snapshot)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     orderRef,
                     userId,
                     'confirmed',
                     String(paymentStatus || 'paid').slice(0, 30),
                     String(paymentGateway || 'manual').slice(0, 30),
+                    String(gatewayOrderRef || razorpayOrderId || '').trim() || null,
+                    String(gatewayPaymentRef || paymentReference || razorpayPaymentId || '').trim() || null,
+                    String(gatewaySignature || razorpaySignature || '').trim() || null,
+                    gatewayPayload ? JSON.stringify(gatewayPayload) : null,
                     String(razorpayOrderId || '').trim() || null,
                     String(razorpayPaymentId || '').trim() || null,
                     String(razorpaySignature || '').trim() || null,
@@ -2564,6 +2572,30 @@ class Order {
         return Order.getById(rows[0].id);
     }
 
+    static async getByGatewayOrderRef({ paymentGateway, gatewayOrderRef }) {
+        const safeGateway = String(paymentGateway || '').trim().toLowerCase();
+        const safeGatewayOrderRef = String(gatewayOrderRef || '').trim();
+        if (!safeGateway || !safeGatewayOrderRef) return null;
+        const [rows] = await db.execute(
+            'SELECT id FROM orders WHERE payment_gateway = ? AND gateway_order_ref = ? ORDER BY id DESC LIMIT 1',
+            [safeGateway, safeGatewayOrderRef]
+        );
+        if (!rows.length) return null;
+        return Order.getById(rows[0].id);
+    }
+
+    static async getByGatewayPaymentRef({ paymentGateway, gatewayPaymentRef }) {
+        const safeGateway = String(paymentGateway || '').trim().toLowerCase();
+        const safeGatewayPaymentRef = String(gatewayPaymentRef || '').trim();
+        if (!safeGateway || !safeGatewayPaymentRef) return null;
+        const [rows] = await db.execute(
+            'SELECT id FROM orders WHERE payment_gateway = ? AND gateway_payment_ref = ? ORDER BY id DESC LIMIT 1',
+            [safeGateway, safeGatewayPaymentRef]
+        );
+        if (!rows.length) return null;
+        return Order.getById(rows[0].id);
+    }
+
     static async getBySettlementId(settlementId, { limit = 100 } = {}) {
         const ref = String(settlementId || '').trim();
         if (!ref) return [];
@@ -2646,6 +2678,42 @@ class Order {
                     COALESCE(NULLIF(settlement_id, ''), '') = ''
                     OR settlement_snapshot IS NULL
                     OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(settlement_snapshot, '$.status')), '')) IN ('pending', 'processing')
+               )
+             ORDER BY created_at ASC
+             LIMIT ?`,
+            [safeMinAgeHours, safeLimit]
+        );
+        return Array.isArray(rows) ? rows.map((row) => ({
+            ...row,
+            settlement_snapshot: parseJsonSafe(row.settlement_snapshot)
+        })) : [];
+    }
+
+    static async listIciciSettlementSyncCandidates({
+        limit = 100,
+        minAgeHours = 24
+    } = {}) {
+        const safeLimit = Math.max(1, Math.min(500, Number(limit || 100)));
+        const safeMinAgeHours = Math.max(0, Number(minAgeHours || 24));
+        const [rows] = await db.execute(
+            `SELECT id,
+                    order_ref,
+                    payment_status,
+                    payment_gateway,
+                    gateway_order_ref,
+                    gateway_payment_ref,
+                    settlement_id,
+                    settlement_snapshot,
+                    created_at
+             FROM orders
+             WHERE LOWER(COALESCE(payment_gateway, '')) = 'icici'
+               AND LOWER(COALESCE(payment_status, '')) = 'paid'
+               AND created_at < DATE_SUB(NOW(), INTERVAL ? HOUR)
+               AND (
+                    COALESCE(NULLIF(settlement_id, ''), '') = ''
+                    OR settlement_snapshot IS NULL
+                    OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(settlement_snapshot, '$.status')), '')) IN ('pending', 'processing')
+                    OR UPPER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(settlement_snapshot, '$.settlement_status')), '')) = 'NSD'
                )
              ORDER BY created_at ASC
              LIMIT ?`,
@@ -3731,6 +3799,38 @@ class Order {
     static async deleteById(orderId) {
         const [result] = await db.execute('DELETE FROM orders WHERE id = ?', [orderId]);
         return Number(result?.affectedRows || 0) > 0;
+    }
+
+    static async updateGatewayPaymentByOrderId({
+        orderId,
+        paymentStatus,
+        paymentGateway = null,
+        gatewayOrderRef = null,
+        gatewayPaymentRef = null,
+        gatewaySignature = null,
+        gatewayPayload = null
+    } = {}) {
+        const [result] = await db.execute(
+            `UPDATE orders
+             SET payment_status = COALESCE(?, payment_status),
+                 payment_gateway = COALESCE(?, payment_gateway),
+                 gateway_order_ref = COALESCE(?, gateway_order_ref),
+                 gateway_payment_ref = COALESCE(?, gateway_payment_ref),
+                 gateway_signature = COALESCE(?, gateway_signature),
+                 gateway_payload_json = COALESCE(?, gateway_payload_json),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [
+                paymentStatus || null,
+                paymentGateway ? String(paymentGateway).trim().toLowerCase() : null,
+                String(gatewayOrderRef || '').trim() || null,
+                String(gatewayPaymentRef || '').trim() || null,
+                String(gatewaySignature || '').trim() || null,
+                gatewayPayload ? JSON.stringify(gatewayPayload) : null,
+                orderId
+            ]
+        );
+        return Number(result?.affectedRows || 0);
     }
 
     static async markStaleAsPending() {

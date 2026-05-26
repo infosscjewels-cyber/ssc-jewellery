@@ -6,7 +6,8 @@ const jwt = require('jsonwebtoken');
 const { PaymentAttempt, PAYMENT_STATUS } = require('../models/PaymentAttempt');
 const WebhookEvent = require('../models/WebhookEvent');
 const { createRazorpayClient, getRazorpayConfig } = require('../services/razorpayService');
-const { ensureCapturedPaymentMatchesAttempt, reconcilePaymentAttemptById } = require('../services/paymentReconciliationService');
+const { ensureCapturedPaymentMatchesAttempt } = require('../services/paymentReconciliationService');
+const { reconcilePaymentAttemptById } = require('../services/paymentReconciliationDispatcher');
 const { markRecoveredByOrder } = require('../services/abandonedCartRecoveryService');
 const AbandonedCart = require('../models/AbandonedCart');
 const Wishlist = require('../models/Wishlist');
@@ -16,6 +17,13 @@ const User = require('../models/User');
 const Cart = require('../models/Cart');
 const CompanyProfile = require('../models/CompanyProfile');
 const Product = require('../models/Product');
+const { createRazorpayGatewayAdapter } = require('../services/gateways/razorpayGatewayAdapter');
+const { createIciciGatewayAdapter } = require('../services/gateways/iciciGatewayAdapter');
+const { getPaymentGatewayAdapter, PAYMENT_GATEWAYS } = require('../services/paymentGatewayService');
+const { verifyIciciSecureHash, buildIciciPlainHashText } = require('../services/iciciHashService');
+const { buildInitiateSalePayload, buildRedirectUrl, normalizeIciciFinalStatus, initiateSale, assertIciciConfigured, doesIciciAmountMatchAttempt } = require('../services/iciciService');
+const { fetchIciciTransactionStatus } = require('../services/iciciStatusService');
+const { normalizeIciciSettlementSnapshot } = require('../services/iciciSettlementService');
 const { buildInvoicePdfBuffer } = require('../utils/invoicePdf');
 const { sendOrderLifecycleCommunication, sendPaymentLifecycleCommunication } = require('../services/communications/communicationService');
 const { verifyDeliveryToken } = require('../services/deliveryConfirmationService');
@@ -52,11 +60,55 @@ const ORDER_TRANSITIONS = Object.freeze({
     cancelled: new Set(['cancelled'])
 });
 
+const normalizeBaseUrl = (value = '') => String(value || '').trim().replace(/\/+$/, '');
+const getFrontendBaseUrl = () => (
+    normalizeBaseUrl(process.env.CLIENT_BASE_URL)
+    || normalizeBaseUrl(process.env.FRONTEND_URL)
+    || normalizeBaseUrl(process.env.APP_BASE_URL)
+    || ''
+);
+const buildFrontendRedirectUrl = (req, pathWithQuery = '/') => {
+    const path = String(pathWithQuery || '/').trim() || '/';
+    const frontendBaseUrl = getFrontendBaseUrl();
+    if (frontendBaseUrl) {
+        return `${frontendBaseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+    }
+    return path.startsWith('/')
+        ? `${req.protocol}://${req.get('host')}${path}`
+        : `${req.protocol}://${req.get('host')}/${path}`;
+};
+
 const buildReceipt = (userId) => {
     const uid = String(userId || '').replace(/[^a-zA-Z0-9]/g, '').slice(-10) || 'guest';
     const stamp = Date.now().toString(36);
     return `ssc_${uid}_${stamp}`.slice(0, 40);
 };
+
+const buildIciciMerchantTxnNo = ({ attemptId, userId = null } = {}) => {
+    const safeAttemptId = Number(attemptId || 0);
+    if (!Number.isFinite(safeAttemptId) || safeAttemptId <= 0) {
+        throw new Error('Valid attempt id is required to build ICICI merchant transaction number');
+    }
+    const userFragment = String(userId || 'G').replace(/[^a-zA-Z0-9]/g, '').slice(-4).toUpperCase() || 'G';
+    const timeFragment = Date.now().toString(36).toUpperCase().slice(-6);
+    return `IC${userFragment}${safeAttemptId}${timeFragment}`.slice(0, 20);
+};
+
+const getPaymentReferenceForOrder = (order = null, attempt = null) => (
+    order?.gateway_payment_ref
+    || order?.razorpay_payment_id
+    || attempt?.gateway_payment_ref
+    || attempt?.razorpay_payment_id
+    || null
+);
+
+const getGatewayOrderReference = (order = null, attempt = null) => (
+    order?.gateway_order_ref
+    || order?.razorpay_order_id
+    || attempt?.gateway_order_ref
+    || attempt?.razorpay_order_id
+    || null
+);
 
 const collectOrderProductIds = (order = null) => (
     [...new Set((Array.isArray(order?.items) ? order.items : [])
@@ -134,6 +186,17 @@ const emitCouponChangedForOrder = (req, order = null) => {
     };
     io.to('admin').emit('coupon:changed', payload);
     io.to(`user:${order.user_id}`).emit('coupon:changed', payload);
+};
+
+const dispatchSilentCheckoutUserCreated = (req, user) => {
+    const responseUser = User.toSafePayload(user);
+    const io = req.app.get('io');
+    if (io) {
+        emitToUserAudiences(io, responseUser, 'user:create', responseUser);
+    }
+    const { dispatchWelcomeCommunication } = require('./authController');
+    dispatchWelcomeCommunication(user);
+    return responseUser;
 };
 
 const emitWishlistUpdateForUser = async (req, userId) => {
@@ -1018,6 +1081,131 @@ const createCheckoutRazorpayOrderForUser = async ({
     };
 };
 
+const createCheckoutIciciSessionForUser = async ({
+    userId,
+    user,
+    billingAddress,
+    shippingAddress,
+    notes,
+    couponCode,
+    allowMissingEmail = false
+} = {}) => {
+    const normalizedEmail = String(user?.email || '').trim().toLowerCase();
+    const normalizedMobile = String(user?.mobile || '').replace(/\D/g, '').trim();
+    const normalizedName = String(user?.name || '').trim();
+    if (normalizedEmail && !isValidEmailAddress(normalizedEmail)) {
+        const error = new Error('A valid customer email is required before payment');
+        error.statusCode = 400;
+        throw error;
+    }
+    if (!normalizedEmail && !allowMissingEmail) {
+        const error = new Error('A valid customer email is required before payment');
+        error.statusCode = 400;
+        throw error;
+    }
+    if (!isValidPhoneNumber(normalizedMobile)) {
+        const error = new Error('A valid customer mobile number is required before payment');
+        error.statusCode = 400;
+        throw error;
+    }
+    if (notes !== undefined && notes !== null && (typeof notes !== 'object' || Array.isArray(notes))) {
+        const error = new Error('Notes must be an object');
+        error.statusCode = 400;
+        throw error;
+    }
+    if (couponCode !== undefined && couponCode !== null && typeof couponCode !== 'string') {
+        const error = new Error('Coupon code must be a string');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    assertIciciConfigured();
+
+    const normalizedCouponCode = String(couponCode || '').trim().toUpperCase() || null;
+    const summary = await buildCheckoutSummaryForUser({
+        userId,
+        shippingAddress,
+        couponCode: normalizedCouponCode
+    });
+    const amount = Number(summary.total || 0);
+    if (amount < 1) {
+        const error = new Error('Order amount should be at least INR 1.00');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const expiresAt = getAttemptExpiryDate();
+    const attempt = await PaymentAttempt.create({
+        userId,
+        paymentGateway: PAYMENT_GATEWAYS.ICICI,
+        amountSubunits: toSubunit(amount),
+        currency: summary.currency || 'INR',
+        billingAddress,
+        shippingAddress,
+        notes: {
+            ...(notes && typeof notes === 'object' ? notes : {}),
+            ...(normalizedCouponCode ? { couponCode: normalizedCouponCode } : {}),
+            attemptSnapshot: await buildAttemptSnapshot({
+                userId,
+                summary
+            })
+        },
+        expiresAt
+    });
+
+    const merchantTxnNo = buildIciciMerchantTxnNo({
+        attemptId: attempt.id,
+        userId
+    });
+
+    const saleRequest = buildInitiateSalePayload({
+        merchantTxnNo,
+        amount,
+        customerEmailID: normalizedEmail || 'dummy@gmail.com',
+        customerMobileNo: normalizedMobile,
+        customerName: normalizedName,
+        addlParam1: String(attempt.id),
+        addlParam2: String(userId || '')
+    });
+    const saleResponse = await initiateSale(saleRequest);
+    if (String(saleResponse?.responseCode || '').trim().toUpperCase() !== 'R1000') {
+        const error = new Error(saleResponse?.responseMessage || saleResponse?.message || 'ICICI did not accept the payment request');
+        error.statusCode = 400;
+        throw error;
+    }
+    if (String(saleResponse?.showOTPCapturePage || '').trim().toUpperCase() === 'Y') {
+        const error = new Error('ICICI OTP-capture mode is not enabled in this integration');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    await PaymentAttempt.markGatewayPending({
+        id: attempt.id,
+        paymentGateway: PAYMENT_GATEWAYS.ICICI,
+        gatewayOrderRef: merchantTxnNo,
+        gatewayPaymentRef: String(saleResponse?.tranCtx || '').trim() || null,
+        gatewaySignature: saleResponse?.secureHash || null,
+        gatewayPayload: saleResponse,
+        gatewayMeta: {
+            saleRequest,
+            tranCtx: saleResponse?.tranCtx || null
+        }
+    });
+
+    return {
+        gateway: PAYMENT_GATEWAYS.ICICI,
+        summary,
+        attempt: {
+            id: attempt.id,
+            status: PAYMENT_STATUS.CHECKOUT_OPENED,
+            expiresAt
+        },
+        merchantTxnNo,
+        redirectUrl: buildRedirectUrl(saleResponse),
+        tranCtx: String(saleResponse?.tranCtx || '').trim() || null
+    };
+};
+
 const fetchSettlementSnapshotSafe = async (razorpay, settlementId) => {
     const ref = String(settlementId || '').trim();
     if (!razorpay || !ref) return null;
@@ -1029,7 +1217,7 @@ const fetchSettlementSnapshotSafe = async (razorpay, settlementId) => {
     }
 };
 
-const createRazorpayOrder = async (req, res) => {
+const createRazorpayOrderImpl = async (req, res) => {
     try {
         await assertStorefrontOpenForCheckout();
         const userId = req.user.id;
@@ -1092,7 +1280,7 @@ const createRazorpayOrder = async (req, res) => {
     }
 };
 
-const createPublicRazorpayOrder = async (req, res) => {
+const createPublicRazorpayOrderImpl = async (req, res) => {
     try {
         await assertStorefrontOpenForCheckout();
         const {
@@ -1149,13 +1337,7 @@ const createPublicRazorpayOrder = async (req, res) => {
                 billingAddress: safeBillingAddress
             });
             responseToken = generateCheckoutToken(user);
-            responseUser = User.toSafePayload(user);
-            const io = req.app.get('io');
-            if (io) {
-                emitToUserAudiences(io, responseUser, 'user:create', responseUser);
-            }
-            const { dispatchWelcomeCommunication } = require('./authController');
-            dispatchWelcomeCommunication(user);
+            responseUser = dispatchSilentCheckoutUserCreated(req, user);
         }
 
         const savedShippingAddress = parseAddressObject(user?.address);
@@ -1242,6 +1424,172 @@ const createPublicRazorpayOrder = async (req, res) => {
     }
 };
 
+const createIciciSessionImpl = async (req, res) => {
+    try {
+        await assertStorefrontOpenForCheckout();
+        const userId = req.user.id;
+        const { billingAddress, shippingAddress, notes, couponCode } = req.body || {};
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'Customer not found' });
+        }
+        const safeShippingAddress = shippingAddress
+            ? await normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' })
+            : null;
+        const safeBillingAddress = billingAddressEnabled
+            ? (billingAddress
+                ? await normalizeAddressPayload(billingAddress, { fieldLabel: 'Billing address' })
+                : null)
+            : resolveBillingAddress({ shippingAddress: safeShippingAddress, billingAddress: safeShippingAddress });
+        const payload = await createCheckoutIciciSessionForUser({
+            userId,
+            user,
+            billingAddress: safeBillingAddress,
+            shippingAddress: safeShippingAddress,
+            notes,
+            couponCode
+        });
+        logCheckoutTrace('create_icici_session', buildCheckoutTraceMeta({
+            attempt: payload?.attempt,
+            notes,
+            source: 'createIciciSession'
+        }));
+        return res.status(201).json(payload);
+    } catch (error) {
+        return res.status(Number(error?.statusCode || 400) || 400).json({
+            message: error?.message || 'Failed to initialize ICICI payment'
+        });
+    }
+};
+
+const createPublicIciciSessionImpl = async (req, res) => {
+    try {
+        await assertStorefrontOpenForCheckout();
+        const {
+            guest = {},
+            billingAddress,
+            shippingAddress,
+            notes,
+            couponCode,
+            items = []
+        } = req.body || {};
+        const safeShippingAddress = shippingAddress
+            ? await normalizeAddressPayload(shippingAddress, { fieldLabel: 'Shipping address' })
+            : null;
+        const safeBillingAddress = billingAddressEnabled
+            ? (billingAddress
+                ? await normalizeAddressPayload(billingAddress, { fieldLabel: 'Billing address' })
+                : null)
+            : resolveBillingAddress({ shippingAddress: safeShippingAddress, billingAddress: safeShippingAddress });
+        const selections = normalizeCheckoutSelections(items);
+        if (!selections.length) {
+            return res.status(400).json({ message: 'Cart is empty' });
+        }
+
+        const safeName = String(guest?.name || '').trim();
+        const safeEmail = String(guest?.email || '').trim().toLowerCase();
+        const safeMobile = String(guest?.mobile || '').replace(/\D/g, '').trim();
+        if (!isValidEmailAddress(safeEmail) && safeEmail) return res.status(400).json({ message: 'Enter a valid email address or leave it blank' });
+        if (!isValidPhoneNumber(safeMobile)) return res.status(400).json({ message: 'A valid customer mobile number is required before payment' });
+        const resolved = await resolveGuestCheckoutAccountByMobile({ mobile: safeMobile });
+        const isExistingAccount = resolved?.status === 'existing_account_locked' && resolved?.user;
+
+        if (!isExistingAccount && !safeName) {
+            return res.status(400).json({ message: 'Name is required' });
+        }
+
+        let user = resolved?.user || null;
+        let responseToken = null;
+        let responseUser = null;
+
+        if (!user) {
+            let persistedEmail = safeEmail || '';
+            if (persistedEmail) {
+                const existingEmailUser = await User.findByEmail(persistedEmail);
+                if (existingEmailUser) {
+                    persistedEmail = '';
+                }
+            }
+
+            user = await createSilentCheckoutUser({
+                name: safeName,
+                email: persistedEmail || null,
+                mobile: safeMobile,
+                shippingAddress: safeShippingAddress,
+                billingAddress: safeBillingAddress
+            });
+            responseToken = generateCheckoutToken(user);
+            responseUser = dispatchSilentCheckoutUserCreated(req, user);
+        }
+
+        const savedShippingAddress = parseAddressObject(user?.address);
+        const savedBillingAddress = billingAddressEnabled
+            ? parseAddressObject(user?.billingAddress || user?.billing_address || user?.address)
+            : parseAddressObject(user?.address);
+        const finalShippingAddress = safeShippingAddress || (hasCompleteAddress(savedShippingAddress) ? savedShippingAddress : null);
+        const finalBillingAddress = safeBillingAddress || (
+            billingAddressEnabled
+                ? (hasCompleteAddress(savedBillingAddress) ? savedBillingAddress : null)
+                : finalShippingAddress
+        );
+        if (!finalShippingAddress || !hasCompleteAddress(finalShippingAddress)) {
+            return res.status(400).json({ message: 'A complete shipping address is required before payment' });
+        }
+        if (billingAddressEnabled && (!finalBillingAddress || !hasCompleteAddress(finalBillingAddress))) {
+            return res.status(400).json({ message: 'A complete billing address is required before payment' });
+        }
+
+        const cartItems = await syncSelectionsToUserCart(user.id, selections);
+        const payload = await createCheckoutIciciSessionForUser({
+            userId: user.id,
+            user: {
+                ...user,
+                name: user?.name || safeName,
+                email: user?.email || safeEmail || null,
+                mobile: user?.mobile || safeMobile
+            },
+            billingAddress: finalBillingAddress,
+            shippingAddress: finalShippingAddress,
+            notes,
+            couponCode,
+            allowMissingEmail: true
+        });
+        const attemptToken = generatePublicAttemptToken({
+            attemptId: payload?.attempt?.id,
+            userId: user.id,
+            razorpayOrderId: payload?.merchantTxnNo || ''
+        });
+        return res.status(201).json({
+            ...payload,
+            attemptToken,
+            token: responseToken,
+            user: responseUser,
+            cart: responseUser ? {
+                items: cartItems.map((item) => ({
+                    ...item,
+                    key: `${String(item.productId || '')}__${String(item.variantId || '')}`
+                }))
+            } : undefined
+        });
+    } catch (error) {
+        if (Number(error?.statusCode || 0) === 423) {
+            return res.status(423).json({ message: error.message });
+        }
+        if (Number(error?.statusCode || 0) === 409) {
+            return res.status(409).json({
+                message: error.message,
+                code: error.code || 'ACCOUNT_RESOLUTION_CONFLICT',
+                status: error.publicStatus || null,
+                conflicts: error.conflicts || null
+            });
+        }
+        return res.status(Number(error?.statusCode || 400) || 400).json({
+            message: error?.message || 'Failed to initialize ICICI payment',
+            code: error?.code || null
+        });
+    }
+};
+
 const lookupGuestCheckoutAccount = async (req, res) => {
     try {
         const mobile = String(req.body?.mobile || '').replace(/\D/g, '').trim();
@@ -1276,7 +1624,7 @@ const lookupGuestCheckoutAccount = async (req, res) => {
     }
 };
 
-const verifyRazorpayPayment = async (req, res) => {
+const verifyRazorpayPaymentImpl = async (req, res) => {
     let lockedAttemptId = null;
     let lockedPaymentId = null;
     let lockedSignature = null;
@@ -1532,7 +1880,7 @@ const verifyRazorpayPayment = async (req, res) => {
     }
 };
 
-const verifyPublicRazorpayPayment = async (req, res) => {
+const verifyPublicRazorpayPaymentImpl = async (req, res) => {
     let lockedAttemptId = null;
     let lockedPaymentId = null;
     let lockedSignature = null;
@@ -1791,7 +2139,7 @@ const verifyPublicRazorpayPayment = async (req, res) => {
     }
 };
 
-const getPublicPaymentAttemptStatus = async (req, res) => {
+const getPublicPaymentAttemptStatusImpl = async (req, res) => {
     try {
         const attemptId = Number(req.params.id);
         const attemptToken = String(req.query?.attemptToken || req.headers['x-checkout-attempt-token'] || '').trim();
@@ -1920,7 +2268,7 @@ const getPublicPaymentAttemptStatus = async (req, res) => {
     }
 };
 
-const retryRazorpayPayment = async (req, res) => {
+const retryRazorpayPaymentImpl = async (req, res) => {
     try {
         // Legacy endpoint kept temporarily for backward compatibility with older clients.
         // Safe removal: after deployment logs show no calls to POST /api/orders/razorpay/retry
@@ -1965,7 +2313,7 @@ const retryRazorpayPayment = async (req, res) => {
             return res.status(400).json({ message: 'Selected payment is not retryable' });
         }
 
-        return createRazorpayOrder({
+        return createRazorpayOrderImpl({
             ...req,
             body: {
                 billingAddress: sourceAttempt.billing_address || null,
@@ -1986,6 +2334,12 @@ const retryRazorpayPayment = async (req, res) => {
 
 const createOrderFromCheckoutPaymentAttempt = async (req, {
     attempt = null,
+    paymentGateway = PAYMENT_GATEWAYS.RAZORPAY,
+    paymentReference = null,
+    gatewayOrderRef = null,
+    gatewayPaymentRef = null,
+    gatewaySignature = null,
+    gatewayPayload = null,
     razorpayOrderId = null,
     razorpayPaymentId = null,
     razorpaySignature = null,
@@ -2006,8 +2360,13 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
             return returnMeta ? { order: existingOrder, created: false } : existingOrder;
         }
     }
-    if (razorpayPaymentId) {
-        const existingByPayment = await Order.getByRazorpayPaymentId(razorpayPaymentId);
+    const safeGateway = String(paymentGateway || PAYMENT_GATEWAYS.RAZORPAY).trim().toLowerCase();
+    const resolvedGatewayPaymentRef = String(gatewayPaymentRef || paymentReference || razorpayPaymentId || '').trim() || null;
+    const resolvedGatewayOrderRef = String(gatewayOrderRef || razorpayOrderId || attempt.gateway_order_ref || attempt.razorpay_order_id || '').trim() || null;
+    if (resolvedGatewayPaymentRef) {
+        const existingByPayment = safeGateway === PAYMENT_GATEWAYS.RAZORPAY
+            ? await Order.getByRazorpayPaymentId(resolvedGatewayPaymentRef)
+            : await Order.getByGatewayPaymentRef({ paymentGateway: safeGateway, gatewayPaymentRef: resolvedGatewayPaymentRef });
         if (existingByPayment?.id) {
             await PaymentAttempt.linkToExistingOrder({
                 id: attempt.id,
@@ -2036,8 +2395,12 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
 
     const order = await Order.createManualOrderFromAttempt({
         attempt,
-        paymentGateway: 'razorpay',
-        paymentReference: razorpayPaymentId || '',
+        paymentGateway: safeGateway,
+        paymentReference: resolvedGatewayPaymentRef || '',
+        gatewayOrderRef: resolvedGatewayOrderRef,
+        gatewayPaymentRef: resolvedGatewayPaymentRef,
+        gatewaySignature: gatewaySignature || razorpaySignature || null,
+        gatewayPayload: gatewayPayload || null,
         actorUserId: null,
         paymentStatus: PAYMENT_STATUS.PAID,
         razorpayOrderId: razorpayOrderId || attempt.razorpay_order_id || null,
@@ -2058,7 +2421,381 @@ const createOrderFromCheckoutPaymentAttempt = async (req, {
     return returnMeta ? { order, created: Boolean(order) } : order;
 };
 
-const handleRazorpayWebhook = async (req, res) => {
+const finalizeIciciAttemptAndOrder = async (req, {
+    attempt,
+    payload = {},
+    source = 'icici'
+} = {}) => {
+    const merchantTxnNo = String(payload?.merchantTxnNo || attempt?.gateway_order_ref || '').trim();
+    const gatewayPaymentRef = String(payload?.paymentID || payload?.txnID || attempt?.gateway_payment_ref || '').trim() || null;
+    let normalizedGatewayStatus = normalizeIciciFinalStatus(payload);
+    const amountMatchesAttempt = doesIciciAmountMatchAttempt({
+        payload,
+        attempt
+    });
+    const failureMessage = !amountMatchesAttempt
+        ? 'ICICI payment amount mismatch'
+        : (payload?.txnRespDescription || payload?.responseMessage || payload?.message || 'ICICI payment failed');
+    if (normalizedGatewayStatus === 'paid' && !amountMatchesAttempt) {
+        normalizedGatewayStatus = 'failed';
+    }
+    const mappedAttemptStatus = normalizedGatewayStatus === 'paid'
+        ? PAYMENT_STATUS.PAID
+        : (normalizedGatewayStatus === 'pending' ? PAYMENT_STATUS.RECONCILIATION_PENDING : PAYMENT_STATUS.FAILED);
+
+    await PaymentAttempt.markGatewayStatus({
+        id: attempt.id,
+        status: mappedAttemptStatus,
+        paymentGateway: PAYMENT_GATEWAYS.ICICI,
+        gatewayOrderRef: merchantTxnNo || attempt?.gateway_order_ref || null,
+        gatewayPaymentRef,
+        gatewaySignature: payload?.secureHash || null,
+        gatewayPayload: payload,
+        gatewayStatusPayload: payload,
+        gatewayMeta: {
+            source,
+            txnStatus: payload?.txnStatus || null,
+            txnResponseCode: payload?.txnResponseCode || null,
+            responseCode: payload?.responseCode || null,
+            amountMatchesAttempt
+        },
+        errorMessage: normalizedGatewayStatus === 'failed'
+            ? failureMessage
+            : null
+    });
+
+    const refreshedAttempt = await PaymentAttempt.getById(attempt.id);
+    if (normalizedGatewayStatus !== 'paid') {
+        if (normalizedGatewayStatus === 'failed') {
+            await releaseAttemptInventoryAndEmit(req, {
+                attemptId: attempt.id,
+                reason: 'payment_failed'
+            }).catch(() => {});
+        }
+        return { order: null, attempt: refreshedAttempt || attempt, paymentStatus: normalizedGatewayStatus };
+    }
+
+    const checkoutOrderResult = await createOrderFromCheckoutPaymentAttempt(req, {
+        attempt: refreshedAttempt || attempt,
+        paymentGateway: PAYMENT_GATEWAYS.ICICI,
+        paymentReference: gatewayPaymentRef || merchantTxnNo,
+        gatewayOrderRef: merchantTxnNo,
+        gatewayPaymentRef,
+        gatewaySignature: payload?.secureHash || null,
+        gatewayPayload: payload,
+        returnMeta: true
+    });
+    const finalOrder = checkoutOrderResult?.order?.id
+        ? (await Order.getById(checkoutOrderResult.order.id)) || checkoutOrderResult.order
+        : null;
+    if (finalOrder?.id) {
+        await finalizePaidOrderLifecycle(req, {
+            order: finalOrder,
+            attempt: refreshedAttempt || attempt,
+            payment: {
+                paymentStatus: PAYMENT_STATUS.PAID,
+                paymentMethod: PAYMENT_GATEWAYS.ICICI,
+                paymentReference: gatewayPaymentRef || merchantTxnNo,
+                gatewayOrderRef: merchantTxnNo
+            },
+            source,
+            created: Boolean(checkoutOrderResult?.created)
+        });
+    }
+
+    return {
+        order: finalOrder,
+        attempt: await PaymentAttempt.getById(attempt.id),
+        paymentStatus: normalizedGatewayStatus
+    };
+};
+
+const verifyIciciInboundPayload = (payload = {}) => {
+    const config = assertIciciConfigured();
+    const secureHash = String(payload?.secureHash || '').trim();
+    if (!secureHash) {
+        const error = new Error('Missing ICICI secure hash');
+        error.statusCode = 400;
+        throw error;
+    }
+    if (!verifyIciciSecureHash({
+        payload,
+        secureHash,
+        secretKey: config.secretKey
+    })) {
+        try {
+            const plainHashText = buildIciciPlainHashText(payload, { excludeKeys: ['secureHash'] });
+            const generatedHash = require('crypto')
+                .createHmac('sha256', String(config.secretKey || '').trim())
+                .update(plainHashText)
+                .digest('hex');
+            console.error('[icici_hash_mismatch]', JSON.stringify({
+                at: new Date().toISOString(),
+                merchantTxnNo: String(payload?.merchantTxnNo || '').trim() || null,
+                responseCode: String(payload?.responseCode || '').trim() || null,
+                txnStatus: String(payload?.txnStatus || '').trim() || null,
+                txnResponseCode: String(payload?.txnResponseCode || '').trim() || null,
+                paymentID: String(payload?.paymentID || '').trim() || null,
+                txnID: String(payload?.txnID || '').trim() || null,
+                settlementID: String(payload?.settlementID || '').trim() || null,
+                incomingSecureHash: secureHash,
+                generatedSecureHash: generatedHash,
+                plainHashText,
+                payload
+            }));
+        } catch (loggingError) {
+            console.error('Failed to log ICICI hash mismatch diagnostic:', loggingError?.message || loggingError);
+        }
+        const error = new Error('Invalid ICICI secure hash');
+        error.statusCode = 400;
+        throw error;
+    }
+};
+
+const parseIciciInboundPayload = (req) => {
+    const rawBody = String(req?.rawBody || '').trim();
+    if (!rawBody) {
+        return req?.body && typeof req.body === 'object' ? req.body : {};
+    }
+    const contentType = String(req?.headers?.['content-type'] || '').toLowerCase();
+    if (contentType.includes('application/json')) {
+        try {
+            return JSON.parse(rawBody);
+        } catch {
+            return req?.body && typeof req.body === 'object' ? req.body : {};
+        }
+    }
+    const params = new URLSearchParams(rawBody);
+    const payload = {};
+    for (const [key, value] of params.entries()) {
+        payload[key] = value;
+    }
+    return Object.keys(payload).length ? payload : (req?.body && typeof req.body === 'object' ? req.body : {});
+};
+
+const getIciciAttemptStatusImpl = async (req, res) => {
+    try {
+        const attemptId = Number(req.params.id);
+        let attempt = await PaymentAttempt.getById(attemptId);
+        if (!attempt) {
+            return res.status(404).json({ message: 'Payment attempt not found' });
+        }
+        if (req.user?.id && String(attempt.user_id || '') !== String(req.user.id)) {
+            return res.status(404).json({ message: 'Payment attempt not found' });
+        }
+        if (attempt.local_order_id) {
+            const order = await Order.getById(attempt.local_order_id);
+            return res.json(serializePaymentAttemptStatus({ attempt, order }));
+        }
+        const merchantTxnNo = String(attempt.gateway_order_ref || '').trim();
+        if (!merchantTxnNo || !PAYMENT_ATTEMPT_PROCESSING_STATUSES.has(String(attempt.status || '').trim().toLowerCase())) {
+            return res.json(serializePaymentAttemptStatus({ attempt }));
+        }
+        const statusPayload = await fetchIciciTransactionStatus({
+            merchantTxnNo,
+            originalTxnNo: merchantTxnNo
+        });
+        const outcome = await finalizeIciciAttemptAndOrder(req, {
+            attempt,
+            payload: statusPayload,
+            source: 'icici_status_poll'
+        });
+        attempt = outcome?.attempt || await PaymentAttempt.getById(attempt.id) || attempt;
+        return res.json(serializePaymentAttemptStatus({
+            attempt,
+            order: outcome?.order || null,
+            message: outcome?.paymentStatus === 'pending' ? 'Waiting for ICICI payment confirmation' : null
+        }));
+    } catch (error) {
+        return res.status(Number(error?.statusCode || 400) || 400).json({ message: error?.message || 'Failed to fetch ICICI payment status' });
+    }
+};
+
+const getPublicIciciAttemptStatusImpl = async (req, res) => {
+    try {
+        const attemptId = Number(req.params.id);
+        const attemptToken = String(req.query?.attemptToken || req.headers['x-checkout-attempt-token'] || '').trim();
+        verifyPublicAttemptToken({ attemptId, attemptToken });
+        return getIciciAttemptStatusImpl(req, res);
+    } catch (error) {
+        return res.status(Number(error?.statusCode || 401) || 401).json({ message: error?.message || 'Invalid payment attempt access' });
+    }
+};
+
+const handleIciciReturnImpl = async (req, res) => {
+    try {
+        const payload = parseIciciInboundPayload(req);
+        verifyIciciInboundPayload(payload);
+        const merchantTxnNo = String(payload?.merchantTxnNo || '').trim();
+        if (!merchantTxnNo) {
+            return res.status(400).json({ message: 'ICICI merchant transaction number is required' });
+        }
+        const attempt = await PaymentAttempt.getByGatewayOrderRef({
+            paymentGateway: PAYMENT_GATEWAYS.ICICI,
+            gatewayOrderRef: merchantTxnNo
+        });
+        if (!attempt) {
+            return res.status(404).json({ message: 'Payment attempt not found' });
+        }
+        const outcome = await finalizeIciciAttemptAndOrder(req, {
+            attempt,
+            payload,
+            source: 'icici_return'
+        });
+        const redirectPath = outcome?.order?.id
+            ? `/payment/success?attemptId=${encodeURIComponent(String(attempt.id))}`
+            : `/payment/failed?attemptId=${encodeURIComponent(String(attempt.id))}&reason=${encodeURIComponent(String(payload?.txnRespDescription || payload?.responseMessage || 'payment_failed'))}`;
+        return res.redirect(302, buildFrontendRedirectUrl(req, redirectPath));
+    } catch (error) {
+        return res.status(Number(error?.statusCode || 400) || 400).json({ message: error?.message || 'Failed to process ICICI return' });
+    }
+};
+
+const handleIciciWebhookImpl = async (req, res) => {
+    let webhookEventId = null;
+    try {
+        const payload = parseIciciInboundPayload(req);
+        verifyIciciInboundPayload(payload);
+        const merchantTxnNo = String(payload?.merchantTxnNo || '').trim();
+        if (!merchantTxnNo) {
+            return res.status(400).json({ message: 'ICICI merchant transaction number is required' });
+        }
+        const webhookEntry = await WebhookEvent.register({
+            gateway: PAYMENT_GATEWAYS.ICICI,
+            eventId: merchantTxnNo,
+            eventType: String(payload?.txnStatus || payload?.responseCode || 'icici.webhook'),
+            signature: String(payload?.secureHash || '').trim() || null,
+            payload
+        });
+        if (webhookEntry?.duplicate) {
+            return res.status(200).json({ ok: true, duplicate: true });
+        }
+        webhookEventId = merchantTxnNo;
+        const attempt = await PaymentAttempt.getByGatewayOrderRef({
+            paymentGateway: PAYMENT_GATEWAYS.ICICI,
+            gatewayOrderRef: merchantTxnNo
+        });
+        if (!attempt) {
+            await WebhookEvent.markFailed({
+                eventId: webhookEventId,
+                gateway: PAYMENT_GATEWAYS.ICICI,
+                note: 'attempt_not_found'
+            });
+            return res.status(404).json({ message: 'Payment attempt not found' });
+        }
+        await finalizeIciciAttemptAndOrder(req, {
+            attempt,
+            payload,
+            source: 'icici_webhook'
+        });
+        await WebhookEvent.markProcessed({
+            eventId: webhookEventId,
+            gateway: PAYMENT_GATEWAYS.ICICI
+        });
+        return res.status(200).json({ ok: true });
+    } catch (error) {
+        if (webhookEventId) {
+            await WebhookEvent.markFailed({
+                eventId: webhookEventId,
+                gateway: PAYMENT_GATEWAYS.ICICI,
+                note: error?.message || 'webhook_failed'
+            }).catch(() => {});
+        }
+        return res.status(Number(error?.statusCode || 400) || 400).json({ message: error?.message || 'Failed to process ICICI webhook' });
+    }
+};
+
+const handleIciciSettlementWebhookImpl = async (req, res) => {
+    let webhookEventId = null;
+    try {
+        const payload = parseIciciInboundPayload(req);
+        verifyIciciInboundPayload(payload);
+        const merchantTxnNo = String(payload?.merchantTxnNo || '').trim();
+        const settlementId = String(payload?.settlementID || '').trim();
+        if (!merchantTxnNo) {
+            return res.status(400).json({ message: 'ICICI merchant transaction number is required' });
+        }
+
+        webhookEventId = `${merchantTxnNo}:${settlementId || 'settlement_advice'}`;
+        const webhookEntry = await WebhookEvent.register({
+            gateway: PAYMENT_GATEWAYS.ICICI,
+            eventId: webhookEventId,
+            eventType: 'icici.settlement_advice',
+            signature: String(payload?.secureHash || '').trim() || null,
+            payload
+        });
+        if (webhookEntry?.duplicate) {
+            return res.status(200).json({ ok: true, duplicate: true });
+        }
+
+        const order = await Order.getByGatewayOrderRef({
+            paymentGateway: PAYMENT_GATEWAYS.ICICI,
+            gatewayOrderRef: merchantTxnNo
+        });
+        if (!order?.id) {
+            await WebhookEvent.markFailed({
+                gateway: PAYMENT_GATEWAYS.ICICI,
+                eventId: webhookEventId,
+                note: 'order_not_found'
+            });
+            return res.status(404).json({ message: 'Order not found for ICICI settlement advice' });
+        }
+
+        const settlementSnapshot = normalizeIciciSettlementSnapshot(payload);
+        await Promise.all([
+            Order.updateGatewayPaymentByOrderId({
+                orderId: order.id,
+                paymentGateway: PAYMENT_GATEWAYS.ICICI,
+                gatewayOrderRef: merchantTxnNo,
+                gatewayPaymentRef: String(payload?.paymentID || payload?.txnID || order.gateway_payment_ref || '').trim() || null,
+                gatewayPayload: payload
+            }),
+            Order.updateSettlementByOrderId({
+                orderId: order.id,
+                settlementId: settlementSnapshot.id || null,
+                settlementSnapshot: {
+                    ...(order?.settlement_snapshot || order?.settlementSnapshot || {}),
+                    ...settlementSnapshot
+                }
+            })
+        ]);
+
+        const updatedOrder = await Order.getById(order.id);
+        if (updatedOrder) {
+            emitOrderAndPaymentUpdate(req, {
+                order: updatedOrder,
+                payment: {
+                    event: 'icici.settlement_advice',
+                    paymentStatus: updatedOrder.payment_status,
+                    paymentMethod: updatedOrder.payment_gateway || PAYMENT_GATEWAYS.ICICI,
+                    paymentReference: updatedOrder.gateway_payment_ref || merchantTxnNo,
+                    gatewayOrderRef: updatedOrder.gateway_order_ref || merchantTxnNo,
+                    settlementId: settlementSnapshot.id || null,
+                    settlementStatus: settlementSnapshot.status || null,
+                    settlementAmount: settlementSnapshot.amount
+                }
+            });
+        }
+
+        await WebhookEvent.markProcessed({
+            gateway: PAYMENT_GATEWAYS.ICICI,
+            eventId: webhookEventId,
+            note: `settlement_status:${settlementSnapshot.status || 'unknown'}`
+        });
+        return res.status(200).json({ ok: true, settlementId: settlementSnapshot.id || null });
+    } catch (error) {
+        if (webhookEventId) {
+            await WebhookEvent.markFailed({
+                gateway: PAYMENT_GATEWAYS.ICICI,
+                eventId: webhookEventId,
+                note: error?.message || 'settlement_webhook_failed'
+            }).catch(() => {});
+        }
+        return res.status(Number(error?.statusCode || 400) || 400).json({ message: error?.message || 'Failed to process ICICI settlement advice' });
+    }
+};
+
+const handleRazorpayWebhookImpl = async (req, res) => {
     let webhookEventId = null;
     try {
         const razorpayConfig = await getRazorpayConfig();
@@ -2991,7 +3728,7 @@ const getMyOrderByPaymentRef = async (req, res) => {
     }
 };
 
-const getMyPaymentAttemptStatus = async (req, res) => {
+const getMyPaymentAttemptStatusImpl = async (req, res) => {
     try {
         const attemptId = Number(req.params.id);
         if (!Number.isFinite(attemptId) || attemptId <= 0) {
@@ -3609,9 +4346,10 @@ const reconcileAdminPaymentAttempt = async (req, res) => {
                 order,
                 payment: {
                     paymentStatus: order.payment_status || PAYMENT_STATUS.PAID,
-                    paymentMethod: order.payment_gateway || 'razorpay',
-                    paymentReference: order.razorpay_payment_id || latestAttempt?.razorpay_payment_id || null,
-                    razorpayOrderId: order.razorpay_order_id || latestAttempt?.razorpay_order_id || null
+                    paymentMethod: order.payment_gateway || PAYMENT_GATEWAYS.RAZORPAY,
+                    paymentReference: getPaymentReferenceForOrder(order, latestAttempt),
+                    razorpayOrderId: order.razorpay_order_id || latestAttempt?.razorpay_order_id || null,
+                    gatewayOrderRef: getGatewayOrderReference(order, latestAttempt)
                 }
             });
             return res.json({
@@ -3753,17 +4491,85 @@ const createAdminManualOrder = async (req, res) => {
     }
 };
 
+const fetchIciciPaymentStatusForContext = async ({ order = null, attempt = null } = {}) => {
+    const merchantTxnNo = String(
+        order?.gateway_order_ref
+        || attempt?.gateway_order_ref
+        || ''
+    ).trim();
+    if (!merchantTxnNo) {
+        throw new Error('ICICI merchant transaction reference is required');
+    }
+    const payload = await fetchIciciTransactionStatus({
+        merchantTxnNo,
+        originalTxnNo: merchantTxnNo
+    });
+    const normalizedStatus = normalizeIciciFinalStatus(payload);
+    const paymentStatus = normalizedStatus === 'paid'
+        ? PAYMENT_STATUS.PAID
+        : (normalizedStatus === 'pending' ? PAYMENT_STATUS.RECONCILIATION_PENDING : PAYMENT_STATUS.FAILED);
+    const paymentReference = String(payload?.paymentID || payload?.txnID || '').trim() || null;
+
+    if (attempt?.id) {
+        await PaymentAttempt.markGatewayStatus({
+            id: attempt.id,
+            status: paymentStatus,
+            paymentGateway: PAYMENT_GATEWAYS.ICICI,
+            gatewayOrderRef: merchantTxnNo,
+            gatewayPaymentRef: paymentReference,
+            gatewaySignature: payload?.secureHash || null,
+            gatewayStatusPayload: payload,
+            errorMessage: normalizedStatus === 'failed'
+                ? (payload?.txnRespDescription || payload?.responseMessage || 'ICICI payment failed')
+                : null
+        });
+    }
+
+    let linkedOrder = order?.id
+        ? order
+        : (attempt?.local_order_id ? await Order.getById(attempt.local_order_id) : null);
+    let createdOrder = false;
+    if (!linkedOrder?.id && attempt?.id && paymentStatus === PAYMENT_STATUS.PAID) {
+        linkedOrder = await Order.createManualOrderFromAttempt({
+            attempt,
+            paymentGateway: PAYMENT_GATEWAYS.ICICI,
+            paymentReference,
+            gatewayOrderRef: merchantTxnNo,
+            gatewayPaymentRef: paymentReference,
+            gatewaySignature: payload?.secureHash || null,
+            gatewayPayload: payload,
+            paymentStatus: PAYMENT_STATUS.PAID,
+            sourceChannel: 'checkout_reconciler'
+        }).catch(() => null);
+        createdOrder = Boolean(linkedOrder?.id);
+    }
+    if (linkedOrder?.id) {
+        await Order.updateGatewayPaymentByOrderId({
+            orderId: linkedOrder.id,
+            paymentStatus,
+            paymentGateway: PAYMENT_GATEWAYS.ICICI,
+            gatewayOrderRef: merchantTxnNo,
+            gatewayPaymentRef: paymentReference,
+            gatewaySignature: payload?.secureHash || null,
+            gatewayPayload: payload
+        });
+    }
+
+    return {
+        payload,
+        paymentStatus,
+        paymentReference,
+        order: linkedOrder || null,
+        createdOrder
+    };
+};
+
 const fetchAdminPaymentStatus = async (req, res) => {
     try {
-        const razorpayConfig = await getRazorpayConfig();
-        const isRazorpayTestMode = String(razorpayConfig?.keyId || '').trim().toLowerCase().startsWith('rzp_test_');
         const {
             orderId = null,
-            attemptId = null,
-            razorpayOrderId: inputRazorpayOrderId = null,
-            razorpayPaymentId: inputRazorpayPaymentId = null
+            attemptId = null
         } = req.body || {};
-
         const numericOrderId = Number(orderId);
         const numericAttemptId = Number(attemptId);
 
@@ -3773,6 +4579,43 @@ const fetchAdminPaymentStatus = async (req, res) => {
         const attempt = Number.isFinite(numericAttemptId) && numericAttemptId > 0
             ? await PaymentAttempt.getById(numericAttemptId)
             : null;
+        const gateway = String(order?.payment_gateway || attempt?.payment_gateway || PAYMENT_GATEWAYS.RAZORPAY).trim().toLowerCase();
+        if (gateway === PAYMENT_GATEWAYS.ICICI) {
+            const statusResult = await fetchIciciPaymentStatusForContext({ order, attempt });
+            let updatedOrder = statusResult?.order?.id
+                ? await Order.getById(statusResult.order.id)
+                : (order?.id ? await Order.getById(order.id) : (attempt?.local_order_id ? await Order.getById(attempt.local_order_id) : null));
+            const updatedAttempt = attempt?.id ? await PaymentAttempt.getById(attempt.id) : null;
+            if (updatedOrder?.id && statusResult.paymentStatus === PAYMENT_STATUS.PAID) {
+                updatedOrder = await finalizePaidOrderLifecycle(req, {
+                    order: updatedOrder,
+                    attempt: updatedAttempt || attempt || null,
+                    payment: {
+                        event: 'admin.fetch_status',
+                        paymentStatus: PAYMENT_STATUS.PAID,
+                        paymentMethod: PAYMENT_GATEWAYS.ICICI,
+                        paymentReference: statusResult.paymentReference || null,
+                        gatewayOrderRef: updatedOrder.gateway_order_ref || attempt?.gateway_order_ref || null
+                    },
+                    source: 'admin_fetch_status_icici',
+                    created: Boolean(statusResult?.createdOrder)
+                });
+            }
+            return res.json({
+                ok: true,
+                paymentStatus: statusResult.paymentStatus,
+                order: updatedOrder || null,
+                attempt: updatedAttempt || null,
+                icici: statusResult.payload || null
+            });
+        }
+
+        const razorpayConfig = await getRazorpayConfig();
+        const isRazorpayTestMode = String(razorpayConfig?.keyId || '').trim().toLowerCase().startsWith('rzp_test_');
+        const {
+            razorpayOrderId: inputRazorpayOrderId = null,
+            razorpayPaymentId: inputRazorpayPaymentId = null
+        } = req.body || {};
 
         let razorpayOrderId = String(
             inputRazorpayOrderId ||
@@ -3993,6 +4836,14 @@ const fetchMyPaymentStatus = async (req, res) => {
             return res.status(404).json({ message: 'Order not found' });
         }
 
+        if (String(order?.payment_gateway || '').trim().toLowerCase() === PAYMENT_GATEWAYS.ICICI) {
+            req.body = {
+                orderId: numericOrderId,
+                attemptId: null
+            };
+            return fetchAdminPaymentStatus(req, res);
+        }
+
         const razorpayOrderId = String(order?.razorpay_order_id || '').trim();
         const razorpayPaymentId = String(order?.razorpay_payment_id || '').trim();
         if (!razorpayOrderId && !razorpayPaymentId) {
@@ -4175,6 +5026,44 @@ const triggerPaymentLifecycleCommunication = async ({
     }
 };
 
+const finalizePaidOrderLifecycle = async (req, {
+    order = null,
+    attempt = null,
+    payment = {},
+    source = 'checkout',
+    created = false
+} = {}) => {
+    if (!order?.id) return order;
+    const hydratedOrder = (await Order.getById(order.id).catch(() => null)) || order;
+    try {
+        await markRecoveredByOrder({ order: hydratedOrder, reason: `order_paid_${source}` });
+        emitAbandonedRecoveryUpdate(req, {
+            journeyId: hydratedOrder.abandoned_journey_id || null,
+            userId: hydratedOrder.user_id || null,
+            reason: `order_paid_${source}`
+        });
+    } catch {}
+
+    emitOrderAndPaymentUpdate(req, {
+        order: hydratedOrder,
+        payment
+    });
+    if (created) {
+        notifyAdminsOfNewOrder(hydratedOrder, { source });
+    }
+    void triggerOrderLifecycleEmail({
+        order: hydratedOrder,
+        stage: 'confirmed',
+        includeInvoice: true
+    });
+    void triggerPaymentLifecycleCommunication({
+        order: hydratedOrder,
+        stage: PAYMENT_STATUS.PAID,
+        payment
+    });
+    return hydratedOrder;
+};
+
 const sendInvoicePdf = async (res, order) => {
     const paymentStatus = String(order?.payment_status || '').toLowerCase();
     if (![PAYMENT_STATUS.PAID, PAYMENT_STATUS.REFUNDED].includes(paymentStatus)) {
@@ -4355,8 +5244,112 @@ const sendAdminInvoiceCommunication = async (req, res) => {
     }
 };
 
+const verifyIciciPaymentImpl = async (req, res) => {
+    const attemptId = Number(req.body?.attemptId || 0);
+    if (!Number.isFinite(attemptId) || attemptId <= 0) {
+        return res.status(400).json({ message: 'ICICI verification resolves through the bank return and status-check flow' });
+    }
+    req.params = { ...(req.params || {}), id: String(attemptId) };
+    return getIciciAttemptStatusImpl(req, res);
+};
+
+const verifyPublicIciciPaymentImpl = async (req, res) => {
+    const attemptId = Number(req.body?.attemptId || 0);
+    if (!Number.isFinite(attemptId) || attemptId <= 0) {
+        return res.status(400).json({ message: 'ICICI verification resolves through the bank return and status-check flow' });
+    }
+    req.params = { ...(req.params || {}), id: String(attemptId) };
+    return getPublicIciciAttemptStatusImpl(req, res);
+};
+
+const retryIciciPaymentImpl = async (req, res) => {
+    try {
+        await assertStorefrontOpenForCheckout();
+        const userId = req.user.id;
+        const { attemptId } = req.body || {};
+        const sourceAttempt = attemptId ? await PaymentAttempt.getById(attemptId) : await PaymentAttempt.getLatestRetryableByUser(userId);
+        if (!sourceAttempt || String(sourceAttempt.user_id) !== String(userId)) {
+            return res.status(404).json({ message: 'No retryable payment found' });
+        }
+        if (![PAYMENT_STATUS.FAILED, PAYMENT_STATUS.EXPIRED, PAYMENT_STATUS.RECONCILIATION_PENDING].includes(String(sourceAttempt.status))) {
+            return res.status(400).json({ message: 'Selected payment is not retryable' });
+        }
+        return createIciciSessionImpl({
+            ...req,
+            body: {
+                billingAddress: sourceAttempt.billing_address || null,
+                shippingAddress: sourceAttempt.shipping_address || null,
+                notes: {
+                    ...(sourceAttempt.notes || {}),
+                    retryOfAttemptId: sourceAttempt.id
+                },
+                couponCode: sourceAttempt?.notes?.couponCode || null
+            }
+        }, res);
+    } catch (error) {
+        return res.status(Number(error?.statusCode || 400) || 400).json({ message: error?.message || 'Failed to retry payment' });
+    }
+};
+
+const buildPaymentGatewayHandlers = () => ({
+    razorpay: createRazorpayGatewayAdapter({
+        createSession: createRazorpayOrderImpl,
+        createPublicSession: createPublicRazorpayOrderImpl,
+        verifyPayment: verifyRazorpayPaymentImpl,
+        verifyPublicPayment: verifyPublicRazorpayPaymentImpl,
+        getAttemptStatus: getMyPaymentAttemptStatusImpl,
+        getPublicAttemptStatus: getPublicPaymentAttemptStatusImpl,
+        retryPayment: retryRazorpayPaymentImpl,
+        handleWebhook: handleRazorpayWebhookImpl
+    }),
+    icici: createIciciGatewayAdapter({
+        createSession: createIciciSessionImpl,
+        createPublicSession: createPublicIciciSessionImpl,
+        verifyPayment: verifyIciciPaymentImpl,
+        verifyPublicPayment: verifyPublicIciciPaymentImpl,
+        getAttemptStatus: getIciciAttemptStatusImpl,
+        getPublicAttemptStatus: getPublicIciciAttemptStatusImpl,
+        retryPayment: retryIciciPaymentImpl,
+        handleWebhook: handleIciciWebhookImpl
+    })
+});
+
+const runPaymentGatewayHandler = (action, req, res) => {
+    const adapter = getPaymentGatewayAdapter(buildPaymentGatewayHandlers());
+    const handler = adapter?.[action];
+    if (typeof handler !== 'function') {
+        const error = new Error(`Active payment gateway does not implement "${String(action || '').trim()}".`);
+        error.code = 'PAYMENT_GATEWAY_ACTION_MISSING';
+        error.statusCode = 500;
+        throw error;
+    }
+    return handler(req, res);
+};
+
+const createPaymentSession = (req, res) => runPaymentGatewayHandler('createSession', req, res);
+const createPublicPaymentSession = (req, res) => runPaymentGatewayHandler('createPublicSession', req, res);
+const verifyPayment = (req, res) => runPaymentGatewayHandler('verifyPayment', req, res);
+const verifyPublicPayment = (req, res) => runPaymentGatewayHandler('verifyPublicPayment', req, res);
+const getPaymentAttemptStatus = (req, res) => runPaymentGatewayHandler('getAttemptStatus', req, res);
+const getPublicPaymentAttemptStatus = (req, res) => runPaymentGatewayHandler('getPublicAttemptStatus', req, res);
+const retryPayment = (req, res) => runPaymentGatewayHandler('retryPayment', req, res);
+const handlePaymentWebhook = (req, res) => runPaymentGatewayHandler('handleWebhook', req, res);
+
+const createRazorpayOrder = (req, res) => createPaymentSession(req, res);
+const createPublicRazorpayOrder = (req, res) => createPublicPaymentSession(req, res);
+const verifyRazorpayPayment = (req, res) => verifyPayment(req, res);
+const verifyPublicRazorpayPayment = (req, res) => verifyPublicPayment(req, res);
+const getMyPaymentAttemptStatus = (req, res) => getPaymentAttemptStatus(req, res);
+const retryRazorpayPayment = (req, res) => retryPayment(req, res);
+const handleRazorpayWebhook = (req, res) => handlePaymentWebhook(req, res);
+const handleIciciReturn = (req, res) => handleIciciReturnImpl(req, res);
+const handleIciciWebhook = (req, res) => handleIciciWebhookImpl(req, res);
+const handleIciciSettlementWebhook = (req, res) => handleIciciSettlementWebhookImpl(req, res);
+
 module.exports = {
     createOrderFromCheckout,
+    createPaymentSession,
+    createPublicPaymentSession,
     createRazorpayOrder,
     createPublicRazorpayOrder,
     lookupGuestCheckoutAccount,
@@ -4370,12 +5363,20 @@ module.exports = {
     getAdminManualPreview,
     getCustomerPopupData,
     getPublicPopupData,
+    retryPayment,
     retryRazorpayPayment,
+    verifyPayment,
     verifyRazorpayPayment,
+    verifyPublicPayment,
     verifyPublicRazorpayPayment,
+    getPaymentAttemptStatus,
     getMyPaymentAttemptStatus,
     getPublicPaymentAttemptStatus,
+    handlePaymentWebhook,
     handleRazorpayWebhook,
+    handleIciciReturn,
+    handleIciciWebhook,
+    handleIciciSettlementWebhook,
     getAdminOrders,
     getAdminPaymentHealth,
     getAdminOrderById,

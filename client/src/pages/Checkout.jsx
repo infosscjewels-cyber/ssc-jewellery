@@ -238,6 +238,12 @@ const EXTRA_DISCOUNT_BY_TIER = {
     gold: 3,
     platinum: 5
 };
+const CONFIGURED_PAYMENT_GATEWAY = String(import.meta.env.VITE_PAYMENT_GATEWAY || 'razorpay').trim().toLowerCase() || 'razorpay';
+const getPaymentGatewayBrandLabel = (gateway = 'razorpay') => {
+    const normalized = String(gateway || 'razorpay').trim().toLowerCase();
+    if (normalized === 'icici') return 'ICICI Bank';
+    return 'Razorpay';
+};
 
 export default function Checkout() {
     const sessionGroupIdRef = useRef(getOrCreateCheckoutGuardGroupId());
@@ -270,6 +276,7 @@ export default function Checkout() {
     const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
     const [availableCoupons, setAvailableCoupons] = useState([]);
     const [isPlacingOrder, setIsPlacingOrder] = useState(false);
+    const [isRedirectingToGateway, setIsRedirectingToGateway] = useState(false);
     const [isPaymentAwaitingConfirmation, setIsPaymentAwaitingConfirmation] = useState(false);
     const [pendingPaymentAmount, setPendingPaymentAmount] = useState(0);
     const [orderResult, setOrderResult] = useState(null);
@@ -1457,7 +1464,10 @@ export default function Checkout() {
             existingArmed
             && existingArmed.checkoutFingerprintHash === checkoutFingerprintHash
             && Number(existingArmed.attemptId || 0) > 0
-            && String(existingArmed.orderId || '').trim()
+            && (
+                String(existingArmed.orderId || '').trim()
+                || String(existingArmed.redirectUrl || '').trim()
+            )
         ) {
             return existingArmed;
         }
@@ -1478,13 +1488,13 @@ export default function Checkout() {
             ...(String(supersedeReason || '').trim() ? { supersedeReason: String(supersedeReason || '').trim() } : {})
         };
         const init = user
-            ? await orderService.createRazorpayOrder({
+            ? await orderService.createPaymentSession({
                 billingAddress: effectiveBillingAddress,
                 shippingAddress: form.address,
                 couponCode: appliedCoupon?.code || null,
                 notes: notesMeta
             })
-            : await orderService.createPublicRazorpayOrder({
+            : await orderService.createPublicPaymentSession({
                 guest: {
                     name: form.name,
                     email: form.email,
@@ -1496,7 +1506,7 @@ export default function Checkout() {
                 notes: notesMeta,
                 items: checkoutItemsPayload
             });
-        if (!init?.order?.id || !init?.keyId || !init?.attempt?.id) {
+        if (!init?.attempt?.id) {
             throw new Error(init?.message || 'Failed to initialize payment');
         }
         if (!user && init?.attemptToken) {
@@ -1509,10 +1519,13 @@ export default function Checkout() {
             attemptId: Number(init.attempt.id || 0) || null,
             attemptToken: String(init.attemptToken || '').trim(),
             isPublicFlow: !user && Boolean(init?.attemptToken),
-            orderId: String(init.order.id || '').trim(),
-            keyId: String(init.keyId || '').trim(),
-            order: init.order,
+            gateway: String(init.gateway || (init?.keyId ? 'razorpay' : 'icici') || '').trim().toLowerCase(),
+            orderId: String(init?.order?.id || '').trim(),
+            keyId: String(init?.keyId || '').trim(),
+            order: init.order || null,
             summary: init.summary || null,
+            redirectUrl: String(init.redirectUrl || '').trim(),
+            merchantTxnNo: String(init.merchantTxnNo || '').trim(),
             checkoutFingerprint,
             checkoutFingerprintHash,
             notesMeta,
@@ -1924,7 +1937,9 @@ export default function Checkout() {
             return toast.error('Please complete billing address before payment');
         }
         setIsPlacingOrder(true);
+        setIsRedirectingToGateway(false);
         let currentAttemptId = null;
+        let shouldKeepGatewayRedirectLock = false;
         try {
             setGuestCheckoutConflict('');
             setProfileFieldErrors({ mobile: '', email: '' });
@@ -1982,21 +1997,12 @@ export default function Checkout() {
             }
             setCheckoutSummary(launchSession.summary || null);
 
-            const scriptLoaded = await ensureRazorpayScript();
-            if (!scriptLoaded || !window.Razorpay) {
-                updateCheckoutGuard((prev) => ({
-                    ...prev,
-                    armedSession: launchSession,
-                    phase: 'ready'
-                }));
-                throw new Error('Unable to load Razorpay checkout');
-            }
-
             currentAttemptId = Number(launchSession?.attemptId || 0) || null;
             const activeAttempt = {
                 attemptId: currentAttemptId,
                 attemptToken: String(launchSession?.attemptToken || '').trim(),
                 orderId: String(launchSession?.orderId || '').trim(),
+                gateway: String(launchSession?.gateway || 'razorpay').trim().toLowerCase(),
                 isPublicFlow: Boolean(launchSession?.isPublicFlow),
                 checkoutFingerprintHash,
                 launchedAt: Date.now()
@@ -2015,6 +2021,37 @@ export default function Checkout() {
             });
             setPendingPaymentAmount(Number(launchSession?.order?.amount || 0) / 100);
             const isPublicPaymentFlow = Boolean(launchSession?.isPublicFlow);
+            const gateway = String(launchSession?.gateway || 'razorpay').trim().toLowerCase();
+
+            if (gateway === 'icici') {
+                if (!launchSession?.redirectUrl) {
+                    updateCheckoutGuard((prev) => ({
+                        ...prev,
+                        armedSession: launchSession,
+                        activeAttempt: null,
+                        phase: 'ready'
+                    }));
+                    throw new Error('Unable to initialize ICICI redirect');
+                }
+                updateCheckoutGuard((prev) => ({
+                    ...prev,
+                    phase: 'verifying'
+                }));
+                shouldKeepGatewayRedirectLock = true;
+                setIsRedirectingToGateway(true);
+                window.location.assign(launchSession.redirectUrl);
+                return;
+            }
+
+            const scriptLoaded = await ensureRazorpayScript();
+            if (!scriptLoaded || !window.Razorpay) {
+                updateCheckoutGuard((prev) => ({
+                    ...prev,
+                    armedSession: launchSession,
+                    phase: 'ready'
+                }));
+                throw new Error('Unable to load Razorpay checkout');
+            }
 
             const prefillContact = form.mobile
                 ? (String(form.mobile).startsWith('+') ? String(form.mobile) : `+91${String(form.mobile).replace(/\D/g, '')}`)
@@ -2152,6 +2189,7 @@ export default function Checkout() {
         } catch (error) {
             setIsPreparingVerifiedCheckout(false);
             setIsPaymentAwaitingConfirmation(false);
+            setIsRedirectingToGateway(false);
             const message = normalizePaymentFailureReason(error?.message || 'Failed to complete payment');
             if (user && /already in use|invalid email format|mobile must be 10 digits|enter a valid mobile number/i.test(message)) {
                 const nextFieldErrors = resolveProfileFieldErrors(message);
@@ -2181,7 +2219,9 @@ export default function Checkout() {
             navigate(`/payment/failed?${params.toString()}`);
         } finally {
             setIsPaymentAwaitingConfirmation(false);
-            setIsPlacingOrder(false);
+            if (!shouldKeepGatewayRedirectLock) {
+                setIsPlacingOrder(false);
+            }
         }
     };
 
@@ -2212,6 +2252,9 @@ export default function Checkout() {
     const membershipMessage = (!isProgressMessageDuplicated && progressMessage)
         ? progressMessage
         : 'Keep shopping to unlock higher tier benefits.';
+    const checkoutGateway = CONFIGURED_PAYMENT_GATEWAY;
+    const paymentGatewayBrandLabel = getPaymentGatewayBrandLabel(checkoutGateway);
+    const isGatewayLoading = isPlacingOrder || isRedirectingToGateway;
 
     return (
         <div className="min-h-screen bg-secondary">
@@ -2881,15 +2924,17 @@ export default function Checkout() {
                                         </div>
                                     </div>
                                 </div>
-                                <RazorpayAffordability amountRupees={grandTotal} className="mt-4" />
+                                {checkoutGateway === 'razorpay' && (
+                                    <RazorpayAffordability amountRupees={grandTotal} className="mt-4" />
+                                )}
 
                                 <button
                                     type="button"
                                     onClick={handlePayNow}
-                                    disabled={isPlacingOrder || isCheckoutGuardBlockingPayment || !isReadyForPayment || isLoggedInEditingBeforePayment}
+                                    disabled={isGatewayLoading || isCheckoutGuardBlockingPayment || !isReadyForPayment || isLoggedInEditingBeforePayment}
                                     className="mt-6 w-full inline-flex items-center justify-center gap-2 bg-primary text-accent font-bold py-3 rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all disabled:opacity-60"
                                 >
-                                    <CreditCard size={18} /> {isPlacingOrder ? 'Processing...' : 'Pay Now'}
+                                    <CreditCard size={18} /> {isGatewayLoading ? 'Processing...' : 'Pay Now'}
                                 </button>
                                 {isLoggedInEditingBeforePayment && (
                                     <p className="text-[11px] text-amber-700 text-center mt-2">
@@ -2917,7 +2962,7 @@ export default function Checkout() {
                                     </p>
                                 )}
                                 <p className="text-[11px] text-gray-400 text-center mt-2">
-                                    Payment powered by Razorpay.
+                                    Payment powered by {paymentGatewayBrandLabel}.
                                 </p>
                                 <div className="mt-3 flex items-center justify-center gap-3 text-[11px] text-gray-500">
                                     <Link to="/shipping" className="text-primary font-semibold">Shipping Policy</Link>

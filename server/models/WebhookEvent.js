@@ -1,13 +1,14 @@
 const db = require('../config/db');
 
 class WebhookEvent {
-    static async register({ eventId, eventType, signature, payloadRaw, payload }) {
+    static async register({ gateway = 'razorpay', eventId, eventType, signature, payloadRaw, payload }) {
         try {
             const [result] = await db.execute(
                 `INSERT INTO razorpay_webhook_events
-                    (event_id, event_type, signature, status, payload_raw, payload_json)
-                 VALUES (?, ?, ?, 'received', ?, ?)`,
+                    (gateway, event_id, event_type, signature, status, payload_raw, payload_json)
+                 VALUES (?, ?, ?, ?, 'received', ?, ?)`,
                 [
+                    String(gateway || 'razorpay').trim().toLowerCase() || 'razorpay',
                     eventId,
                     eventType || '',
                     signature || '',
@@ -24,21 +25,21 @@ class WebhookEvent {
         }
     }
 
-    static async markProcessed({ eventId, status = 'processed', note = null }) {
+    static async markProcessed({ gateway = 'razorpay', eventId, status = 'processed', note = null }) {
         await db.execute(
             `UPDATE razorpay_webhook_events
              SET status = ?, process_note = ?, processed_at = CURRENT_TIMESTAMP
-             WHERE event_id = ?`,
-            [status, note ? String(note).slice(0, 500) : null, eventId]
+             WHERE gateway = ? AND event_id = ?`,
+            [status, note ? String(note).slice(0, 500) : null, String(gateway || 'razorpay').trim().toLowerCase() || 'razorpay', eventId]
         );
     }
 
-    static async markFailed({ eventId, note = null }) {
+    static async markFailed({ gateway = 'razorpay', eventId, note = null }) {
         await db.execute(
             `UPDATE razorpay_webhook_events
              SET status = 'failed', process_note = ?, processed_at = CURRENT_TIMESTAMP
-             WHERE event_id = ?`,
-            [note ? String(note).slice(0, 500) : null, eventId]
+             WHERE gateway = ? AND event_id = ?`,
+            [note ? String(note).slice(0, 500) : null, String(gateway || 'razorpay').trim().toLowerCase() || 'razorpay', eventId]
         );
     }
 }

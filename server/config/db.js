@@ -280,6 +280,10 @@ const initDB = async () => {
                 status VARCHAR(20) DEFAULT 'confirmed',
                 payment_status VARCHAR(20) DEFAULT 'created',
                 payment_gateway VARCHAR(30) DEFAULT 'razorpay',
+                gateway_order_ref VARCHAR(64),
+                gateway_payment_ref VARCHAR(64),
+                gateway_signature VARCHAR(255),
+                gateway_payload_json JSON,
                 razorpay_order_id VARCHAR(64),
                 razorpay_payment_id VARCHAR(64),
                 razorpay_signature VARCHAR(255),
@@ -328,6 +332,18 @@ const initDB = async () => {
         } catch {}
         try {
             await connection.query("ALTER TABLE orders ALTER COLUMN payment_gateway SET DEFAULT 'razorpay'");
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN gateway_order_ref VARCHAR(64)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN gateway_payment_ref VARCHAR(64)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN gateway_signature VARCHAR(255)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD COLUMN gateway_payload_json JSON');
         } catch {}
         try {
             await connection.query('ALTER TABLE orders ADD COLUMN razorpay_order_id VARCHAR(64)');
@@ -453,6 +469,12 @@ const initDB = async () => {
             await connection.query('ALTER TABLE orders ADD INDEX idx_orders_user_created_payment (user_id, created_at, payment_status)');
         } catch {}
         try {
+            await connection.query('ALTER TABLE orders ADD INDEX idx_orders_gateway_order_ref (gateway_order_ref)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE orders ADD INDEX idx_orders_gateway_payment_ref (gateway_payment_ref)');
+        } catch {}
+        try {
             await connection.query('ALTER TABLE orders ADD INDEX idx_orders_status_shipped_at (status, shipped_at)');
         } catch {}
 
@@ -460,7 +482,14 @@ const initDB = async () => {
             CREATE TABLE IF NOT EXISTS payment_attempts (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 user_id VARCHAR(50) NOT NULL,
-                razorpay_order_id VARCHAR(64) NOT NULL UNIQUE,
+                razorpay_order_id VARCHAR(64) UNIQUE,
+                payment_gateway VARCHAR(30) NOT NULL DEFAULT 'razorpay',
+                gateway_order_ref VARCHAR(64),
+                gateway_payment_ref VARCHAR(64),
+                gateway_signature VARCHAR(255),
+                gateway_payload_json JSON,
+                gateway_status_payload_json JSON,
+                gateway_meta_json JSON,
                 amount_subunits INT NOT NULL,
                 currency VARCHAR(10) NOT NULL DEFAULT 'INR',
                 status VARCHAR(32) NOT NULL DEFAULT 'created',
@@ -482,6 +511,27 @@ const initDB = async () => {
         `);
         try {
             await connection.query('ALTER TABLE payment_attempts ADD COLUMN billing_address JSON');
+        } catch {}
+        try {
+            await connection.query("ALTER TABLE payment_attempts ADD COLUMN payment_gateway VARCHAR(30) NOT NULL DEFAULT 'razorpay'");
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN gateway_order_ref VARCHAR(64)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN gateway_payment_ref VARCHAR(64)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN gateway_signature VARCHAR(255)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN gateway_payload_json JSON');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN gateway_status_payload_json JSON');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD COLUMN gateway_meta_json JSON');
         } catch {}
         try {
             await connection.query('ALTER TABLE payment_attempts ADD COLUMN shipping_address JSON');
@@ -526,10 +576,19 @@ const initDB = async () => {
             await connection.query("ALTER TABLE payment_attempts MODIFY COLUMN status VARCHAR(32) NOT NULL DEFAULT 'created'");
         } catch {}
         try {
+            await connection.query('ALTER TABLE payment_attempts MODIFY COLUMN razorpay_order_id VARCHAR(64) NULL');
+        } catch {}
+        try {
             await connection.query('ALTER TABLE payment_attempts ADD UNIQUE KEY uniq_payment_attempt_local_order (local_order_id)');
         } catch {}
         try {
             await connection.query('ALTER TABLE payment_attempts ADD UNIQUE KEY uniq_payment_attempt_payment_id (razorpay_payment_id)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD INDEX idx_payment_attempt_gateway_order_ref (payment_gateway, gateway_order_ref)');
+        } catch {}
+        try {
+            await connection.query('ALTER TABLE payment_attempts ADD INDEX idx_payment_attempt_gateway_payment_ref (payment_gateway, gateway_payment_ref)');
         } catch {}
 
         await connection.query(`
@@ -565,6 +624,7 @@ const initDB = async () => {
         await connection.query(`
             CREATE TABLE IF NOT EXISTS razorpay_webhook_events (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                gateway VARCHAR(30) NOT NULL DEFAULT 'razorpay',
                 event_id VARCHAR(120) NOT NULL UNIQUE,
                 event_type VARCHAR(80) NOT NULL,
                 signature VARCHAR(255),
@@ -576,6 +636,9 @@ const initDB = async () => {
                 processed_at TIMESTAMP NULL DEFAULT NULL
             )
         `);
+        try {
+            await connection.query("ALTER TABLE razorpay_webhook_events ADD COLUMN gateway VARCHAR(30) NOT NULL DEFAULT 'razorpay'");
+        } catch {}
         try {
             await connection.query('ALTER TABLE razorpay_webhook_events ADD COLUMN process_note VARCHAR(500)');
         } catch {}

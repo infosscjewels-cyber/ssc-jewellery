@@ -22,6 +22,13 @@ const sanitizeAny = (value) => {
 };
 
 const sanitizeRequest = (req, _res, next) => {
+    if (
+        req.originalUrl?.startsWith('/api/orders/icici/return')
+        || req.originalUrl?.startsWith('/api/orders/icici/webhook')
+        || req.originalUrl?.startsWith('/api/orders/icici/settlement-webhook')
+    ) {
+        return next();
+    }
     if (req.body && typeof req.body === 'object') {
         req.body = sanitizeAny(req.body);
     }

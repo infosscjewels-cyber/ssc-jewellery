@@ -1081,7 +1081,9 @@ export function Orders({
     const getPaymentReference = (order) => {
         const settlement = order?.settlement_snapshot || order?.settlementSnapshot || null;
         const loyaltyMeta = order?.loyalty_meta || order?.loyaltyMeta || null;
-        return order?.razorpay_payment_id
+        return order?.gateway_payment_ref
+            || order?.gatewayPaymentRef
+            || order?.razorpay_payment_id
             || order?.razorpayPaymentId
             || settlement?.payment_reference
             || settlement?.paymentReference
