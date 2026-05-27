@@ -1023,6 +1023,8 @@ export default function DashboardInsights({ onRunAction = () => {} }) {
         const key = String(mode || '').toLowerCase();
         if (key === 'cash') return 'Cash';
         if (key === 'upi') return 'UPI';
+        if (key === 'debit_card') return 'Debit Card';
+        if (key === 'credit_card') return 'Credit Card';
         if (key === 'netbanking') return 'Net Banking';
         if (key === 'net_banking') return 'Net Banking';
         if (key === 'card') return 'Card';

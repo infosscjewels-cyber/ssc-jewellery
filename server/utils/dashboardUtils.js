@@ -36,9 +36,44 @@ const normalizeDashboardEventType = (value) => toSafeEnum(value, [
     'filters_changed'
 ], 'dashboard_opened');
 
+const normalizeDashboardPaymentMode = (value, { gateway = '' } = {}) => {
+    const normalizedGateway = String(gateway || '').trim().toLowerCase();
+    const normalizedValue = String(value || '').trim().toLowerCase();
+    if (!normalizedValue) return 'unknown';
+
+    if (normalizedGateway === 'icici') {
+        if (normalizedValue === 'upi') return 'upi';
+        if (['nb', 'netbanking', 'net_banking'].includes(normalizedValue)) return 'net_banking';
+        if (['dc', 'debit_card'].includes(normalizedValue)) return 'debit_card';
+        if (['cc', 'credit_card'].includes(normalizedValue)) return 'credit_card';
+        if (normalizedValue === 'card') return 'card';
+        return 'unknown';
+    }
+
+    return normalizedValue;
+};
+
+const resolveDashboardPaymentMode = ({
+    gateway = '',
+    mode = '',
+    settlementMode = '',
+    gatewayPayloadMode = ''
+} = {}) => {
+    const normalizedGateway = String(gateway || '').trim().toLowerCase();
+    if (normalizedGateway === 'icici') {
+        return normalizeDashboardPaymentMode(
+            settlementMode || gatewayPayloadMode || mode,
+            { gateway: normalizedGateway }
+        );
+    }
+    return normalizeDashboardPaymentMode(mode, { gateway: normalizedGateway });
+};
+
 module.exports = {
     computeChange,
     toSafeEnum,
     buildDashboardCacheKey,
-    normalizeDashboardEventType
+    normalizeDashboardEventType,
+    normalizeDashboardPaymentMode,
+    resolveDashboardPaymentMode
 };

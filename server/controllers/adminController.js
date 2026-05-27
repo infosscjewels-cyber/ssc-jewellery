@@ -19,7 +19,7 @@ const {
     sendWhatsapp
 } = require('../services/communications/communicationService');
 const { getLoyaltyConfigForAdmin, updateLoyaltyConfigForAdmin, ensureLoyaltyConfigLoaded, reassessActiveCustomersForConfigChange } = require('../services/loyaltyService');
-const { computeChange, toSafeEnum, buildDashboardCacheKey, normalizeDashboardEventType } = require('../utils/dashboardUtils');
+const { computeChange, toSafeEnum, buildDashboardCacheKey, normalizeDashboardEventType, resolveDashboardPaymentMode } = require('../utils/dashboardUtils');
 const {
     DEFAULT_ADMIN_QUICK_RANGE,
     normalizeAdminQuickRange,
@@ -621,6 +621,9 @@ const getDashboardInsightsPayload = async (query = {}) => {
         ),
         db.execute(
             `SELECT
+                LOWER(COALESCE(scoped.payment_gateway, 'unknown')) AS gateway,
+                LOWER(JSON_UNQUOTE(JSON_EXTRACT(scoped.settlement_snapshot, '$.payment_mode'))) AS settlement_mode,
+                LOWER(JSON_UNQUOTE(JSON_EXTRACT(scoped.gateway_payload_json, '$.paymentMode'))) AS gateway_payload_mode,
                 CASE
                     WHEN LOWER(COALESCE(scoped.payment_gateway, '')) = 'razorpay'
                         THEN COALESCE(NULLIF(pm.mode, ''), 'unknown')
@@ -642,7 +645,11 @@ const getDashboardInsightsPayload = async (query = {}) => {
                 GROUP BY payment_id
              ) pm ON pm.payment_id = scoped.razorpay_payment_id
              WHERE LOWER(COALESCE(scoped.payment_gateway, '')) <> 'cod'
-             GROUP BY CASE
+             GROUP BY
+                LOWER(COALESCE(scoped.payment_gateway, 'unknown')),
+                LOWER(JSON_UNQUOTE(JSON_EXTRACT(scoped.settlement_snapshot, '$.payment_mode'))),
+                LOWER(JSON_UNQUOTE(JSON_EXTRACT(scoped.gateway_payload_json, '$.paymentMode'))),
+                CASE
                     WHEN LOWER(COALESCE(scoped.payment_gateway, '')) = 'razorpay'
                         THEN COALESCE(NULLIF(pm.mode, ''), 'unknown')
                     ELSE LOWER(COALESCE(NULLIF(scoped.payment_gateway, ''), 'unknown'))
@@ -889,6 +896,29 @@ const getDashboardInsightsPayload = async (query = {}) => {
         trendSeries.push(...trendMap.values());
     }
 
+    const paymentModesByMode = (paymentModeRows || []).reduce((acc, row) => {
+        const normalizedMode = resolveDashboardPaymentMode({
+            gateway: row.gateway,
+            mode: row.mode,
+            settlementMode: row.settlement_mode,
+            gatewayPayloadMode: row.gateway_payload_mode
+        });
+        const current = acc.get(normalizedMode) || {
+            mode: normalizedMode,
+            orders: 0,
+            revenue: 0
+        };
+        current.orders += Number(row.orders || 0);
+        current.revenue += Number(row.revenue || 0);
+        acc.set(normalizedMode, current);
+        return acc;
+    }, new Map());
+    const paymentModes = [...paymentModesByMode.values()].sort((a, b) => {
+        if (b.orders !== a.orders) return b.orders - a.orders;
+        if (b.revenue !== a.revenue) return b.revenue - a.revenue;
+        return String(a.mode || '').localeCompare(String(b.mode || ''));
+    });
+
     const growth = {
         newCustomerRevenue: Number(newReturningRevenueRows?.[0]?.new_customer_revenue || 0),
         returningCustomerRevenue: Number(newReturningRevenueRows?.[0]?.returning_customer_revenue || 0),
@@ -904,11 +934,7 @@ const getDashboardInsightsPayload = async (query = {}) => {
             orders: Number(row.orders || 0),
             revenue: Number(row.revenue || 0)
         })),
-        paymentModes: (paymentModeRows || []).map((row) => ({
-            mode: row.mode || 'unknown',
-            orders: Number(row.orders || 0),
-            revenue: Number(row.revenue || 0)
-        }))
+        paymentModes
     };
 
     const codOrders = Number(codCancellationRows?.[0]?.cod_orders || 0);

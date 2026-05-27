@@ -4,7 +4,9 @@ const {
     computeChange,
     toSafeEnum,
     normalizeDashboardEventType,
-    buildDashboardCacheKey
+    buildDashboardCacheKey,
+    normalizeDashboardPaymentMode,
+    resolveDashboardPaymentMode
 } = require('../utils/dashboardUtils');
 
 test('computeChange handles normal percentages', () => {
@@ -59,4 +61,48 @@ test('buildDashboardCacheKey normalizes legacy and canonical quick ranges to the
         sourceChannel: 'all'
     });
     assert.equal(legacy, canonical);
+});
+
+test('normalizeDashboardPaymentMode preserves Razorpay modes and canonicalizes ICICI instrument codes', () => {
+    assert.equal(normalizeDashboardPaymentMode('upi', { gateway: 'razorpay' }), 'upi');
+    assert.equal(normalizeDashboardPaymentMode('netbanking', { gateway: 'razorpay' }), 'netbanking');
+
+    assert.equal(normalizeDashboardPaymentMode('UPI', { gateway: 'icici' }), 'upi');
+    assert.equal(normalizeDashboardPaymentMode('NB', { gateway: 'icici' }), 'net_banking');
+    assert.equal(normalizeDashboardPaymentMode('netbanking', { gateway: 'icici' }), 'net_banking');
+    assert.equal(normalizeDashboardPaymentMode('DC', { gateway: 'icici' }), 'debit_card');
+    assert.equal(normalizeDashboardPaymentMode('CC', { gateway: 'icici' }), 'credit_card');
+    assert.equal(normalizeDashboardPaymentMode('CARD', { gateway: 'icici' }), 'card');
+    assert.equal(normalizeDashboardPaymentMode('', { gateway: 'icici' }), 'unknown');
+    assert.equal(normalizeDashboardPaymentMode('wallet', { gateway: 'icici' }), 'unknown');
+});
+
+test('resolveDashboardPaymentMode uses ICICI source priority and keeps unknowns unknown', () => {
+    assert.equal(resolveDashboardPaymentMode({
+        gateway: 'icici',
+        settlementMode: 'UPI',
+        gatewayPayloadMode: 'NB',
+        mode: 'icici'
+    }), 'upi');
+
+    assert.equal(resolveDashboardPaymentMode({
+        gateway: 'icici',
+        settlementMode: '',
+        gatewayPayloadMode: 'NB',
+        mode: 'icici'
+    }), 'net_banking');
+
+    assert.equal(resolveDashboardPaymentMode({
+        gateway: 'icici',
+        settlementMode: '',
+        gatewayPayloadMode: '',
+        mode: 'icici'
+    }), 'unknown');
+
+    assert.equal(resolveDashboardPaymentMode({
+        gateway: 'razorpay',
+        settlementMode: 'upi',
+        gatewayPayloadMode: 'nb',
+        mode: 'card'
+    }), 'card');
 });
