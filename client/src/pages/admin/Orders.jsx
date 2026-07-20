@@ -1,5185 +1,7722 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Search, Filter, Package, IndianRupee, Clock3, CheckCircle2, ArrowLeft, ArrowRight, ArrowUpDown, Download, RefreshCw, Trash2, Plus, Send, Printer, Phone, RotateCw, Smartphone, CreditCard, Landmark, Wallet, AlertCircle, X, BarChart3 } from 'lucide-react';
-import { orderService } from '../../services/orderService';
-import { adminService } from '../../services/adminService';
-import { productService } from '../../services/productService';
-import orderWaitIllustration from '../../assets/order_wait.svg';
-import { useToast } from '../../context/ToastContext';
-import { useAdminCrudSync } from '../../hooks/useAdminCrudSync';
-import { formatAdminDate, formatAdminDateTime } from '../../utils/dateFormat';
-import { getGstDisplayDetails, getOrderGstContext, resolveGstJurisdiction } from '../../utils/gst';
-import { billingAddressEnabled } from '../../utils/billingAddressConfig';
-import { computeInvoiceAlignedSummary, computeInvoiceStyleItemRows, computeOrderTotalsDisplay } from '../../utils/orderTotalsComputation';
-import Modal from '../../components/Modal';
-import TierBadge from '../../components/TierBadge';
-import { useAdminKPI } from '../../context/AdminKPIContext';
-import { useAuth } from '../../context/AuthContext';
-import WhatsAppIcon from '../../components/WhatsAppIcon';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
-    ADMIN_QUICK_RANGES,
-    DEFAULT_ADMIN_QUICK_RANGE,
-    normalizeAdminQuickRange,
-    resolveNamedDateRange
-} from '../../utils/adminDateRanges';
+  Search,
+  Filter,
+  Package,
+  IndianRupee,
+  Clock3,
+  CheckCircle2,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUpDown,
+  Download,
+  RefreshCw,
+  Trash2,
+  Plus,
+  Send,
+  Printer,
+  Phone,
+  RotateCw,
+  Smartphone,
+  CreditCard,
+  Landmark,
+  Wallet,
+  AlertCircle,
+  X,
+  BarChart3,
+} from "lucide-react";
+import { orderService } from "../../services/orderService";
+import { adminService } from "../../services/adminService";
+import { productService } from "../../services/productService";
+import orderWaitIllustration from "../../assets/order_wait.svg";
+import { useToast } from "../../context/ToastContext";
+import { useAdminCrudSync } from "../../hooks/useAdminCrudSync";
+import { formatAdminDate, formatAdminDateTime } from "../../utils/dateFormat";
 import {
-    configurePreferredPrinter,
-    getPreferredPrinterTransport,
-    getPrinterSupportState,
-    getStoredPrinterPreference,
-    printFromLabel,
-    printToLabel,
-    validateFromLabelData,
-    validateToLabelData
-} from '../../utils/thermalLabelPrint';
-import { downloadWorkbook } from '../../utils/excelExport';
+  getGstDisplayDetails,
+  getOrderGstContext,
+  resolveGstJurisdiction,
+} from "../../utils/gst";
+import { billingAddressEnabled } from "../../utils/billingAddressConfig";
+import {
+  computeInvoiceAlignedSummary,
+  computeInvoiceStyleItemRows,
+  computeOrderTotalsDisplay,
+} from "../../utils/orderTotalsComputation";
+import Modal from "../../components/Modal";
+import TierBadge from "../../components/TierBadge";
+import { useAdminKPI } from "../../context/AdminKPIContext";
+import { useAuth } from "../../context/AuthContext";
+import WhatsAppIcon from "../../components/WhatsAppIcon";
+import {
+  ADMIN_QUICK_RANGES,
+  DEFAULT_ADMIN_QUICK_RANGE,
+  normalizeAdminQuickRange,
+  resolveNamedDateRange,
+} from "../../utils/adminDateRanges";
+import {
+  configurePreferredPrinter,
+  getPreferredPrinterTransport,
+  getPrinterSupportState,
+  getStoredPrinterPreference,
+  printFromLabel,
+  printToLabel,
+  validateFromLabelData,
+  validateToLabelData,
+} from "../../utils/thermalLabelPrint";
+import { downloadWorkbook } from "../../utils/excelExport";
 
 const QUICK_RANGES = ADMIN_QUICK_RANGES;
 
 const MAX_RANGE_DAYS = 90;
-const KPI_THEME_SEQUENCE = ['sky', 'green', 'pink', 'brown', 'red'];
-const MOBILE_STATUS_FILTER_VALUES = ['confirmed', 'pending', 'completed', 'attempted', 'cancelled', 'failed', 'all'];
+const KPI_THEME_SEQUENCE = ["sky", "green", "pink", "brown", "red"];
+const MOBILE_STATUS_FILTER_VALUES = [
+  "confirmed",
+  "pending",
+  "completed",
+  "attempted",
+  "cancelled",
+  "failed",
+  "all",
+];
 const KPI_CARD_THEMES = {
-    sky: {
-        shell: 'bg-gradient-to-br from-sky-200 via-sky-300 to-cyan-500 border-sky-700/80',
-        label: 'text-slate-900/85',
-        value: 'text-slate-950',
-        iconChip: 'text-slate-900 bg-slate-900/8 border-slate-900/10',
-        iconGhost: 'text-slate-900/20'
-    },
-    amber: {
-        shell: 'bg-gradient-to-br from-amber-100 via-orange-200 to-orange-300 border-orange-500/70',
-        label: 'text-stone-900/85',
-        value: 'text-stone-950',
-        iconChip: 'text-stone-900 bg-stone-950/8 border-stone-900/10',
-        iconGhost: 'text-stone-900/20'
-    },
-    green: {
-        shell: 'bg-gradient-to-br from-lime-200 via-emerald-300 to-green-500 border-emerald-700/80',
-        label: 'text-black/85',
-        value: 'text-black',
-        iconChip: 'text-black bg-black/10 border-black/10',
-        iconGhost: 'text-black/25'
-    },
-    pink: {
-        shell: 'bg-gradient-to-br from-fuchsia-200 via-pink-300 to-rose-500 border-fuchsia-700/80',
-        label: 'text-rose-950',
-        value: 'text-rose-950',
-        iconChip: 'text-rose-950 bg-white/20 border-fuchsia-400/50',
-        iconGhost: 'text-rose-950/20'
-    },
-    brown: {
-        shell: 'bg-gradient-to-br from-amber-800 via-orange-900 to-stone-950 border-stone-950/90',
-        label: 'text-white/90 drop-shadow-sm',
-        value: 'text-white drop-shadow-sm',
-        iconChip: 'text-white bg-white/15 border-white/25 backdrop-blur-[1px]',
-        iconGhost: 'text-white/45 drop-shadow-sm'
-    },
-    red: {
-        shell: 'bg-gradient-to-br from-rose-200 via-red-300 to-red-500 border-red-700/80',
-        label: 'text-white/90 drop-shadow-sm',
-        value: 'text-white drop-shadow-sm',
-        iconChip: 'text-white bg-white/15 border-white/25 backdrop-blur-[1px]',
-        iconGhost: 'text-white/45 drop-shadow-sm'
-    }
+  sky: {
+    shell:
+      "bg-gradient-to-br from-sky-200 via-sky-300 to-cyan-500 border-sky-700/80",
+    label: "text-slate-900/85",
+    value: "text-slate-950",
+    iconChip: "text-slate-900 bg-slate-900/8 border-slate-900/10",
+    iconGhost: "text-slate-900/20",
+  },
+  amber: {
+    shell:
+      "bg-gradient-to-br from-amber-100 via-orange-200 to-orange-300 border-orange-500/70",
+    label: "text-stone-900/85",
+    value: "text-stone-950",
+    iconChip: "text-stone-900 bg-stone-950/8 border-stone-900/10",
+    iconGhost: "text-stone-900/20",
+  },
+  green: {
+    shell:
+      "bg-gradient-to-br from-lime-200 via-emerald-300 to-green-500 border-emerald-700/80",
+    label: "text-black/85",
+    value: "text-black",
+    iconChip: "text-black bg-black/10 border-black/10",
+    iconGhost: "text-black/25",
+  },
+  pink: {
+    shell:
+      "bg-gradient-to-br from-fuchsia-200 via-pink-300 to-rose-500 border-fuchsia-700/80",
+    label: "text-rose-950",
+    value: "text-rose-950",
+    iconChip: "text-rose-950 bg-white/20 border-fuchsia-400/50",
+    iconGhost: "text-rose-950/20",
+  },
+  brown: {
+    shell:
+      "bg-gradient-to-br from-amber-800 via-orange-900 to-stone-950 border-stone-950/90",
+    label: "text-white/90 drop-shadow-sm",
+    value: "text-white drop-shadow-sm",
+    iconChip: "text-white bg-white/15 border-white/25 backdrop-blur-[1px]",
+    iconGhost: "text-white/45 drop-shadow-sm",
+  },
+  red: {
+    shell:
+      "bg-gradient-to-br from-rose-200 via-red-300 to-red-500 border-red-700/80",
+    label: "text-white/90 drop-shadow-sm",
+    value: "text-white drop-shadow-sm",
+    iconChip: "text-white bg-white/15 border-white/25 backdrop-blur-[1px]",
+    iconGhost: "text-white/45 drop-shadow-sm",
+  },
 };
 const KPI_PATTERN_STYLES = {
-    sky: {
-        backgroundColor: '#ffffff',
-        backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.28), rgba(30,64,175,0.04)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 200 200'%3E%3Cpolygon fill='%23DCEFFA' points='100 0 0 100 100 100 100 200 200 100 200 0'/%3E%3C/svg%3E")`,
-        backgroundSize: 'cover, 160px 160px'
-    },
-    green: {
-        backgroundColor: '#ddffaa',
-        backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.16), rgba(34,68,17,0.06)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cpolygon fill='%23AE9' points='120 120 60 120 90 90 120 60 120 0 120 0 60 60 0 0 0 60 30 90 60 120 120 120'/%3E%3C/svg%3E")`,
-        backgroundSize: 'cover, 120px 120px'
-    },
-    amber: {
-        backgroundColor: '#fdba74',
-        backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.24), rgba(120,53,15,0.06)), linear-gradient(135deg, rgba(255,237,213,0.7) 25%, transparent 25%), linear-gradient(225deg, rgba(251,191,36,0.18) 25%, transparent 25%), linear-gradient(45deg, rgba(249,115,22,0.14) 25%, transparent 25%)',
-        backgroundSize: 'cover, 90px 90px, 90px 90px, 90px 90px'
-    },
-    red: {
-        backgroundColor: '#7f1d1d',
-        backgroundImage: 'linear-gradient(135deg, rgba(15,23,42,0.36), rgba(127,29,29,0.2)), linear-gradient(135deg, rgba(254,202,202,0.12) 25%, transparent 25%), linear-gradient(225deg, rgba(244,63,94,0.2) 25%, transparent 25%), linear-gradient(45deg, rgba(190,18,60,0.22) 25%, transparent 25%)',
-        backgroundSize: 'cover, 90px 90px, 90px 90px, 90px 90px'
-    },
-    brown: {
-        backgroundColor: '#3b1f12',
-        backgroundImage: `linear-gradient(135deg, rgba(17,24,39,0.36), rgba(120,53,15,0.12)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 100 100'%3E%3Crect x='0' y='0' width='46' height='46' fill-opacity='0.34' fill='%238b5a2b'/%3E%3C/svg%3E")`,
-        backgroundSize: 'cover, 40px 40px'
-    }
+  sky: {
+    backgroundColor: "#ffffff",
+    backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.28), rgba(30,64,175,0.04)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 200 200'%3E%3Cpolygon fill='%23DCEFFA' points='100 0 0 100 100 100 100 200 200 100 200 0'/%3E%3C/svg%3E")`,
+    backgroundSize: "cover, 160px 160px",
+  },
+  green: {
+    backgroundColor: "#ddffaa",
+    backgroundImage: `linear-gradient(135deg, rgba(255,255,255,0.16), rgba(34,68,17,0.06)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cpolygon fill='%23AE9' points='120 120 60 120 90 90 120 60 120 0 120 0 60 60 0 0 0 60 30 90 60 120 120 120'/%3E%3C/svg%3E")`,
+    backgroundSize: "cover, 120px 120px",
+  },
+  amber: {
+    backgroundColor: "#fdba74",
+    backgroundImage:
+      "linear-gradient(135deg, rgba(255,255,255,0.24), rgba(120,53,15,0.06)), linear-gradient(135deg, rgba(255,237,213,0.7) 25%, transparent 25%), linear-gradient(225deg, rgba(251,191,36,0.18) 25%, transparent 25%), linear-gradient(45deg, rgba(249,115,22,0.14) 25%, transparent 25%)",
+    backgroundSize: "cover, 90px 90px, 90px 90px, 90px 90px",
+  },
+  red: {
+    backgroundColor: "#7f1d1d",
+    backgroundImage:
+      "linear-gradient(135deg, rgba(15,23,42,0.36), rgba(127,29,29,0.2)), linear-gradient(135deg, rgba(254,202,202,0.12) 25%, transparent 25%), linear-gradient(225deg, rgba(244,63,94,0.2) 25%, transparent 25%), linear-gradient(45deg, rgba(190,18,60,0.22) 25%, transparent 25%)",
+    backgroundSize: "cover, 90px 90px, 90px 90px, 90px 90px",
+  },
+  brown: {
+    backgroundColor: "#3b1f12",
+    backgroundImage: `linear-gradient(135deg, rgba(17,24,39,0.36), rgba(120,53,15,0.12)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 100 100'%3E%3Crect x='0' y='0' width='46' height='46' fill-opacity='0.34' fill='%238b5a2b'/%3E%3C/svg%3E")`,
+    backgroundSize: "cover, 40px 40px",
+  },
 };
 const getKpiCardStyle = (theme) => KPI_PATTERN_STYLES[theme] || undefined;
-const applyKpiThemeRotation = (cards = [], startIndex = 0) => cards.map((card, index) => ({
+const applyKpiThemeRotation = (cards = [], startIndex = 0) =>
+  cards.map((card, index) => ({
     ...card,
-    theme: card?.theme || KPI_THEME_SEQUENCE[(startIndex + index) % KPI_THEME_SEQUENCE.length]
-}));
+    theme:
+      card?.theme ||
+      KPI_THEME_SEQUENCE[(startIndex + index) % KPI_THEME_SEQUENCE.length],
+  }));
 const CANCELLATION_MODES = [
-    { value: 'razorpay', label: 'Razorpay Refund' },
-    { value: 'icici', label: 'ICICI Refund' },
-    { value: 'manual', label: 'Manual Refund' }
+  { value: "razorpay", label: "Razorpay Refund" },
+  { value: "icici", label: "ICICI Refund" },
+  { value: "manual", label: "Manual Refund" },
 ];
-const MANUAL_REFUND_METHODS = ['Cash', 'NEFT/RTGS', 'UPI', 'Bank A/c Transfer', 'Voucher code'];
+const MANUAL_REFUND_METHODS = [
+  "Cash",
+  "NEFT/RTGS",
+  "UPI",
+  "Bank A/c Transfer",
+  "Voucher code",
+];
 const MANUAL_PAYMENT_OPTIONS = [
-    { value: 'cash', label: 'Cash' },
-    { value: 'upi', label: 'UPI' },
-    { value: 'bank_transfer', label: 'Bank Transfer' },
-    { value: 'card_swipe', label: 'Card Swipe' },
-    { value: 'net_banking', label: 'Net Banking' },
-    { value: 'manual', label: 'Manual' }
+  { value: "cash", label: "Cash" },
+  { value: "upi", label: "UPI" },
+  { value: "bank_transfer", label: "Bank Transfer" },
+  { value: "card_swipe", label: "Card Swipe" },
+  { value: "net_banking", label: "Net Banking" },
+  { value: "manual", label: "Manual" },
 ];
-const MOBILE_ORDERS_MEDIA_QUERY = '(max-width: 767px)';
-const EMPTY_ADDRESS = { line1: '', city: '', state: '', zip: '' };
-const EMPTY_MANUAL_ITEM = { productId: '', variantId: '', quantity: 1 };
-const normalizeOrderSearchTerm = (value = '') => String(value || '').trim().replace(/^#+\s*/, '');
+const MOBILE_ORDERS_MEDIA_QUERY = "(max-width: 767px)";
+const EMPTY_ADDRESS = { line1: "", city: "", state: "", zip: "" };
+const EMPTY_MANUAL_ITEM = { productId: "", variantId: "", quantity: 1 };
+const normalizeOrderSearchTerm = (value = "") =>
+  String(value || "")
+    .trim()
+    .replace(/^#+\s*/, "");
 const normalizeOrderStatus = (status) => {
-    const normalized = String(status || 'pending').trim().toLowerCase();
-    if (normalized === 'shipped') return 'completed';
-    return normalized || 'pending';
+  const normalized = String(status || "pending")
+    .trim()
+    .toLowerCase();
+  if (normalized === "shipped") return "completed";
+  return normalized || "pending";
 };
 const formatStatusLabel = (status) => {
-    const normalized = normalizeOrderStatus(status);
-    if (!normalized) return 'Pending';
-    if (normalized === 'confirmed') return 'New';
-    return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
+  const normalized = normalizeOrderStatus(status);
+  if (!normalized) return "Pending";
+  if (normalized === "confirmed") return "New";
+  return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`;
 };
 const getOrderStatusBadgeClasses = (status) => {
-    const normalized = normalizeOrderStatus(status);
-    if (normalized === 'confirmed') return 'bg-sky-200 text-sky-950 border border-sky-300';
-    if (normalized === 'pending') return 'bg-amber-200 text-amber-950 border border-amber-300';
-    if (normalized === 'attempted') return 'bg-orange-200 text-orange-950 border border-orange-300';
-    if (normalized === 'completed') return 'bg-lime-200 text-emerald-950 border border-lime-300';
-    if (normalized === 'failed') return 'bg-rose-200 text-rose-950 border border-rose-300';
-    if (normalized === 'cancelled') return 'bg-red-200 text-red-950 border border-red-300';
-    return 'bg-fuchsia-200 text-rose-950 border border-fuchsia-300';
+  const normalized = normalizeOrderStatus(status);
+  if (normalized === "confirmed")
+    return "bg-sky-200 text-sky-950 border border-sky-300";
+  if (normalized === "pending")
+    return "bg-amber-200 text-amber-950 border border-amber-300";
+  if (normalized === "attempted")
+    return "bg-orange-200 text-orange-950 border border-orange-300";
+  if (normalized === "completed")
+    return "bg-lime-200 text-emerald-950 border border-lime-300";
+  if (normalized === "failed")
+    return "bg-rose-200 text-rose-950 border border-rose-300";
+  if (normalized === "cancelled")
+    return "bg-red-200 text-red-950 border border-red-300";
+  return "bg-fuchsia-200 text-rose-950 border border-fuchsia-300";
 };
 const getOrderHeaderTheme = (status) => {
-    const normalized = normalizeOrderStatus(status);
-    if (normalized === 'failed') {
-        return {
-            shell: 'bg-gradient-to-br from-rose-700 via-red-800 to-rose-950',
-            accent: 'bg-rose-200/15 text-rose-50 border border-rose-200/35',
-            micro: 'text-rose-100/80',
-            subtle: 'text-rose-50/90',
-            rowLabel: 'text-rose-100/75'
-        };
-    }
-    if (normalized === 'cancelled') {
-        return {
-            shell: 'bg-gradient-to-br from-red-700 via-red-800 to-rose-950',
-            accent: 'bg-red-200/20 text-red-50 border border-red-200/35',
-            micro: 'text-red-100/80',
-            subtle: 'text-red-50/90',
-            rowLabel: 'text-red-100/75'
-        };
-    }
-    if (normalized === 'pending' || normalized === 'attempted') {
-        return {
-            shell: 'bg-gradient-to-br from-amber-600 via-amber-700 to-orange-950',
-            accent: 'bg-amber-50/20 text-amber-50 border border-amber-100/35',
-            micro: 'text-amber-50/80',
-            subtle: 'text-amber-50/90',
-            rowLabel: 'text-amber-100/75'
-        };
-    }
+  const normalized = normalizeOrderStatus(status);
+  if (normalized === "failed") {
     return {
-        shell: 'bg-gradient-to-br from-emerald-700 via-emerald-800 to-teal-950',
-        accent: 'bg-emerald-50/20 text-emerald-50 border border-emerald-100/35',
-        micro: 'text-emerald-50/80',
-        subtle: 'text-emerald-50/90',
-        rowLabel: 'text-emerald-100/75'
+      shell: "bg-gradient-to-br from-rose-700 via-red-800 to-rose-950",
+      accent: "bg-rose-200/15 text-rose-50 border border-rose-200/35",
+      micro: "text-rose-100/80",
+      subtle: "text-rose-50/90",
+      rowLabel: "text-rose-100/75",
     };
+  }
+  if (normalized === "cancelled") {
+    return {
+      shell: "bg-gradient-to-br from-red-700 via-red-800 to-rose-950",
+      accent: "bg-red-200/20 text-red-50 border border-red-200/35",
+      micro: "text-red-100/80",
+      subtle: "text-red-50/90",
+      rowLabel: "text-red-100/75",
+    };
+  }
+  if (normalized === "pending" || normalized === "attempted") {
+    return {
+      shell: "bg-gradient-to-br from-amber-600 via-amber-700 to-orange-950",
+      accent: "bg-amber-50/20 text-amber-50 border border-amber-100/35",
+      micro: "text-amber-50/80",
+      subtle: "text-amber-50/90",
+      rowLabel: "text-amber-100/75",
+    };
+  }
+  return {
+    shell: "bg-gradient-to-br from-emerald-700 via-emerald-800 to-teal-950",
+    accent: "bg-emerald-50/20 text-emerald-50 border border-emerald-100/35",
+    micro: "text-emerald-50/80",
+    subtle: "text-emerald-50/90",
+    rowLabel: "text-emerald-100/75",
+  };
 };
 const getOrderHeaderBadgeClasses = (status) => {
-    const normalized = normalizeOrderStatus(status);
-    if (normalized === 'failed') return 'bg-rose-200 text-rose-950 border border-rose-300';
-    if (normalized === 'cancelled') return 'bg-red-200 text-red-950 border border-red-300';
-    if (normalized === 'attempted') return 'bg-orange-200 text-orange-950 border border-orange-300';
-    if (normalized === 'pending') return 'bg-amber-200 text-amber-950 border border-amber-300';
-    return 'bg-lime-200 text-emerald-950 border border-lime-300';
+  const normalized = normalizeOrderStatus(status);
+  if (normalized === "failed")
+    return "bg-rose-200 text-rose-950 border border-rose-300";
+  if (normalized === "cancelled")
+    return "bg-red-200 text-red-950 border border-red-300";
+  if (normalized === "attempted")
+    return "bg-orange-200 text-orange-950 border border-orange-300";
+  if (normalized === "pending")
+    return "bg-amber-200 text-amber-950 border border-amber-300";
+  return "bg-lime-200 text-emerald-950 border border-lime-300";
 };
 const getOrderDrawerSectionTheme = (status) => {
-    const normalized = normalizeOrderStatus(status);
-    if (normalized === 'failed') {
-        return {
-            shell: 'border-rose-200 bg-gradient-to-br from-white via-rose-50/60 to-red-50/75',
-            header: 'bg-rose-50 text-rose-800 border-rose-100',
-            divider: 'divide-rose-100 border-rose-100',
-            timelineDot: 'bg-rose-500',
-            title: 'text-rose-800'
-        };
-    }
-    if (normalized === 'cancelled') {
-        return {
-            shell: 'border-rose-200 bg-gradient-to-br from-white via-rose-50/60 to-red-50/75',
-            header: 'bg-rose-50 text-rose-800 border-rose-100',
-            divider: 'divide-rose-100 border-rose-100',
-            timelineDot: 'bg-rose-500',
-            title: 'text-rose-800'
-        };
-    }
-    if (normalized === 'pending' || normalized === 'attempted') {
-        return {
-            shell: 'border-amber-200 bg-gradient-to-br from-white via-amber-50/60 to-orange-50/75',
-            header: 'bg-amber-50 text-amber-800 border-amber-100',
-            divider: 'divide-amber-100 border-amber-100',
-            timelineDot: 'bg-amber-500',
-            title: 'text-amber-800'
-        };
-    }
+  const normalized = normalizeOrderStatus(status);
+  if (normalized === "failed") {
     return {
-        shell: 'border-emerald-200 bg-gradient-to-br from-white via-emerald-50/60 to-teal-50/75',
-        header: 'bg-emerald-50 text-emerald-800 border-emerald-100',
-        divider: 'divide-emerald-100 border-emerald-100',
-        timelineDot: 'bg-emerald-500',
-        title: 'text-emerald-800'
+      shell:
+        "border-rose-200 bg-gradient-to-br from-white via-rose-50/60 to-red-50/75",
+      header: "bg-rose-50 text-rose-800 border-rose-100",
+      divider: "divide-rose-100 border-rose-100",
+      timelineDot: "bg-rose-500",
+      title: "text-rose-800",
     };
+  }
+  if (normalized === "cancelled") {
+    return {
+      shell:
+        "border-rose-200 bg-gradient-to-br from-white via-rose-50/60 to-red-50/75",
+      header: "bg-rose-50 text-rose-800 border-rose-100",
+      divider: "divide-rose-100 border-rose-100",
+      timelineDot: "bg-rose-500",
+      title: "text-rose-800",
+    };
+  }
+  if (normalized === "pending" || normalized === "attempted") {
+    return {
+      shell:
+        "border-amber-200 bg-gradient-to-br from-white via-amber-50/60 to-orange-50/75",
+      header: "bg-amber-50 text-amber-800 border-amber-100",
+      divider: "divide-amber-100 border-amber-100",
+      timelineDot: "bg-amber-500",
+      title: "text-amber-800",
+    };
+  }
+  return {
+    shell:
+      "border-emerald-200 bg-gradient-to-br from-white via-emerald-50/60 to-teal-50/75",
+    header: "bg-emerald-50 text-emerald-800 border-emerald-100",
+    divider: "divide-emerald-100 border-emerald-100",
+    timelineDot: "bg-emerald-500",
+    title: "text-emerald-800",
+  };
 };
 const getAvailableStatusOptions = (status) => {
-    const current = normalizeOrderStatus(status);
-    if (current === 'pending') {
-        return [
-            { value: 'completed', label: 'Completed' },
-            { value: 'cancelled', label: 'Cancelled' }
-        ];
-    }
-    if (current === 'completed') {
-        return [{ value: 'cancelled', label: 'Cancelled' }];
-    }
-    if (current === 'cancelled') {
-        return [];
-    }
+  const current = normalizeOrderStatus(status);
+  if (current === "pending") {
     return [
-        { value: 'completed', label: 'Completed' },
-        { value: 'cancelled', label: 'Cancelled' }
+      { value: "completed", label: "Completed" },
+      { value: "cancelled", label: "Cancelled" },
     ];
+  }
+  if (current === "completed") {
+    return [{ value: "cancelled", label: "Cancelled" }];
+  }
+  if (current === "cancelled") {
+    return [];
+  }
+  return [
+    { value: "completed", label: "Completed" },
+    { value: "cancelled", label: "Cancelled" },
+  ];
 };
 const isTerminalOrderStatus = (status) => {
-    const current = normalizeOrderStatus(status);
-    return current === 'cancelled';
+  const current = normalizeOrderStatus(status);
+  return current === "cancelled";
 };
 const PAYMENT_CONFIRMATION_PENDING_STATUSES = new Set([
-    'attempted',
-    'verification_pending',
-    'paid_unverified',
-    'reconciliation_pending',
-    'authorized'
+  "attempted",
+  "verification_pending",
+  "paid_unverified",
+  "reconciliation_pending",
+  "authorized",
 ]);
 const PAYMENT_SESSION_PENDING_STATUSES = new Set([
-    ...PAYMENT_CONFIRMATION_PENDING_STATUSES,
-    'created',
-    'checkout_opened'
+  ...PAYMENT_CONFIRMATION_PENDING_STATUSES,
+  "created",
+  "checkout_opened",
 ]);
 const getEffectiveOrderDisplayStatus = (order = {}) => {
-    const normalizedStatus = normalizeOrderStatus(order?.status || 'confirmed');
-    const paymentStatus = String(order?.payment_status || order?.paymentStatus || '').trim().toLowerCase();
-    if (normalizedStatus === 'confirmed' && PAYMENT_CONFIRMATION_PENDING_STATUSES.has(paymentStatus)) {
-        return 'attempted';
-    }
-    return normalizedStatus;
+  const normalizedStatus = normalizeOrderStatus(order?.status || "confirmed");
+  const paymentStatus = String(
+    order?.payment_status || order?.paymentStatus || "",
+  )
+    .trim()
+    .toLowerCase();
+  if (
+    normalizedStatus === "confirmed" &&
+    PAYMENT_CONFIRMATION_PENDING_STATUSES.has(paymentStatus)
+  ) {
+    return "attempted";
+  }
+  return normalizedStatus;
 };
-const orderMatchesStatusFilter = (order, filterValue = 'all') => {
-    const filter = String(filterValue || 'all').trim().toLowerCase();
-    if (!filter || filter === 'all') return true;
-    const status = normalizeOrderStatus(order?.status || 'confirmed');
-    const createdTs = new Date(order?.created_at || order?.createdAt || 0).getTime();
-    const paymentStatus = String(order?.payment_status || order?.paymentStatus || '').trim().toLowerCase();
-    const ageHours = Number.isFinite(createdTs) && createdTs > 0
-        ? (Date.now() - createdTs) / (1000 * 60 * 60)
-        : null;
-    const isOverdueConfirmed = status === 'confirmed' && Number.isFinite(ageHours) && ageHours >= 24;
-    if (filter === 'failed') {
-        return status === 'failed' || paymentStatus === 'failed';
-    }
-    if (filter === 'attempted') {
-        return PAYMENT_CONFIRMATION_PENDING_STATUSES.has(paymentStatus);
-    }
-    if (filter === 'pending') {
-        return status === 'pending' || (isOverdueConfirmed && ['paid', 'captured'].includes(paymentStatus));
-    }
-    if (filter === 'confirmed') {
-        return ['paid', 'captured'].includes(paymentStatus) && status === 'confirmed' && !isOverdueConfirmed;
-    }
-    return status === filter;
+const orderMatchesStatusFilter = (order, filterValue = "all") => {
+  const filter = String(filterValue || "all")
+    .trim()
+    .toLowerCase();
+  if (!filter || filter === "all") return true;
+  const status = normalizeOrderStatus(order?.status || "confirmed");
+  const createdTs = new Date(
+    order?.created_at || order?.createdAt || 0,
+  ).getTime();
+  const paymentStatus = String(
+    order?.payment_status || order?.paymentStatus || "",
+  )
+    .trim()
+    .toLowerCase();
+  const ageHours =
+    Number.isFinite(createdTs) && createdTs > 0
+      ? (Date.now() - createdTs) / (1000 * 60 * 60)
+      : null;
+  const isOverdueConfirmed =
+    status === "confirmed" && Number.isFinite(ageHours) && ageHours >= 24;
+  if (filter === "failed") {
+    return status === "failed" || paymentStatus === "failed";
+  }
+  if (filter === "attempted") {
+    return PAYMENT_CONFIRMATION_PENDING_STATUSES.has(paymentStatus);
+  }
+  if (filter === "pending") {
+    return (
+      status === "pending" ||
+      (isOverdueConfirmed && ["paid", "captured"].includes(paymentStatus))
+    );
+  }
+  if (filter === "confirmed") {
+    return (
+      ["paid", "captured"].includes(paymentStatus) &&
+      status === "confirmed" &&
+      !isOverdueConfirmed
+    );
+  }
+  return status === filter;
 };
 const getPaymentStatusBadgeClasses = (status) => {
-    const normalized = String(status || '').trim().toLowerCase();
-    if (normalized === 'paid') return 'bg-lime-200 text-emerald-950 border border-lime-300';
-    if (['failed', 'expired'].includes(normalized)) return 'bg-red-200 text-red-950 border border-red-300';
-    if (PAYMENT_SESSION_PENDING_STATUSES.has(normalized) || normalized === 'pending') {
-        return 'bg-amber-200 text-amber-950 border border-amber-300';
-    }
-    if (normalized === 'refunded') return 'bg-sky-200 text-sky-950 border border-sky-300';
-    return 'bg-fuchsia-200 text-rose-950 border border-fuchsia-300';
+  const normalized = String(status || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "paid")
+    return "bg-lime-200 text-emerald-950 border border-lime-300";
+  if (["failed", "expired"].includes(normalized))
+    return "bg-red-200 text-red-950 border border-red-300";
+  if (
+    PAYMENT_SESSION_PENDING_STATUSES.has(normalized) ||
+    normalized === "pending"
+  ) {
+    return "bg-amber-200 text-amber-950 border border-amber-300";
+  }
+  if (normalized === "refunded")
+    return "bg-sky-200 text-sky-950 border border-sky-300";
+  return "bg-fuchsia-200 text-rose-950 border border-fuchsia-300";
 };
 const getPaymentHeaderBadgeClasses = (status) => {
-    const normalized = String(status || '').trim().toLowerCase();
-    if (normalized === 'paid') return 'bg-lime-50/95 text-lime-900 border border-lime-100';
-    if (['failed', 'expired'].includes(normalized)) return 'bg-red-50/95 text-red-900 border border-red-100';
-    if (PAYMENT_SESSION_PENDING_STATUSES.has(normalized) || normalized === 'pending') return 'bg-amber-50/95 text-amber-900 border border-amber-100';
-    if (normalized === 'refunded') return 'bg-sky-50/95 text-sky-900 border border-sky-100';
-    return 'bg-fuchsia-50/95 text-fuchsia-900 border border-fuchsia-100';
+  const normalized = String(status || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "paid")
+    return "bg-lime-50/95 text-lime-900 border border-lime-100";
+  if (["failed", "expired"].includes(normalized))
+    return "bg-red-50/95 text-red-900 border border-red-100";
+  if (
+    PAYMENT_SESSION_PENDING_STATUSES.has(normalized) ||
+    normalized === "pending"
+  )
+    return "bg-amber-50/95 text-amber-900 border border-amber-100";
+  if (normalized === "refunded")
+    return "bg-sky-50/95 text-sky-900 border border-sky-100";
+  return "bg-fuchsia-50/95 text-fuchsia-900 border border-fuchsia-100";
 };
 const parseJsonObject = (value) => {
-    if (!value) return null;
-    if (typeof value === 'object') return value;
-    try {
-        return JSON.parse(value);
-    } catch {
-        return null;
-    }
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 };
 const formatRatePercent = (value) => {
-    const rate = Number(value);
-    if (!Number.isFinite(rate) || rate <= 0) return '';
-    return `${rate.toLocaleString('en-IN', {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 2
-    })}%`;
+  const rate = Number(value);
+  if (!Number.isFinite(rate) || rate <= 0) return "";
+  return `${rate.toLocaleString("en-IN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}%`;
 };
 const getOrderTaxRates = (order = {}) => {
-    const rates = new Set();
-    const items = Array.isArray(order?.items) ? order.items : [];
-    items.forEach((item) => {
-        const snapshot = parseJsonObject(item?.item_snapshot || item?.itemSnapshot || item?.snapshot) || {};
-        const taxSnapshot = parseJsonObject(item?.tax_snapshot_json || item?.taxSnapshot || item?.tax_snapshot || snapshot?.taxSnapshot) || {};
-        const candidates = [
-            item?.tax_rate_percent,
-            item?.taxRatePercent,
-            snapshot?.taxRatePercent,
-            taxSnapshot?.ratePercent
-        ];
-        candidates.forEach((candidate) => {
-            const rate = Number(candidate);
-            if (Number.isFinite(rate) && rate > 0) {
-                rates.add(Math.round(rate * 100) / 100);
-            }
-        });
+  const rates = new Set();
+  const items = Array.isArray(order?.items) ? order.items : [];
+  items.forEach((item) => {
+    const snapshot =
+      parseJsonObject(
+        item?.item_snapshot || item?.itemSnapshot || item?.snapshot,
+      ) || {};
+    const taxSnapshot =
+      parseJsonObject(
+        item?.tax_snapshot_json ||
+          item?.taxSnapshot ||
+          item?.tax_snapshot ||
+          snapshot?.taxSnapshot,
+      ) || {};
+    const candidates = [
+      item?.tax_rate_percent,
+      item?.taxRatePercent,
+      snapshot?.taxRatePercent,
+      taxSnapshot?.ratePercent,
+    ];
+    candidates.forEach((candidate) => {
+      const rate = Number(candidate);
+      if (Number.isFinite(rate) && rate > 0) {
+        rates.add(Math.round(rate * 100) / 100);
+      }
     });
-    const orderTaxBreakup = Array.isArray(order?.tax_breakup_json)
-        ? order.tax_breakup_json
-        : Array.isArray(order?.taxBreakup)
-            ? order.taxBreakup
-            : [];
-    orderTaxBreakup.forEach((entry) => {
-        const rate = Number(entry?.ratePercent ?? entry?.rate_percent);
-        if (Number.isFinite(rate) && rate > 0) {
-            rates.add(Math.round(rate * 100) / 100);
-        }
-    });
-    return Array.from(rates).sort((a, b) => a - b);
-};
-const getOrderTaxRateLabel = (order = {}, jurisdictionKind = 'unknown') => {
-    const rates = getOrderTaxRates(order);
-    if (rates.length === 0) return jurisdictionKind === 'inter_state' ? 'IGST' : jurisdictionKind === 'intra_state' ? 'CGST + SGST' : 'GST';
-    if (jurisdictionKind === 'inter_state') {
-        return rates.map((rate) => `IGST ${formatRatePercent(rate)}`).join(' | ');
+  });
+  const orderTaxBreakup = Array.isArray(order?.tax_breakup_json)
+    ? order.tax_breakup_json
+    : Array.isArray(order?.taxBreakup)
+      ? order.taxBreakup
+      : [];
+  orderTaxBreakup.forEach((entry) => {
+    const rate = Number(entry?.ratePercent ?? entry?.rate_percent);
+    if (Number.isFinite(rate) && rate > 0) {
+      rates.add(Math.round(rate * 100) / 100);
     }
-    if (jurisdictionKind === 'intra_state') {
-        return rates.map((rate) => {
-            const halfRate = Math.round((rate / 2) * 100) / 100;
-            const halfRateLabel = formatRatePercent(halfRate);
-            return `SGST ${halfRateLabel} + CGST ${halfRateLabel}`;
-        }).join(' | ');
-    }
-    return rates.map((rate) => `GST ${formatRatePercent(rate)}`).join(' | ');
+  });
+  return Array.from(rates).sort((a, b) => a - b);
 };
-const toPaymentMethodInfoLabel = (method = '') => {
-    const normalized = String(method || '').trim().toLowerCase();
-    if (!normalized) return '';
-    if (normalized === 'upi') return 'UPI';
-    if (normalized === 'debit_card') return 'Debit Card';
-    if (normalized === 'credit_card') return 'Credit Card';
-    if (normalized === 'card') return 'Card (Debit/Credit)';
-    if (normalized === 'card_swipe') return 'Card Swipe';
-    if (normalized === 'netbanking' || normalized === 'net_banking') return 'Net Banking';
-    if (normalized === 'wallet') return 'Wallet';
-    if (normalized === 'emi') return 'EMI';
-    if (normalized === 'paylater' || normalized === 'pay_later') return 'Pay Later';
-    if (normalized === 'bank_transfer' || normalized === 'bank') return 'Bank Transfer';
-    if (normalized === 'cash') return 'Cash';
-    if (normalized === 'cod') return 'Cash on Delivery';
-    if (normalized === 'manual') return 'Manual';
-    return normalized
-        .split('_')
-        .map((part) => part ? `${part.charAt(0).toUpperCase()}${part.slice(1)}` : '')
-        .join(' ')
-        .trim();
+const getOrderTaxRateLabel = (order = {}, jurisdictionKind = "unknown") => {
+  const rates = getOrderTaxRates(order);
+  if (rates.length === 0)
+    return jurisdictionKind === "inter_state"
+      ? "IGST"
+      : jurisdictionKind === "intra_state"
+        ? "CGST + SGST"
+        : "GST";
+  if (jurisdictionKind === "inter_state") {
+    return rates.map((rate) => `IGST ${formatRatePercent(rate)}`).join(" | ");
+  }
+  if (jurisdictionKind === "intra_state") {
+    return rates
+      .map((rate) => {
+        const halfRate = Math.round((rate / 2) * 100) / 100;
+        const halfRateLabel = formatRatePercent(halfRate);
+        return `SGST ${halfRateLabel} + CGST ${halfRateLabel}`;
+      })
+      .join(" | ");
+  }
+  return rates.map((rate) => `GST ${formatRatePercent(rate)}`).join(" | ");
+};
+const toPaymentMethodInfoLabel = (method = "") => {
+  const normalized = String(method || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return "";
+  if (normalized === "upi") return "UPI";
+  if (normalized === "debit_card") return "Debit Card";
+  if (normalized === "credit_card") return "Credit Card";
+  if (normalized === "card") return "Card (Debit/Credit)";
+  if (normalized === "card_swipe") return "Card Swipe";
+  if (normalized === "netbanking" || normalized === "net_banking")
+    return "Net Banking";
+  if (normalized === "wallet") return "Wallet";
+  if (normalized === "emi") return "EMI";
+  if (normalized === "paylater" || normalized === "pay_later")
+    return "Pay Later";
+  if (normalized === "bank_transfer" || normalized === "bank")
+    return "Bank Transfer";
+  if (normalized === "cash") return "Cash";
+  if (normalized === "cod") return "Cash on Delivery";
+  if (normalized === "manual") return "Manual";
+  return normalized
+    .split("_")
+    .map((part) =>
+      part ? `${part.charAt(0).toUpperCase()}${part.slice(1)}` : "",
+    )
+    .join(" ")
+    .trim();
 };
 const getPaymentMethodInfoLabel = (order = {}, paymentMethodContext = null) => {
-    const gateway = String(order?.payment_gateway || order?.paymentGateway || '').trim().toLowerCase();
-    const snapshotCardType = String(order?.payment_snapshot?.card_type || '').trim().toLowerCase();
-    const contextCardType = String(paymentMethodContext?.card?.type || '').trim().toLowerCase();
-    const settlementMethod = String(order?.settlement_snapshot?.method || order?.settlementSnapshot?.method || '').trim().toLowerCase();
-    const methodCandidates = [
-        order?.payment_snapshot?.method,
-        snapshotCardType ? `${snapshotCardType}_card` : '',
-        paymentMethodContext?.method,
-        contextCardType ? `${contextCardType}_card` : '',
-        settlementMethod,
-        order?.payment_method,
-        order?.paymentMethod,
-        order?.method,
-        order?.gateway_payment_method,
-        order?.gatewayPaymentMethod
-    ];
-    for (const candidate of methodCandidates) {
-        const label = toPaymentMethodInfoLabel(candidate);
-        if (label) return label;
-    }
-    if (gateway === 'razorpay') return 'Not available (sync to fetch)';
-    const fallbackByGateway = toPaymentMethodInfoLabel(gateway);
-    return fallbackByGateway || '—';
+  const gateway = String(order?.payment_gateway || order?.paymentGateway || "")
+    .trim()
+    .toLowerCase();
+  const snapshotCardType = String(order?.payment_snapshot?.card_type || "")
+    .trim()
+    .toLowerCase();
+  const contextCardType = String(paymentMethodContext?.card?.type || "")
+    .trim()
+    .toLowerCase();
+  const settlementMethod = String(
+    order?.settlement_snapshot?.method ||
+      order?.settlementSnapshot?.method ||
+      "",
+  )
+    .trim()
+    .toLowerCase();
+  const methodCandidates = [
+    order?.payment_snapshot?.method,
+    snapshotCardType ? `${snapshotCardType}_card` : "",
+    paymentMethodContext?.method,
+    contextCardType ? `${contextCardType}_card` : "",
+    settlementMethod,
+    order?.payment_method,
+    order?.paymentMethod,
+    order?.method,
+    order?.gateway_payment_method,
+    order?.gatewayPaymentMethod,
+  ];
+  for (const candidate of methodCandidates) {
+    const label = toPaymentMethodInfoLabel(candidate);
+    if (label) return label;
+  }
+  if (gateway === "razorpay") return "Not available (sync to fetch)";
+  const fallbackByGateway = toPaymentMethodInfoLabel(gateway);
+  return fallbackByGateway || "—";
 };
 const toSettlementRupees = (value, snapshot = null) => {
-    const amount = Number(value || 0);
-    if (!Number.isFinite(amount)) return 0;
-    const entity = String(snapshot?.entity || '').trim().toLowerCase();
-    if (entity === 'settlement_recon') return amount;
-    if (entity === 'settlement') return amount / 100;
-    if (String(value || '').includes('.')) return amount;
-    return amount >= 100000 ? amount / 100 : amount;
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount)) return 0;
+  const entity = String(snapshot?.entity || "")
+    .trim()
+    .toLowerCase();
+  if (entity === "settlement_recon") return amount;
+  if (entity === "settlement") return amount / 100;
+  if (String(value || "").includes(".")) return amount;
+  return amount >= 100000 ? amount / 100 : amount;
 };
-const getSettlementStatusMeta = (status = '') => {
-    const normalized = String(status || '').trim().toLowerCase();
-    if (normalized === 'settled') {
-        return {
-            label: 'Settled',
-            chip: 'bg-emerald-50 text-emerald-800 border border-emerald-200',
-            dot: 'bg-emerald-500',
-            iconTone: 'text-emerald-700',
-            timelineLine: 'border-emerald-200'
-        };
-    }
-    if (['pending', 'processing', 'queued'].includes(normalized)) {
-        return {
-            label: 'Pending',
-            chip: 'bg-amber-50 text-amber-800 border border-amber-200',
-            dot: 'bg-amber-500',
-            iconTone: 'text-amber-700',
-            timelineLine: 'border-amber-200'
-        };
-    }
-    if (normalized === 'failed') {
-        return {
-            label: 'Failed',
-            chip: 'bg-rose-50 text-rose-800 border border-rose-200',
-            dot: 'bg-rose-500',
-            iconTone: 'text-rose-700',
-            timelineLine: 'border-rose-200'
-        };
-    }
-    if (normalized === 'manual') {
-        return {
-            label: 'Manual',
-            chip: 'bg-sky-50 text-sky-800 border border-sky-200',
-            dot: 'bg-sky-500',
-            iconTone: 'text-sky-700',
-            timelineLine: 'border-sky-200'
-        };
-    }
-    if (normalized === 'unavailable') {
-        return {
-            label: 'Warning',
-            chip: 'bg-amber-50 text-amber-900 border border-amber-300',
-            dot: 'bg-amber-500',
-            iconTone: 'text-amber-800',
-            timelineLine: 'border-amber-300'
-        };
-    }
+const getSettlementStatusMeta = (status = "") => {
+  const normalized = String(status || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "settled") {
     return {
-        label: normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : 'Unknown',
-        chip: 'bg-slate-50 text-slate-700 border border-slate-200',
-        dot: 'bg-slate-400',
-        iconTone: 'text-slate-600',
-        timelineLine: 'border-slate-200'
+      label: "Settled",
+      chip: "bg-emerald-50 text-emerald-800 border border-emerald-200",
+      dot: "bg-emerald-500",
+      iconTone: "text-emerald-700",
+      timelineLine: "border-emerald-200",
     };
+  }
+  if (["pending", "processing", "queued"].includes(normalized)) {
+    return {
+      label: "Pending",
+      chip: "bg-amber-50 text-amber-800 border border-amber-200",
+      dot: "bg-amber-500",
+      iconTone: "text-amber-700",
+      timelineLine: "border-amber-200",
+    };
+  }
+  if (normalized === "failed") {
+    return {
+      label: "Failed",
+      chip: "bg-rose-50 text-rose-800 border border-rose-200",
+      dot: "bg-rose-500",
+      iconTone: "text-rose-700",
+      timelineLine: "border-rose-200",
+    };
+  }
+  if (normalized === "manual") {
+    return {
+      label: "Manual",
+      chip: "bg-sky-50 text-sky-800 border border-sky-200",
+      dot: "bg-sky-500",
+      iconTone: "text-sky-700",
+      timelineLine: "border-sky-200",
+    };
+  }
+  if (normalized === "unavailable") {
+    return {
+      label: "Warning",
+      chip: "bg-amber-50 text-amber-900 border border-amber-300",
+      dot: "bg-amber-500",
+      iconTone: "text-amber-800",
+      timelineLine: "border-amber-300",
+    };
+  }
+  return {
+    label: normalized
+      ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`
+      : "Unknown",
+    chip: "bg-slate-50 text-slate-700 border border-slate-200",
+    dot: "bg-slate-400",
+    iconTone: "text-slate-600",
+    timelineLine: "border-slate-200",
+  };
 };
-const getPaymentModeVisual = (paymentMode = '') => {
-    const normalized = String(paymentMode || '').trim().toLowerCase();
-    if (normalized.includes('upi')) {
-        return { Icon: Smartphone, shell: 'border-emerald-200 bg-emerald-50', tone: 'text-emerald-700', badge: 'UPI' };
-    }
-    if (normalized.includes('debit')) {
-        return { Icon: CreditCard, shell: 'border-sky-200 bg-sky-50', tone: 'text-sky-700', badge: 'DEBIT' };
-    }
-    if (normalized.includes('credit')) {
-        return { Icon: CreditCard, shell: 'border-sky-200 bg-sky-50', tone: 'text-sky-700', badge: 'CREDIT' };
-    }
-    if (normalized.includes('card')) {
-        return { Icon: CreditCard, shell: 'border-sky-200 bg-sky-50', tone: 'text-sky-700', badge: 'CARD' };
-    }
-    if (normalized.includes('net banking') || normalized.includes('netbanking')) {
-        return { Icon: Landmark, shell: 'border-violet-200 bg-violet-50', tone: 'text-violet-700', badge: 'NETBANK' };
-    }
-    if (normalized.includes('bank transfer') || normalized.includes('bank')) {
-        return { Icon: Landmark, shell: 'border-violet-200 bg-violet-50', tone: 'text-violet-700', badge: 'BANK XFER' };
-    }
-    if (normalized.includes('wallet')) {
-        return { Icon: Wallet, shell: 'border-amber-200 bg-amber-50', tone: 'text-amber-700', badge: 'WALLET' };
-    }
-    if (normalized.includes('emi')) {
-        return { Icon: Clock3, shell: 'border-fuchsia-200 bg-fuchsia-50', tone: 'text-fuchsia-700', badge: 'EMI' };
-    }
-    return { Icon: IndianRupee, shell: 'border-slate-200 bg-slate-50', tone: 'text-slate-700', badge: 'PAY' };
+const getPaymentModeVisual = (paymentMode = "") => {
+  const normalized = String(paymentMode || "")
+    .trim()
+    .toLowerCase();
+  if (normalized.includes("upi")) {
+    return {
+      Icon: Smartphone,
+      shell: "border-emerald-200 bg-emerald-50",
+      tone: "text-emerald-700",
+      badge: "UPI",
+    };
+  }
+  if (normalized.includes("debit")) {
+    return {
+      Icon: CreditCard,
+      shell: "border-sky-200 bg-sky-50",
+      tone: "text-sky-700",
+      badge: "DEBIT",
+    };
+  }
+  if (normalized.includes("credit")) {
+    return {
+      Icon: CreditCard,
+      shell: "border-sky-200 bg-sky-50",
+      tone: "text-sky-700",
+      badge: "CREDIT",
+    };
+  }
+  if (normalized.includes("card")) {
+    return {
+      Icon: CreditCard,
+      shell: "border-sky-200 bg-sky-50",
+      tone: "text-sky-700",
+      badge: "CARD",
+    };
+  }
+  if (normalized.includes("net banking") || normalized.includes("netbanking")) {
+    return {
+      Icon: Landmark,
+      shell: "border-violet-200 bg-violet-50",
+      tone: "text-violet-700",
+      badge: "NETBANK",
+    };
+  }
+  if (normalized.includes("bank transfer") || normalized.includes("bank")) {
+    return {
+      Icon: Landmark,
+      shell: "border-violet-200 bg-violet-50",
+      tone: "text-violet-700",
+      badge: "BANK XFER",
+    };
+  }
+  if (normalized.includes("wallet")) {
+    return {
+      Icon: Wallet,
+      shell: "border-amber-200 bg-amber-50",
+      tone: "text-amber-700",
+      badge: "WALLET",
+    };
+  }
+  if (normalized.includes("emi")) {
+    return {
+      Icon: Clock3,
+      shell: "border-fuchsia-200 bg-fuchsia-50",
+      tone: "text-fuchsia-700",
+      badge: "EMI",
+    };
+  }
+  return {
+    Icon: IndianRupee,
+    shell: "border-slate-200 bg-slate-50",
+    tone: "text-slate-700",
+    badge: "PAY",
+  };
 };
 const needsPaymentMethodSync = (order = {}) => {
-    const gateway = String(order?.payment_gateway || order?.paymentGateway || '').trim().toLowerCase();
-    if (gateway !== 'razorpay') return false;
-    const status = String(order?.payment_status || order?.paymentStatus || '').trim().toLowerCase();
-    if (!['paid', 'captured', 'refunded'].includes(status)) return false;
-    const hasRazorpayTrace = Boolean(order?.razorpay_order_id || order?.razorpay_payment_id);
-    if (!hasRazorpayTrace) return false;
-    return !String(order?.payment_snapshot?.method || '').trim();
+  const gateway = String(order?.payment_gateway || order?.paymentGateway || "")
+    .trim()
+    .toLowerCase();
+  if (gateway !== "razorpay") return false;
+  const status = String(order?.payment_status || order?.paymentStatus || "")
+    .trim()
+    .toLowerCase();
+  if (!["paid", "captured", "refunded"].includes(status)) return false;
+  const hasRazorpayTrace = Boolean(
+    order?.razorpay_order_id || order?.razorpay_payment_id,
+  );
+  if (!hasRazorpayTrace) return false;
+  return !String(order?.payment_snapshot?.method || "").trim();
 };
 const needsSettlementSync = (order = {}) => {
-    const paymentStatus = String(order?.payment_status || order?.paymentStatus || '').trim().toLowerCase();
-    if (!['paid', 'captured', 'refunded'].includes(paymentStatus)) return false;
+  const paymentStatus = String(
+    order?.payment_status || order?.paymentStatus || "",
+  )
+    .trim()
+    .toLowerCase();
+  if (!["paid", "captured", "refunded"].includes(paymentStatus)) return false;
 
-    const hasRazorpayTrace = Boolean(order?.razorpay_order_id || order?.razorpay_payment_id);
-    if (!hasRazorpayTrace) return false;
+  const hasRazorpayTrace = Boolean(
+    order?.razorpay_order_id || order?.razorpay_payment_id,
+  );
+  if (!hasRazorpayTrace) return false;
 
-    const settlementId = String(
-        order?.settlement_id
-        || order?.settlementId
-        || order?.settlement_snapshot?.id
-        || order?.settlementSnapshot?.id
-        || ''
-    ).trim();
-    const settlementStatus = String(
-        order?.settlement_snapshot?.status
-        || order?.settlementSnapshot?.status
-        || ''
-    ).trim().toLowerCase();
+  const settlementId = String(
+    order?.settlement_id ||
+      order?.settlementId ||
+      order?.settlement_snapshot?.id ||
+      order?.settlementSnapshot?.id ||
+      "",
+  ).trim();
+  const settlementStatus = String(
+    order?.settlement_snapshot?.status ||
+      order?.settlementSnapshot?.status ||
+      "",
+  )
+    .trim()
+    .toLowerCase();
 
-    if (!settlementId || !settlementStatus) return true;
-    return ['pending', 'processing', 'queued', 'failed'].includes(settlementStatus);
+  if (!settlementId || !settlementStatus) return true;
+  return ["pending", "processing", "queued", "failed"].includes(
+    settlementStatus,
+  );
 };
 const getManualUnitPrice = (product = {}, variant = null) => {
-    return Number(
-        variant?.discount_price
-        ?? variant?.price
-        ?? product?.discount_price
-        ?? product?.mrp
-        ?? product?.price
-        ?? 0
-    );
+  return Number(
+    variant?.discount_price ??
+      variant?.price ??
+      product?.discount_price ??
+      product?.mrp ??
+      product?.price ??
+      0,
+  );
 };
 
 const toDateOnly = (value) => {
-    if (!value) return null;
-    const parsed = new Date(`${value}T00:00:00`);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
 const diffInDays = (startDate, endDate) => {
-    if (!startDate || !endDate) return 0;
-    const diff = endDate.getTime() - startDate.getTime();
-    return Math.floor(diff / (24 * 60 * 60 * 1000));
+  if (!startDate || !endDate) return 0;
+  const diff = endDate.getTime() - startDate.getTime();
+  return Math.floor(diff / (24 * 60 * 60 * 1000));
 };
 
 const addDays = (value, days) => {
-    const date = toDateOnly(value);
-    if (!date) return '';
-    const copy = new Date(date);
-    copy.setDate(copy.getDate() + Number(days || 0));
-    const local = new Date(copy.getTime() - copy.getTimezoneOffset() * 60000);
-    return local.toISOString().slice(0, 10);
+  const date = toDateOnly(value);
+  if (!date) return "";
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + Number(days || 0));
+  const local = new Date(copy.getTime() - copy.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
 };
 
-const getWhatsappLink = (mobile = '') => {
-    const digits = String(mobile || '').replace(/\D/g, '');
-    if (!digits) return '';
-    const full = digits.length === 10 ? `91${digits}` : digits;
-    return `https://wa.me/${full}`;
+const getWhatsappLink = (mobile = "") => {
+  const digits = String(mobile || "").replace(/\D/g, "");
+  if (!digits) return "";
+  const full = digits.length === 10 ? `91${digits}` : digits;
+  return `https://wa.me/${full}`;
 };
-const getCallLink = (mobile = '') => {
-    const digits = String(mobile || '').replace(/\D/g, '');
-    if (!digits) return '';
-    const full = digits.length === 10 ? `+91${digits}` : `+${digits}`;
-    return `tel:${full}`;
+const getCallLink = (mobile = "") => {
+  const digits = String(mobile || "").replace(/\D/g, "");
+  if (!digits) return "";
+  const full = digits.length === 10 ? `+91${digits}` : `+${digits}`;
+  return `tel:${full}`;
 };
-const normalizeMobileDigits = (value = '') => String(value || '').replace(/\D/g, '');
+const normalizeMobileDigits = (value = "") =>
+  String(value || "").replace(/\D/g, "");
 
 const buildVisiblePages = (currentPage, totalPages, windowSize = 4) => {
-    const safeTotal = Math.max(1, Number(totalPages || 1));
-    const safeCurrent = Math.min(safeTotal, Math.max(1, Number(currentPage || 1)));
-    if (safeTotal <= windowSize) return Array.from({ length: safeTotal }, (_, idx) => idx + 1);
-    const half = Math.floor(windowSize / 2);
-    let start = Math.max(1, safeCurrent - half);
-    let end = Math.min(safeTotal, start + windowSize - 1);
-    if (end - start + 1 < windowSize) start = Math.max(1, end - windowSize + 1);
-    return Array.from({ length: end - start + 1 }, (_, idx) => start + idx);
+  const safeTotal = Math.max(1, Number(totalPages || 1));
+  const safeCurrent = Math.min(
+    safeTotal,
+    Math.max(1, Number(currentPage || 1)),
+  );
+  if (safeTotal <= windowSize)
+    return Array.from({ length: safeTotal }, (_, idx) => idx + 1);
+  const half = Math.floor(windowSize / 2);
+  let start = Math.max(1, safeCurrent - half);
+  let end = Math.min(safeTotal, start + windowSize - 1);
+  if (end - start + 1 < windowSize) start = Math.max(1, end - windowSize + 1);
+  return Array.from({ length: end - start + 1 }, (_, idx) => start + idx);
 };
 const dedupeOrderTimelineEntries = (entries = []) => {
-    const seen = new Set();
-    return (Array.isArray(entries) ? entries : []).filter((entry) => {
-        const key = [
-            String(entry?.status || '').trim().toLowerCase(),
-            String(entry?.created_at || '').trim(),
-            String(entry?.detail || '').trim().toLowerCase()
-        ].join('|');
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
+  const seen = new Set();
+  return (Array.isArray(entries) ? entries : []).filter((entry) => {
+    const key = [
+      String(entry?.status || "")
+        .trim()
+        .toLowerCase(),
+      String(entry?.created_at || "").trim(),
+      String(entry?.detail || "")
+        .trim()
+        .toLowerCase(),
+    ].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 };
 const buildOrderTimelineEntries = (order = {}, { isAttempt = false } = {}) => {
-    const explicitEvents = Array.isArray(order?.events) ? order.events : [];
-    if (explicitEvents.length > 0) return dedupeOrderTimelineEntries(explicitEvents);
+  const explicitEvents = Array.isArray(order?.events) ? order.events : [];
+  if (explicitEvents.length > 0)
+    return dedupeOrderTimelineEntries(explicitEvents);
 
-    const entries = [];
-    const createdAt = order?.created_at || order?.createdAt || '';
-    const updatedAt = order?.updated_at || order?.updatedAt || createdAt || '';
-    const failureReason = String(order?.failure_reason || order?.failureReason || '').trim();
-    const paymentStatus = String(order?.payment_status || order?.paymentStatus || '').trim().toLowerCase();
-    const orderStatus = String(order?.status || '').trim().toLowerCase();
+  const entries = [];
+  const createdAt = order?.created_at || order?.createdAt || "";
+  const updatedAt = order?.updated_at || order?.updatedAt || createdAt || "";
+  const failureReason = String(
+    order?.failure_reason || order?.failureReason || "",
+  ).trim();
+  const paymentStatus = String(
+    order?.payment_status || order?.paymentStatus || "",
+  )
+    .trim()
+    .toLowerCase();
+  const orderStatus = String(order?.status || "")
+    .trim()
+    .toLowerCase();
 
-    if (createdAt) {
-        entries.push({
-            id: `fallback-created-${order?.id || order?.order_id || order?.attempt_id || 'row'}`,
-            status: isAttempt ? 'Attempt created' : 'Order created',
-            created_at: createdAt,
-            detail: ''
-        });
-    }
+  if (createdAt) {
+    entries.push({
+      id: `fallback-created-${order?.id || order?.order_id || order?.attempt_id || "row"}`,
+      status: isAttempt ? "Attempt created" : "Order created",
+      created_at: createdAt,
+      detail: "",
+    });
+  }
 
-    if (paymentStatus) {
-        entries.push({
-            id: `fallback-payment-${order?.id || order?.order_id || order?.attempt_id || 'row'}`,
-            status: `Payment ${paymentStatus}`,
-            created_at: updatedAt || createdAt,
-            detail: failureReason
-        });
-    }
+  if (paymentStatus) {
+    entries.push({
+      id: `fallback-payment-${order?.id || order?.order_id || order?.attempt_id || "row"}`,
+      status: `Payment ${paymentStatus}`,
+      created_at: updatedAt || createdAt,
+      detail: failureReason,
+    });
+  }
 
-    if (orderStatus && !isAttempt && orderStatus !== paymentStatus) {
-        entries.push({
-            id: `fallback-order-${order?.id || order?.order_id || 'row'}`,
-            status: formatStatusLabel(orderStatus),
-            created_at: updatedAt || createdAt,
-            detail: failureReason
-        });
-    }
+  if (orderStatus && !isAttempt && orderStatus !== paymentStatus) {
+    entries.push({
+      id: `fallback-order-${order?.id || order?.order_id || "row"}`,
+      status: formatStatusLabel(orderStatus),
+      created_at: updatedAt || createdAt,
+      detail: failureReason,
+    });
+  }
 
-    if (!entries.length && updatedAt) {
-        entries.push({
-            id: `fallback-updated-${order?.id || order?.order_id || order?.attempt_id || 'row'}`,
-            status: 'Updated',
-            created_at: updatedAt,
-            detail: failureReason
-        });
-    }
+  if (!entries.length && updatedAt) {
+    entries.push({
+      id: `fallback-updated-${order?.id || order?.order_id || order?.attempt_id || "row"}`,
+      status: "Updated",
+      created_at: updatedAt,
+      detail: failureReason,
+    });
+  }
 
-    if (failureReason && !entries.some((entry) => String(entry.detail || '').trim() === failureReason)) {
-        entries.push({
-            id: `fallback-failure-${order?.id || order?.order_id || order?.attempt_id || 'row'}`,
-            status: 'Failure noted',
-            created_at: updatedAt || createdAt,
-            detail: failureReason
-        });
-    }
+  if (
+    failureReason &&
+    !entries.some(
+      (entry) => String(entry.detail || "").trim() === failureReason,
+    )
+  ) {
+    entries.push({
+      id: `fallback-failure-${order?.id || order?.order_id || order?.attempt_id || "row"}`,
+      status: "Failure noted",
+      created_at: updatedAt || createdAt,
+      detail: failureReason,
+    });
+  }
 
-    return dedupeOrderTimelineEntries(entries);
+  return dedupeOrderTimelineEntries(entries);
 };
 const MOBILE_ORDER_CARD_THEMES = {
-    confirmed: {
-        shell: 'border-sky-200 bg-white/95 shadow-sky-100/50',
-        strip: 'from-sky-400 via-cyan-400 to-sky-300',
-        meta: 'border-sky-100 bg-sky-50/45',
-        divider: 'border-sky-100',
-        amount: 'text-sky-950',
-        actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
-        actionSuccess: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-        actionInfo: 'border-blue-200 bg-blue-50 text-blue-700',
-        actionAccent: 'border-violet-200 bg-violet-50 text-violet-700',
-        actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
-    },
-    completed: {
-        shell: 'border-emerald-200 bg-white/95 shadow-emerald-100/50',
-        strip: 'from-emerald-400 via-lime-400 to-emerald-300',
-        meta: 'border-emerald-100 bg-emerald-50/45',
-        divider: 'border-emerald-100',
-        amount: 'text-emerald-950',
-        actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
-        actionSuccess: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-        actionInfo: 'border-blue-200 bg-blue-50 text-blue-700',
-        actionAccent: 'border-violet-200 bg-violet-50 text-violet-700',
-        actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
-    },
-    pending: {
-        shell: 'border-amber-200 bg-white/95 shadow-amber-100/50',
-        strip: 'from-amber-400 via-orange-400 to-amber-300',
-        meta: 'border-amber-100 bg-amber-50/45',
-        divider: 'border-amber-100',
-        amount: 'text-stone-950',
-        actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
-        actionSuccess: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-        actionInfo: 'border-blue-200 bg-blue-50 text-blue-700',
-        actionAccent: 'border-violet-200 bg-violet-50 text-violet-700',
-        actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
-    },
-    failed: {
-        shell: 'border-rose-200 bg-white/95 shadow-rose-100/50',
-        strip: 'from-rose-400 via-red-400 to-rose-300',
-        meta: 'border-rose-100 bg-rose-50/45',
-        divider: 'border-rose-100',
-        amount: 'text-rose-950',
-        actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
-        actionSuccess: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-        actionInfo: 'border-blue-200 bg-blue-50 text-blue-700',
-        actionAccent: 'border-violet-200 bg-violet-50 text-violet-700',
-        actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
-    },
-    cancelled: {
-        shell: 'border-red-200 bg-white/95 shadow-red-100/50',
-        strip: 'from-red-400 via-rose-400 to-red-300',
-        meta: 'border-red-100 bg-red-50/45',
-        divider: 'border-red-100',
-        amount: 'text-red-950',
-        actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
-        actionSuccess: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-        actionInfo: 'border-blue-200 bg-blue-50 text-blue-700',
-        actionAccent: 'border-violet-200 bg-violet-50 text-violet-700',
-        actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
-    },
-    default: {
-        shell: 'border-slate-200 bg-white/95 shadow-slate-100/50',
-        strip: 'from-slate-400 via-gray-400 to-slate-300',
-        meta: 'border-slate-100 bg-slate-50/45',
-        divider: 'border-slate-100',
-        amount: 'text-slate-950',
-        actionNeutral: 'border-slate-200 bg-white/90 text-slate-600',
-        actionSuccess: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-        actionInfo: 'border-blue-200 bg-blue-50 text-blue-700',
-        actionAccent: 'border-violet-200 bg-violet-50 text-violet-700',
-        actionDanger: 'border-rose-200 bg-rose-50 text-rose-600'
-    }
+  confirmed: {
+    shell: "border-sky-200 bg-white/95 shadow-sky-100/50",
+    strip: "from-sky-400 via-cyan-400 to-sky-300",
+    meta: "border-sky-100 bg-sky-50/45",
+    divider: "border-sky-100",
+    amount: "text-sky-950",
+    actionNeutral: "border-slate-200 bg-white/90 text-slate-600",
+    actionSuccess: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    actionInfo: "border-blue-200 bg-blue-50 text-blue-700",
+    actionAccent: "border-violet-200 bg-violet-50 text-violet-700",
+    actionDanger: "border-rose-200 bg-rose-50 text-rose-600",
+  },
+  completed: {
+    shell: "border-emerald-200 bg-white/95 shadow-emerald-100/50",
+    strip: "from-emerald-400 via-lime-400 to-emerald-300",
+    meta: "border-emerald-100 bg-emerald-50/45",
+    divider: "border-emerald-100",
+    amount: "text-emerald-950",
+    actionNeutral: "border-slate-200 bg-white/90 text-slate-600",
+    actionSuccess: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    actionInfo: "border-blue-200 bg-blue-50 text-blue-700",
+    actionAccent: "border-violet-200 bg-violet-50 text-violet-700",
+    actionDanger: "border-rose-200 bg-rose-50 text-rose-600",
+  },
+  pending: {
+    shell: "border-amber-200 bg-white/95 shadow-amber-100/50",
+    strip: "from-amber-400 via-orange-400 to-amber-300",
+    meta: "border-amber-100 bg-amber-50/45",
+    divider: "border-amber-100",
+    amount: "text-stone-950",
+    actionNeutral: "border-slate-200 bg-white/90 text-slate-600",
+    actionSuccess: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    actionInfo: "border-blue-200 bg-blue-50 text-blue-700",
+    actionAccent: "border-violet-200 bg-violet-50 text-violet-700",
+    actionDanger: "border-rose-200 bg-rose-50 text-rose-600",
+  },
+  failed: {
+    shell: "border-rose-200 bg-white/95 shadow-rose-100/50",
+    strip: "from-rose-400 via-red-400 to-rose-300",
+    meta: "border-rose-100 bg-rose-50/45",
+    divider: "border-rose-100",
+    amount: "text-rose-950",
+    actionNeutral: "border-slate-200 bg-white/90 text-slate-600",
+    actionSuccess: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    actionInfo: "border-blue-200 bg-blue-50 text-blue-700",
+    actionAccent: "border-violet-200 bg-violet-50 text-violet-700",
+    actionDanger: "border-rose-200 bg-rose-50 text-rose-600",
+  },
+  cancelled: {
+    shell: "border-red-200 bg-white/95 shadow-red-100/50",
+    strip: "from-red-400 via-rose-400 to-red-300",
+    meta: "border-red-100 bg-red-50/45",
+    divider: "border-red-100",
+    amount: "text-red-950",
+    actionNeutral: "border-slate-200 bg-white/90 text-slate-600",
+    actionSuccess: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    actionInfo: "border-blue-200 bg-blue-50 text-blue-700",
+    actionAccent: "border-violet-200 bg-violet-50 text-violet-700",
+    actionDanger: "border-rose-200 bg-rose-50 text-rose-600",
+  },
+  default: {
+    shell: "border-slate-200 bg-white/95 shadow-slate-100/50",
+    strip: "from-slate-400 via-gray-400 to-slate-300",
+    meta: "border-slate-100 bg-slate-50/45",
+    divider: "border-slate-100",
+    amount: "text-slate-950",
+    actionNeutral: "border-slate-200 bg-white/90 text-slate-600",
+    actionSuccess: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    actionInfo: "border-blue-200 bg-blue-50 text-blue-700",
+    actionAccent: "border-violet-200 bg-violet-50 text-violet-700",
+    actionDanger: "border-rose-200 bg-rose-50 text-rose-600",
+  },
 };
-const getMobileOrderCardTheme = (status = '') => MOBILE_ORDER_CARD_THEMES[normalizeOrderStatus(status)] || MOBILE_ORDER_CARD_THEMES.default;
+const getMobileOrderCardTheme = (status = "") =>
+  MOBILE_ORDER_CARD_THEMES[normalizeOrderStatus(status)] ||
+  MOBILE_ORDER_CARD_THEMES.default;
 const getOrderDateKey = (order = {}) => {
-    const value = order?.created_at || order?.createdAt || order?.updated_at || order?.updatedAt;
-    const ts = new Date(value || 0).getTime();
-    if (!Number.isFinite(ts) || ts <= 0) return '';
-    const localDate = new Date(ts - (new Date(ts).getTimezoneOffset() * 60000));
-    return localDate.toISOString().slice(0, 10);
+  const value =
+    order?.created_at ||
+    order?.createdAt ||
+    order?.updated_at ||
+    order?.updatedAt;
+  const ts = new Date(value || 0).getTime();
+  if (!Number.isFinite(ts) || ts <= 0) return "";
+  const localDate = new Date(ts - new Date(ts).getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 10);
 };
 
 const getCouponDiscountSplit = (order = {}) => {
-    const type = String(order?.coupon_type || '').toLowerCase();
-    const couponTotal = Number(order?.coupon_discount_value || 0);
-    if (couponTotal <= 0) {
-        return { productDiscount: 0, shippingDiscount: 0 };
-    }
-    if (type === 'shipping_full' || type === 'shipping_partial') {
-        return { productDiscount: 0, shippingDiscount: couponTotal };
-    }
-    return { productDiscount: couponTotal, shippingDiscount: 0 };
+  const type = String(order?.coupon_type || "").toLowerCase();
+  const couponTotal = Number(order?.coupon_discount_value || 0);
+  if (couponTotal <= 0) {
+    return { productDiscount: 0, shippingDiscount: 0 };
+  }
+  if (type === "shipping_full" || type === "shipping_partial") {
+    return { productDiscount: 0, shippingDiscount: couponTotal };
+  }
+  return { productDiscount: couponTotal, shippingDiscount: 0 };
 };
 const roundCurrency = (value) => Math.round(Number(value || 0) * 100) / 100;
-const getCouponTypeFromSource = (source = {}) => String(
-    source?.coupon_type
-    || source?.couponType
-    || source?.coupon?.type
-    || ''
-).trim().toLowerCase();
+const getCouponTypeFromSource = (source = {}) =>
+  String(
+    source?.coupon_type || source?.couponType || source?.coupon?.type || "",
+  )
+    .trim()
+    .toLowerCase();
 const getCouponShippingDiscountForTotals = (source = {}, totals = {}) => {
-    const type = getCouponTypeFromSource(source);
-    if (type !== 'shipping_full' && type !== 'shipping_partial') return 0;
-    const couponDiscount = Math.max(0, Number(totals?.discounts?.coupon || 0));
-    const shippingBase = Math.max(0, Number(totals?.shipping || 0));
-    return roundCurrency(Math.min(couponDiscount, shippingBase));
+  const type = getCouponTypeFromSource(source);
+  if (type !== "shipping_full" && type !== "shipping_partial") return 0;
+  const couponDiscount = Math.max(0, Number(totals?.discounts?.coupon || 0));
+  const shippingBase = Math.max(0, Number(totals?.shipping || 0));
+  return roundCurrency(Math.min(couponDiscount, shippingBase));
 };
 const getShippingPresentation = (source = {}, totals = {}) => {
-    const shippingBase = roundCurrency(Math.max(0, Number(totals?.shipping || 0)));
-    const couponShippingDiscount = getCouponShippingDiscountForTotals(source, totals);
-    const memberShippingBenefit = roundCurrency(Math.max(0, Number(totals?.discounts?.memberShippingBenefit || 0)));
-    const shippingSavings = roundCurrency(Math.min(shippingBase, couponShippingDiscount + memberShippingBenefit));
-    const effectiveShipping = roundCurrency(Math.max(0, shippingBase - shippingSavings));
-    const isFree = effectiveShipping <= 0.0001;
-    return {
-        shippingBase,
-        shippingSavings,
-        effectiveShipping,
-        isFree
-    };
+  const shippingBase = roundCurrency(
+    Math.max(0, Number(totals?.shipping || 0)),
+  );
+  const couponShippingDiscount = getCouponShippingDiscountForTotals(
+    source,
+    totals,
+  );
+  const memberShippingBenefit = roundCurrency(
+    Math.max(0, Number(totals?.discounts?.memberShippingBenefit || 0)),
+  );
+  const shippingSavings = roundCurrency(
+    Math.min(shippingBase, couponShippingDiscount + memberShippingBenefit),
+  );
+  const effectiveShipping = roundCurrency(
+    Math.max(0, shippingBase - shippingSavings),
+  );
+  const isFree = effectiveShipping <= 0.0001;
+  return {
+    shippingBase,
+    shippingSavings,
+    effectiveShipping,
+    isFree,
+  };
 };
 const getRefundableBaseForOrder = (order = {}) => {
-    const shippingBase = Math.max(0, Number(order?.shipping_fee || 0));
-    const couponSplit = getCouponDiscountSplit(order);
-    const couponShippingDiscount = Math.min(
-        shippingBase,
-        Math.max(0, Number(couponSplit?.shippingDiscount || 0))
-    );
-    const memberShippingBenefit = Math.max(0, Number(order?.loyalty_shipping_discount_total || 0));
-    const effectiveShippingPaid = Math.max(0, shippingBase - couponShippingDiscount - memberShippingBenefit);
-    return {
-        effectiveShippingPaid,
-        refundableBase: Math.max(0, Number(order?.total || 0) - effectiveShippingPaid)
-    };
+  const shippingBase = Math.max(0, Number(order?.shipping_fee || 0));
+  const couponSplit = getCouponDiscountSplit(order);
+  const couponShippingDiscount = Math.min(
+    shippingBase,
+    Math.max(0, Number(couponSplit?.shippingDiscount || 0)),
+  );
+  const memberShippingBenefit = Math.max(
+    0,
+    Number(order?.loyalty_shipping_discount_total || 0),
+  );
+  const effectiveShippingPaid = Math.max(
+    0,
+    shippingBase - couponShippingDiscount - memberShippingBenefit,
+  );
+  return {
+    effectiveShippingPaid,
+    refundableBase: Math.max(
+      0,
+      Number(order?.total || 0) - effectiveShippingPaid,
+    ),
+  };
 };
 const getOrderItemSnapshot = (item = {}) => {
-    return item?.item_snapshot && typeof item.item_snapshot === 'object'
-        ? item.item_snapshot
-        : null;
+  return item?.item_snapshot && typeof item.item_snapshot === "object"
+    ? item.item_snapshot
+    : null;
 };
 const getOrderItemTitle = (item = {}) => {
-    const snapshot = getOrderItemSnapshot(item);
-    return item?.title || snapshot?.title || 'Product';
+  const snapshot = getOrderItemSnapshot(item);
+  return item?.title || snapshot?.title || "Product";
 };
 const getOrderItemVariantTitle = (item = {}) => {
-    const snapshot = getOrderItemSnapshot(item);
-    return item?.variant_title || snapshot?.variantTitle || '';
+  const snapshot = getOrderItemSnapshot(item);
+  return item?.variant_title || snapshot?.variantTitle || "";
 };
 const getOrderItemCategoryLabel = (item = {}) => {
-    const snapshot = getOrderItemSnapshot(item);
-    const rawValue = item?.category_name
-        || snapshot?.categoryName
-        || snapshot?.category
-        || snapshot?.primaryCategoryName
-        || snapshot?.categoryTitle
-        || snapshot?.category_name;
-    if (rawValue) return String(rawValue).trim();
-    const categoryList = snapshot?.categoryNames || snapshot?.categories || [];
-    if (Array.isArray(categoryList) && categoryList.length > 0) {
-        return categoryList
-            .map((entry) => String(entry || '').trim())
-            .filter(Boolean)
-            .join(', ');
-    }
-    return '';
+  const snapshot = getOrderItemSnapshot(item);
+  const rawValue =
+    item?.category_name ||
+    snapshot?.categoryName ||
+    snapshot?.category ||
+    snapshot?.primaryCategoryName ||
+    snapshot?.categoryTitle ||
+    snapshot?.category_name;
+  if (rawValue) return String(rawValue).trim();
+  const categoryList = snapshot?.categoryNames || snapshot?.categories || [];
+  if (Array.isArray(categoryList) && categoryList.length > 0) {
+    return categoryList
+      .map((entry) => String(entry || "").trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+  return "";
 };
 const getOrderItemImageUrl = (item = {}) => {
-    const snapshot = getOrderItemSnapshot(item);
-    return item?.image_url || snapshot?.imageUrl || '';
+  const snapshot = getOrderItemSnapshot(item);
+  return item?.image_url || snapshot?.imageUrl || "";
 };
-const getDisplayPricing = (order = {}) => (
-    order?.display_pricing && typeof order.display_pricing === 'object'
-        ? order.display_pricing
-        : order?.displayPricing && typeof order.displayPricing === 'object'
-            ? order.displayPricing
-            : null
-);
-const getOrderTaxPriceMode = (order = {}) => String(
-    order?.tax_price_mode
-    || order?.taxPriceMode
-    || getDisplayPricing(order)?.taxPriceMode
-    || order?.company_snapshot?.taxPriceMode
-    || 'exclusive'
-).toLowerCase() === 'inclusive'
-    ? 'inclusive'
-    : 'exclusive';
-const isInclusivePricingOrder = (order = {}) => getOrderTaxPriceMode(order) === 'inclusive';
+const getDisplayPricing = (order = {}) =>
+  order?.display_pricing && typeof order.display_pricing === "object"
+    ? order.display_pricing
+    : order?.displayPricing && typeof order.displayPricing === "object"
+      ? order.displayPricing
+      : null;
+const getOrderTaxPriceMode = (order = {}) =>
+  String(
+    order?.tax_price_mode ||
+      order?.taxPriceMode ||
+      getDisplayPricing(order)?.taxPriceMode ||
+      order?.company_snapshot?.taxPriceMode ||
+      "exclusive",
+  ).toLowerCase() === "inclusive"
+    ? "inclusive"
+    : "exclusive";
+const isInclusivePricingOrder = (order = {}) =>
+  getOrderTaxPriceMode(order) === "inclusive";
 const getOrderItemUnitPriceBase = (item = {}) => {
-    const snapshot = getOrderItemSnapshot(item);
-    return Number(item?.unit_price_base ?? item?.unitPriceBase ?? snapshot?.unitPriceBase ?? item?.price ?? snapshot?.unitPrice ?? 0);
+  const snapshot = getOrderItemSnapshot(item);
+  return Number(
+    item?.unit_price_base ??
+      item?.unitPriceBase ??
+      snapshot?.unitPriceBase ??
+      item?.price ??
+      snapshot?.unitPrice ??
+      0,
+  );
 };
 const getOrderItemLineTotalBase = (item = {}) => {
-    const snapshot = getOrderItemSnapshot(item);
-    return Number(item?.line_total_base ?? item?.lineTotalBase ?? snapshot?.lineTotalBase ?? item?.line_total ?? snapshot?.lineTotal ?? 0);
+  const snapshot = getOrderItemSnapshot(item);
+  return Number(
+    item?.line_total_base ??
+      item?.lineTotalBase ??
+      snapshot?.lineTotalBase ??
+      item?.line_total ??
+      snapshot?.lineTotal ??
+      0,
+  );
 };
 const getOrderCreatedTimestamp = (order = {}) => {
-    const candidates = [
-        order?.created_at,
-        order?.createdAt,
-        order?.updated_at,
-        order?.updatedAt
-    ];
-    for (const value of candidates) {
-        const ts = new Date(value || 0).getTime();
-        if (Number.isFinite(ts) && ts > 0) return ts;
-    }
-    const numericId = Number(order?.id || 0);
-    return Number.isFinite(numericId) ? numericId : 0;
+  const candidates = [
+    order?.created_at,
+    order?.createdAt,
+    order?.updated_at,
+    order?.updatedAt,
+  ];
+  for (const value of candidates) {
+    const ts = new Date(value || 0).getTime();
+    if (Number.isFinite(ts) && ts > 0) return ts;
+  }
+  const numericId = Number(order?.id || 0);
+  return Number.isFinite(numericId) ? numericId : 0;
 };
-const sortOrdersForView = (rows = [], sortBy = 'newest') => {
-    const list = [...rows];
-    const byCreatedDesc = (a, b) => getOrderCreatedTimestamp(b) - getOrderCreatedTimestamp(a);
-    const byCreatedAsc = (a, b) => getOrderCreatedTimestamp(a) - getOrderCreatedTimestamp(b);
-    if (sortBy === 'oldest') return list.sort(byCreatedAsc);
-    if (sortBy === 'amount_high') return list.sort((a, b) => Number(b.total || 0) - Number(a.total || 0) || byCreatedDesc(a, b));
-    if (sortBy === 'amount_low') return list.sort((a, b) => Number(a.total || 0) - Number(b.total || 0) || byCreatedDesc(a, b));
-    if (sortBy === 'priority') {
-        const tierPriority = { platinum: 4, gold: 3, silver: 2, bronze: 1, regular: 0 };
-        return list.sort((a, b) => {
-            const aTier = String(a?.loyalty_tier || a?.loyaltyTier || 'regular').toLowerCase();
-            const bTier = String(b?.loyalty_tier || b?.loyaltyTier || 'regular').toLowerCase();
-            const diff = Number(tierPriority[bTier] ?? 0) - Number(tierPriority[aTier] ?? 0);
-            if (diff !== 0) return diff;
-            return byCreatedDesc(a, b);
-        });
-    }
-    return list.sort(byCreatedDesc);
+const sortOrdersForView = (rows = [], sortBy = "newest") => {
+  const list = [...rows];
+  const byCreatedDesc = (a, b) =>
+    getOrderCreatedTimestamp(b) - getOrderCreatedTimestamp(a);
+  const byCreatedAsc = (a, b) =>
+    getOrderCreatedTimestamp(a) - getOrderCreatedTimestamp(b);
+  if (sortBy === "oldest") return list.sort(byCreatedAsc);
+  if (sortBy === "amount_high")
+    return list.sort(
+      (a, b) =>
+        Number(b.total || 0) - Number(a.total || 0) || byCreatedDesc(a, b),
+    );
+  if (sortBy === "amount_low")
+    return list.sort(
+      (a, b) =>
+        Number(a.total || 0) - Number(b.total || 0) || byCreatedDesc(a, b),
+    );
+  if (sortBy === "priority") {
+    const tierPriority = {
+      platinum: 4,
+      gold: 3,
+      silver: 2,
+      bronze: 1,
+      regular: 0,
+    };
+    return list.sort((a, b) => {
+      const aTier = String(
+        a?.loyalty_tier || a?.loyaltyTier || "regular",
+      ).toLowerCase();
+      const bTier = String(
+        b?.loyalty_tier || b?.loyaltyTier || "regular",
+      ).toLowerCase();
+      const diff =
+        Number(tierPriority[bTier] ?? 0) - Number(tierPriority[aTier] ?? 0);
+      if (diff !== 0) return diff;
+      return byCreatedDesc(a, b);
+    });
+  }
+  return list.sort(byCreatedDesc);
 };
 
 export function Orders({
-    storefrontOpen = true,
-    focusOrderId = null,
-    onFocusHandled = () => {},
-    initialStatusFilter = '',
-    onInitialStatusApplied = () => {},
-    initialQuickRange = '',
-    onInitialQuickRangeApplied = () => {},
-    initialStartDate = '',
-    initialEndDate = '',
-    onInitialDateRangeApplied = () => {},
-    initialSortBy = '',
-    onInitialSortApplied = () => {},
-    initialSourceChannel = '',
-    onInitialSourceChannelApplied = () => {},
-    initialManualCustomerId = '',
-    onInitialManualCustomerApplied = () => {},
-    mobilePageHeaderActive = false
+  storefrontOpen = true,
+  focusOrderId = null,
+  onFocusHandled = () => {},
+  initialStatusFilter = "",
+  onInitialStatusApplied = () => {},
+  initialQuickRange = "",
+  onInitialQuickRangeApplied = () => {},
+  initialStartDate = "",
+  initialEndDate = "",
+  onInitialDateRangeApplied = () => {},
+  initialSortBy = "",
+  onInitialSortApplied = () => {},
+  initialSourceChannel = "",
+  onInitialSourceChannelApplied = () => {},
+  initialManualCustomerId = "",
+  onInitialManualCustomerApplied = () => {},
+  mobilePageHeaderActive = false,
 }) {
-    const toast = useToast();
-    const { user } = useAuth();
-    const [orders, setOrders] = useState([]);
-    const [metrics, setMetrics] = useState(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [statusFilter, setStatusFilter] = useState('confirmed');
-    const [draftStatusFilter, setDraftStatusFilter] = useState('confirmed');
-    const [search, setSearch] = useState('');
-    const [searchInput, setSearchInput] = useState('');
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
-    const [quickRange, setQuickRange] = useState(DEFAULT_ADMIN_QUICK_RANGE);
-    const [draftQuickRange, setDraftQuickRange] = useState(DEFAULT_ADMIN_QUICK_RANGE);
-    const [draftStartDate, setDraftStartDate] = useState('');
-    const [draftEndDate, setDraftEndDate] = useState('');
-    const [sourceChannel, setSourceChannel] = useState('all');
-    const mobileStatusChipRefs = useRef({});
-    const startDateInputRef = useRef(null);
-    const endDateInputRef = useRef(null);
-    const shouldResetDashboardRangeOnNextStatusChangeRef = useRef(false);
-    const fetchSeqRef = useRef(0);
-    const ordersFailureToastCooldownRef = useRef(0);
-    const [sortBy, setSortBy] = useState('newest');
-    const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
-    const [isMobileSortOpen, setIsMobileSortOpen] = useState(false);
-    const [isMobileViewport, setIsMobileViewport] = useState(() => {
-        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
-        return window.matchMedia(MOBILE_ORDERS_MEDIA_QUERY).matches;
+  const toast = useToast();
+  const { user } = useAuth();
+  const [orders, setOrders] = useState([]);
+  const [metrics, setMetrics] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState("confirmed");
+  const [draftStatusFilter, setDraftStatusFilter] = useState("confirmed");
+  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [quickRange, setQuickRange] = useState(DEFAULT_ADMIN_QUICK_RANGE);
+  const [draftQuickRange, setDraftQuickRange] = useState(
+    DEFAULT_ADMIN_QUICK_RANGE,
+  );
+  const [draftStartDate, setDraftStartDate] = useState("");
+  const [draftEndDate, setDraftEndDate] = useState("");
+  const [sourceChannel, setSourceChannel] = useState("all");
+  const mobileStatusChipRefs = useRef({});
+  const startDateInputRef = useRef(null);
+  const endDateInputRef = useRef(null);
+  const shouldResetDashboardRangeOnNextStatusChangeRef = useRef(false);
+  const fetchSeqRef = useRef(0);
+  const ordersFailureToastCooldownRef = useRef(0);
+  const [sortBy, setSortBy] = useState("newest");
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
+  const [isMobileSortOpen, setIsMobileSortOpen] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    )
+      return false;
+    return window.matchMedia(MOBILE_ORDERS_MEDIA_QUERY).matches;
+  });
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [pendingStatus, setPendingStatus] = useState("");
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [isDetailsLoading, setIsDetailsLoading] = useState(false);
+  const [detailsLastSyncedAt, setDetailsLastSyncedAt] = useState(null);
+  const [isDetailsDrawerScrolled, setIsDetailsDrawerScrolled] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [cancellationMode, setCancellationMode] = useState("");
+  const [manualRefundAmount, setManualRefundAmount] = useState("");
+  const [manualRefundMethod, setManualRefundMethod] = useState("");
+  const [manualRefundRef, setManualRefundRef] = useState("");
+  const [manualRefundUtr, setManualRefundUtr] = useState("");
+  const [isFetchingPaymentStatus, setIsFetchingPaymentStatus] = useState(false);
+  const [attemptConversionMode, setAttemptConversionMode] = useState("cash");
+  const [attemptConversionReference, setAttemptConversionReference] =
+    useState("");
+  const [attemptConversionReason, setAttemptConversionReason] = useState("");
+  const [isConvertingAttempt, setIsConvertingAttempt] = useState(false);
+  const [reconcilingAttemptId, setReconcilingAttemptId] = useState(null);
+  const [settlementContext, setSettlementContext] = useState({
+    mode: null,
+    isTestMode: false,
+  });
+  const [paymentMethodContext, setPaymentMethodContext] = useState(null);
+  const [deletingOrderId, setDeletingOrderId] = useState(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState(null);
+  const [sendingInvoiceId, setSendingInvoiceId] = useState(null);
+  const [printingLabelId, setPrintingLabelId] = useState(null);
+  const [printingLabelType, setPrintingLabelType] = useState("");
+  const [quickCompletingOrderId, setQuickCompletingOrderId] = useState(null);
+  const [companyProfile, setCompanyProfile] = useState(null);
+  const printerSupport = useMemo(() => getPrinterSupportState(), []);
+  const preferredPrinterTransport = useMemo(
+    () => getPreferredPrinterTransport(),
+    [],
+  );
+  const [preferredPrinter, setPreferredPrinter] = useState(() =>
+    getStoredPrinterPreference(),
+  );
+  const [labelPrintModalOrder, setLabelPrintModalOrder] = useState(null);
+  const [isPrinterConnecting, setIsPrinterConnecting] = useState(false);
+  const [selectedStatusCount, setSelectedStatusCount] = useState(null);
+  const [selectedStatusCountKey, setSelectedStatusCountKey] =
+    useState("confirmed");
+  const [statusCountCache, setStatusCountCache] = useState({});
+  const [isAnalyticsPanelOpen, setIsAnalyticsPanelOpen] = useState(false);
+  const [zoomedItemPreview, setZoomedItemPreview] = useState(null);
+  const detailsDrawerScrollRef = useRef(null);
+  const visiblePages = useMemo(
+    () => buildVisiblePages(page, totalPages, 4),
+    [page, totalPages],
+  );
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    confirmText: "Confirm",
+    type: "delete",
+    action: null,
+  });
+  const [isConfirmProcessing, setIsConfirmProcessing] = useState(false);
+  const [isCreateOrderOpen, setIsCreateOrderOpen] = useState(false);
+  const [manualCustomers, setManualCustomers] = useState([]);
+  const [isManualCustomersLoading, setIsManualCustomersLoading] =
+    useState(false);
+  const [manualCustomerQuery, setManualCustomerQuery] = useState("");
+  const [manualOrderForm, setManualOrderForm] = useState({
+    userId: "",
+    mobile: "",
+    paymentMode: "cash",
+    paymentReference: "",
+    couponCode: "",
+    shippingAddress: { ...EMPTY_ADDRESS },
+    billingAddress: { ...EMPTY_ADDRESS },
+    billingSameAsShipping: true,
+  });
+  const [manualDraftItem, setManualDraftItem] = useState({
+    ...EMPTY_MANUAL_ITEM,
+  });
+  const [manualOrderItems, setManualOrderItems] = useState([]);
+  const [manualProducts, setManualProducts] = useState([]);
+  const [manualProductQuery, setManualProductQuery] = useState("");
+  const [isManualProductsLoading, setIsManualProductsLoading] = useState(false);
+  const [isManualCustomersFetchingMore, setIsManualCustomersFetchingMore] =
+    useState(false);
+  const [isManualProductsFetchingMore, setIsManualProductsFetchingMore] =
+    useState(false);
+  const [manualCoupons, setManualCoupons] = useState([]);
+  const [isManualCouponsLoading, setIsManualCouponsLoading] = useState(false);
+  const [manualSummary, setManualSummary] = useState(null);
+  const [isManualSummaryLoading, setIsManualSummaryLoading] = useState(false);
+  const [manualSummaryError, setManualSummaryError] = useState("");
+  const [manualCouponError, setManualCouponError] = useState("");
+  const [isCreatingManualOrder, setIsCreatingManualOrder] = useState(false);
+  const [manualCreateAttempted, setManualCreateAttempted] = useState(false);
+  const [manualCartTouched, setManualCartTouched] = useState(false);
+  const normalizeStatusSelection = useCallback((value) => {
+    const normalized =
+      String(value || "all")
+        .trim()
+        .toLowerCase() || "all";
+    return normalized;
+  }, []);
+  const requestedStatusFilter = useMemo(() => {
+    return normalizeStatusSelection(statusFilter);
+  }, [normalizeStatusSelection, statusFilter]);
+  const customerFetchSeqRef = useRef(0);
+  const productFetchSeqRef = useRef(0);
+  const {
+    orderMetricsByKey,
+    registerOrderMetricsQuery,
+    setOrderMetricsSnapshot,
+    markOrderMetricsDirty,
+    fetchOrderMetrics,
+    toOrderMetricsKey,
+  } = useAdminKPI();
+  const metricsQuery = useMemo(
+    () => ({
+      search,
+      startDate,
+      endDate,
+      quickRange,
+      sourceChannel,
+      status: statusFilter,
+    }),
+    [endDate, quickRange, search, sourceChannel, startDate, statusFilter],
+  );
+  const mobileStatusMetricQueries = useMemo(
+    () =>
+      MOBILE_STATUS_FILTER_VALUES.map((value) => ({
+        search,
+        startDate,
+        endDate,
+        quickRange,
+        sourceChannel,
+        status: value,
+      })),
+    [endDate, quickRange, search, sourceChannel, startDate],
+  );
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    )
+      return undefined;
+    const media = window.matchMedia(MOBILE_ORDERS_MEDIA_QUERY);
+    const handleChange = (event) => {
+      setIsMobileViewport(Boolean(event.matches));
+    };
+    setIsMobileViewport(media.matches);
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", handleChange);
+      return () => media.removeEventListener("change", handleChange);
+    }
+    media.addListener(handleChange);
+    return () => media.removeListener(handleChange);
+  }, []);
+
+  useEffect(() => {
+    const normalizedStatus = normalizeStatusSelection(statusFilter);
+    const normalizedDraft = normalizeStatusSelection(draftStatusFilter);
+    if (normalizedStatus !== statusFilter) {
+      setStatusFilter(normalizedStatus);
+    }
+    if (normalizedDraft !== draftStatusFilter) {
+      setDraftStatusFilter(normalizedDraft);
+    }
+  }, [draftStatusFilter, normalizeStatusSelection, statusFilter]);
+  const metricsKey = toOrderMetricsKey(metricsQuery);
+  const sharedMetrics = orderMetricsByKey[metricsKey]?.metrics || null;
+  const getPaymentMethodLabel = (order) => {
+    const method = String(
+      order?.payment_gateway || order?.paymentGateway || "razorpay",
+    ).toLowerCase();
+    if (method === "razorpay") return "Razorpay";
+    if (method === "cod") return "Online Payment";
+    return method ? method.toUpperCase() : "—";
+  };
+  const getPaymentReference = (order) => {
+    const settlement =
+      order?.settlement_snapshot || order?.settlementSnapshot || null;
+    const loyaltyMeta = order?.loyalty_meta || order?.loyaltyMeta || null;
+    return (
+      order?.gateway_payment_ref ||
+      order?.gatewayPaymentRef ||
+      order?.razorpay_payment_id ||
+      order?.razorpayPaymentId ||
+      settlement?.payment_reference ||
+      settlement?.paymentReference ||
+      loyaltyMeta?.paymentReference ||
+      loyaltyMeta?.manualPaymentReference ||
+      "—"
+    );
+  };
+  const getInvoiceNumber = (order) => {
+    const ref = order?.order_ref || order?.orderRef || order?.id || "N/A";
+    return `INV-${ref}`;
+  };
+  const getPaymentStatusLabel = (order) => {
+    if (getEffectiveOrderDisplayStatus(order) === "attempted")
+      return "Attempted";
+    const status = String(
+      order?.payment_status || order?.paymentStatus || "",
+    ).toLowerCase();
+    if (!status) return "—";
+    return `${status.charAt(0).toUpperCase()}${status.slice(1)}`;
+  };
+  const getTierLabel = (order) => {
+    const tier = String(
+      order?.loyalty_tier || order?.loyaltyTier || "regular",
+    ).toLowerCase();
+    if (tier === "regular") return "Basic";
+    return `${tier.charAt(0).toUpperCase()}${tier.slice(1)}`;
+  };
+  const isAttemptEntry = (order) =>
+    String(order?.entity_type || "").toLowerCase() === "attempt";
+  const isAbandonedRecoveryOrder = (order) =>
+    Boolean(
+      order?.is_abandoned_recovery ||
+      order?.source_channel === "abandoned_recovery",
+    );
+  const getSourceLabel = (order) => {
+    if (isAbandonedRecoveryOrder(order)) return "Abandoned cart recovery";
+    const rawSource = String(
+      order?.source_channel || order?.sourceChannel || "",
+    )
+      .trim()
+      .toLowerCase();
+    if (
+      !rawSource ||
+      rawSource === "direct" ||
+      rawSource === "checkout_webhook_recovery"
+    ) {
+      return "Website Direct";
+    }
+    if (rawSource === "admin_manual") return "Admin Manual";
+    if (rawSource === "admin_attempt_conversion")
+      return "Admin Attempt Conversion";
+    if (rawSource === "checkout_reconciler") return "Checkout Reconciler";
+    if (rawSource === "checkout") return "Website Direct";
+    return rawSource
+      .split("_")
+      .filter(Boolean)
+      .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+      .join(" ");
+  };
+  const formatRangeDate = (value) => {
+    if (!value) return "—";
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) return "—";
+      return formatAdminDate(value.toISOString());
+    }
+    const raw = String(value || "").trim();
+    if (!raw) return "—";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      return formatAdminDate(`${raw}T00:00:00`);
+    }
+    return formatAdminDate(raw);
+  };
+  const isFailedRow = (order) =>
+    String(order?.status || "").toLowerCase() === "failed";
+  const getRowKey = (order) => {
+    if (isAttemptEntry(order))
+      return `attempt:${order?.attempt_id || order?.id}`;
+    return `order:${order?.order_id || order?.id}`;
+  };
+  const isPaidPayment = (order) =>
+    ["paid", "captured"].includes(
+      String(order?.payment_status || "").toLowerCase(),
+    );
+  const canDeleteRow = (order) => !isPaidPayment(order);
+  const canReconcileAttempt = (order) => {
+    if (!isAttemptEntry(order)) return false;
+    const status = String(order?.payment_status || order?.paymentStatus || "")
+      .trim()
+      .toLowerCase();
+    return [
+      "created",
+      "checkout_opened",
+      "verification_pending",
+      "attempted",
+      "paid_unverified",
+      "reconciliation_pending",
+      "failed",
+    ].includes(status);
+  };
+  const canDownloadInvoice = (order) => {
+    if (isAttemptEntry(order)) return false;
+    const status = String(
+      order?.payment_status || order?.paymentStatus || "",
+    ).toLowerCase();
+    return status === "paid" || status === "refunded";
+  };
+  const getFromLabelValidation = useCallback(
+    (order) => {
+      if (!companyProfile) {
+        return { ok: false, missing: ["company profile"] };
+      }
+      return validateFromLabelData(companyProfile, order);
+    },
+    [companyProfile],
+  );
+  const getToLabelValidation = useCallback(
+    (order) => validateToLabelData(order),
+    [],
+  );
+  const canOpenShippingLabelModal = useCallback(
+    (order) => {
+      if (isAttemptEntry(order)) return false;
+      return getFromLabelValidation(order).ok || getToLabelValidation(order).ok;
+    },
+    [getFromLabelValidation, getToLabelValidation],
+  );
+  const canFetchPaymentStatus = (order) => {
+    if (isAttemptEntry(order)) return false;
+    if (!order?.razorpay_order_id && !order?.razorpay_payment_id) return false;
+    const paymentStatus = String(order?.payment_status || "").toLowerCase();
+    return [
+      "pending",
+      "created",
+      "attempted",
+      "paid",
+      "refunded",
+      "failed",
+    ].includes(paymentStatus);
+  };
+  const filteredManualCustomers = useMemo(() => {
+    const term = String(manualCustomerQuery || "")
+      .trim()
+      .toLowerCase();
+    const rows = Array.isArray(manualCustomers) ? manualCustomers : [];
+    if (!term) return rows;
+    return rows.filter((customer) => {
+      const haystack = [customer?.name, customer?.mobile, customer?.email]
+        .map((v) => String(v || "").toLowerCase())
+        .join(" ");
+      return haystack.includes(term);
     });
-    const [page, setPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
-    const [selectedOrder, setSelectedOrder] = useState(null);
-    const [pendingStatus, setPendingStatus] = useState('');
-    const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-    const [isDetailsLoading, setIsDetailsLoading] = useState(false);
-    const [detailsLastSyncedAt, setDetailsLastSyncedAt] = useState(null);
-    const [isDetailsDrawerScrolled, setIsDetailsDrawerScrolled] = useState(false);
-    const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-    const [cancellationMode, setCancellationMode] = useState('');
-    const [manualRefundAmount, setManualRefundAmount] = useState('');
-    const [manualRefundMethod, setManualRefundMethod] = useState('');
-    const [manualRefundRef, setManualRefundRef] = useState('');
-    const [manualRefundUtr, setManualRefundUtr] = useState('');
-    const [isFetchingPaymentStatus, setIsFetchingPaymentStatus] = useState(false);
-    const [attemptConversionMode, setAttemptConversionMode] = useState('cash');
-    const [attemptConversionReference, setAttemptConversionReference] = useState('');
-    const [attemptConversionReason, setAttemptConversionReason] = useState('');
-    const [isConvertingAttempt, setIsConvertingAttempt] = useState(false);
-    const [reconcilingAttemptId, setReconcilingAttemptId] = useState(null);
-    const [settlementContext, setSettlementContext] = useState({ mode: null, isTestMode: false });
-    const [paymentMethodContext, setPaymentMethodContext] = useState(null);
-    const [deletingOrderId, setDeletingOrderId] = useState(null);
-    const [isExporting, setIsExporting] = useState(false);
-    const [downloadingInvoiceId, setDownloadingInvoiceId] = useState(null);
-    const [sendingInvoiceId, setSendingInvoiceId] = useState(null);
-    const [printingLabelId, setPrintingLabelId] = useState(null);
-    const [printingLabelType, setPrintingLabelType] = useState('');
-    const [quickCompletingOrderId, setQuickCompletingOrderId] = useState(null);
-    const [companyProfile, setCompanyProfile] = useState(null);
-    const printerSupport = useMemo(() => getPrinterSupportState(), []);
-    const preferredPrinterTransport = useMemo(() => getPreferredPrinterTransport(), []);
-    const [preferredPrinter, setPreferredPrinter] = useState(() => getStoredPrinterPreference());
-    const [labelPrintModalOrder, setLabelPrintModalOrder] = useState(null);
-    const [isPrinterConnecting, setIsPrinterConnecting] = useState(false);
-    const [selectedStatusCount, setSelectedStatusCount] = useState(null);
-    const [selectedStatusCountKey, setSelectedStatusCountKey] = useState('confirmed');
-    const [statusCountCache, setStatusCountCache] = useState({});
-    const [isAnalyticsPanelOpen, setIsAnalyticsPanelOpen] = useState(false);
-    const [zoomedItemPreview, setZoomedItemPreview] = useState(null);
-    const detailsDrawerScrollRef = useRef(null);
-    const visiblePages = useMemo(() => buildVisiblePages(page, totalPages, 4), [page, totalPages]);
-    const [confirmModal, setConfirmModal] = useState({
-        isOpen: false,
-        title: '',
-        message: '',
-        confirmText: 'Confirm',
-        type: 'delete',
-        action: null
+  }, [manualCustomerQuery, manualCustomers]);
+  const selectedManualCustomer = useMemo(
+    () =>
+      (manualCustomers || []).find(
+        (row) => String(row?.id) === String(manualOrderForm.userId || ""),
+      ) || null,
+    [manualCustomers, manualOrderForm.userId],
+  );
+  const manualItemPayload = useMemo(
+    () =>
+      (manualOrderItems || [])
+        .map((row) => ({
+          productId: String(row?.productId || "").trim(),
+          variantId: String(row?.variantId || "").trim(),
+          quantity: Number(row?.quantity || 0),
+        }))
+        .filter(
+          (row) =>
+            row.productId && Number.isFinite(row.quantity) && row.quantity > 0,
+        ),
+    [manualOrderItems],
+  );
+  const isVariantInStock = (variant = {}) => {
+    const track =
+      String(variant?.track_quantity) === "1" ||
+      variant?.track_quantity === true;
+    if (!track) return true;
+    return Number(variant?.quantity || 0) > 0;
+  };
+  const isProductInStock = (product = {}) => {
+    const variants = Array.isArray(product?.variants) ? product.variants : [];
+    if (variants.length > 0)
+      return variants.some((variant) => isVariantInStock(variant));
+    const track =
+      String(product?.track_quantity) === "1" ||
+      product?.track_quantity === true;
+    if (!track) return true;
+    return Number(product?.quantity || 0) > 0;
+  };
+  const activeInStockProducts = useMemo(
+    () =>
+      (manualProducts || []).filter(
+        (product) =>
+          String(product?.status || "").toLowerCase() === "active" &&
+          isProductInStock(product),
+      ),
+    [manualProducts],
+  );
+  const filteredManualProducts = useMemo(() => {
+    const term = String(manualProductQuery || "")
+      .trim()
+      .toLowerCase();
+    const rows = Array.isArray(activeInStockProducts)
+      ? activeInStockProducts
+      : [];
+    if (!term) return rows;
+    return rows.filter((product) => {
+      const haystack = [
+        product?.title,
+        product?.sku,
+        ...(Array.isArray(product?.variants)
+          ? product.variants.map(
+              (v) => `${v?.variant_title || ""} ${v?.sku || ""}`,
+            )
+          : []),
+      ]
+        .map((v) => String(v || "").toLowerCase())
+        .join(" ");
+      return haystack.includes(term);
     });
-    const [isConfirmProcessing, setIsConfirmProcessing] = useState(false);
-    const [isCreateOrderOpen, setIsCreateOrderOpen] = useState(false);
-    const [manualCustomers, setManualCustomers] = useState([]);
-    const [isManualCustomersLoading, setIsManualCustomersLoading] = useState(false);
-    const [manualCustomerQuery, setManualCustomerQuery] = useState('');
-    const [manualOrderForm, setManualOrderForm] = useState({
-        userId: '',
-        mobile: '',
-        paymentMode: 'cash',
-        paymentReference: '',
-        couponCode: '',
+  }, [activeInStockProducts, manualProductQuery]);
+  const manualCartDisplayItems = useMemo(
+    () =>
+      (manualOrderItems || [])
+        .filter((row) => String(row?.productId || "").trim())
+        .map((row, idx) => {
+          const product = (manualProducts || []).find(
+            (entry) => String(entry?.id || "") === String(row?.productId || ""),
+          );
+          const variants = Array.isArray(product?.variants)
+            ? product.variants
+            : [];
+          const variant = variants.find(
+            (entry) => String(entry?.id || "") === String(row?.variantId || ""),
+          );
+          const qty = Math.max(1, Number(row?.quantity || 1));
+          const unitPrice = Number(
+            row?.unitPrice ?? getManualUnitPrice(product, variant),
+          );
+          return {
+            id: `${row?.productId || "p"}:${row?.variantId || ""}:${idx}`,
+            productId: row?.productId || "",
+            variantId: row?.variantId || "",
+            title:
+              row?.title ||
+              product?.title ||
+              `Product #${row?.productId || ""}`,
+            variantTitle: row?.variantTitle || variant?.variant_title || "",
+            quantity: qty,
+            lineTotal: Number((unitPrice * qty).toFixed(2)),
+          };
+        }),
+    [manualOrderItems, manualProducts],
+  );
+  const fallbackManualSummary = useMemo(() => {
+    const subtotal = (manualCartDisplayItems || []).reduce(
+      (sum, item) => sum + Number(item?.lineTotal || 0),
+      0,
+    );
+    return {
+      subtotal,
+      shippingFee: null,
+      couponDiscountTotal: null,
+      loyaltyDiscountTotal: null,
+      loyaltyShippingDiscountTotal: null,
+      taxTotal: null,
+      total: subtotal,
+    };
+  }, [manualCartDisplayItems]);
+  const syncManualOrderItemsFromUserCart = useCallback(async (userId) => {
+    const id = String(userId || "").trim();
+    if (!id) {
+      setManualOrderItems([]);
+      return [];
+    }
+    const data = await adminService.getUserCart(id);
+    const rows = Array.isArray(data?.items) ? data.items : [];
+    const normalizedRows = rows.map((item) => ({
+      productId: String(item?.productId || ""),
+      variantId: String(item?.variantId || ""),
+      quantity: Math.max(1, Number(item?.quantity || 1)),
+      title: String(item?.title || "").trim(),
+      variantTitle: String(item?.variantTitle || "").trim(),
+      unitPrice: Number(item?.price || 0),
+    }));
+    setManualOrderItems(normalizedRows);
+    return normalizedRows;
+  }, []);
+  const refreshManualCartDerivedData = useCallback(
+    async (userId, cartRows = null) => {
+      const id = String(userId || "").trim();
+      if (!id) return;
+      const rows = Array.isArray(cartRows)
+        ? cartRows
+        : await syncManualOrderItemsFromUserCart(id);
+      setIsManualCouponsLoading(true);
+      try {
+        const data = await adminService.getUserAvailableCoupons(id);
+        const coupons = Array.isArray(data?.coupons) ? data.coupons : [];
+        setManualCoupons(coupons);
+        setManualCouponError("");
+        const selectedCode = String(manualOrderForm.couponCode || "")
+          .trim()
+          .toUpperCase();
+        if (
+          selectedCode &&
+          !coupons.some(
+            (row) =>
+              String(row?.code || "")
+                .trim()
+                .toUpperCase() === selectedCode && row?.isEligible !== false,
+          )
+        ) {
+          setManualOrderForm((prev) => ({ ...prev, couponCode: "" }));
+        }
+      } catch (error) {
+        setManualCoupons([]);
+        setManualCouponError(
+          String(error?.message || "Failed to load coupons"),
+        );
+      } finally {
+        setIsManualCouponsLoading(false);
+      }
+
+      if (!(rows || []).length) {
+        setManualSummary(null);
+        setManualSummaryError("");
+        return;
+      }
+      const preferredShipping = resolvePrimaryAddress(
+        manualOrderForm.shippingAddress,
+        manualOrderForm.billingAddress,
+      );
+      if (!isAddressComplete(preferredShipping)) {
+        setManualSummary(null);
+        setManualSummaryError(
+          "Shipping address is incomplete. Fill Address line, City, State, and PIN code.",
+        );
+        return;
+      }
+      setIsManualSummaryLoading(true);
+      try {
+        const data = await adminService.getUserCartSummary(id, {
+          couponCode: manualOrderForm.couponCode || "",
+          shippingAddress: preferredShipping,
+        });
+        setManualSummary(data?.summary || null);
+        setManualSummaryError("");
+      } catch (error) {
+        setManualSummary(null);
+        setManualSummaryError(
+          String(error?.message || "Failed to calculate order pricing"),
+        );
+      } finally {
+        setIsManualSummaryLoading(false);
+      }
+    },
+    [
+      manualOrderForm.billingAddress,
+      manualOrderForm.couponCode,
+      manualOrderForm.shippingAddress,
+      syncManualOrderItemsFromUserCart,
+    ],
+  );
+  const effectiveManualSummary = useMemo(() => {
+    if (manualSummary) return manualSummary;
+    if ((manualOrderItems || []).length > 0) return fallbackManualSummary;
+    return null;
+  }, [fallbackManualSummary, manualOrderItems, manualSummary]);
+  const selectedOrderTotals = useMemo(
+    () => computeInvoiceAlignedSummary(selectedOrder),
+    [selectedOrder],
+  );
+  const selectedOrderInvoiceItems = useMemo(
+    () =>
+      computeInvoiceStyleItemRows(
+        selectedOrder,
+        selectedOrderTotals?.taxRegime,
+      ),
+    [selectedOrder, selectedOrderTotals],
+  );
+  const selectedOrderGstContext = useMemo(
+    () => getOrderGstContext(selectedOrder || {}),
+    [selectedOrder],
+  );
+  const selectedOrderCouponCode = useMemo(
+    () =>
+      String(
+        selectedOrder?.coupon_code ||
+          selectedOrder?.couponCode ||
+          selectedOrderTotals?.couponCode ||
+          "",
+      ).trim(),
+    [selectedOrder, selectedOrderTotals],
+  );
+  const selectedOrderHasAppliedCoupon = useMemo(
+    () =>
+      Number(selectedOrderTotals?.discounts?.coupon || 0) > 0 &&
+      Boolean(selectedOrderCouponCode),
+    [selectedOrderCouponCode, selectedOrderTotals],
+  );
+  const manualTotals = useMemo(
+    () => computeOrderTotalsDisplay(effectiveManualSummary),
+    [effectiveManualSummary],
+  );
+  const manualGstContext = useMemo(
+    () => ({
+      shippingState: String(
+        manualOrderForm.shippingAddress?.state || "",
+      ).trim(),
+      companyState: String(companyProfile?.state || "").trim(),
+    }),
+    [companyProfile?.state, manualOrderForm.shippingAddress?.state],
+  );
+  const selectedOrderShippingPresentation = useMemo(
+    () => getShippingPresentation(selectedOrder, selectedOrderTotals),
+    [selectedOrder, selectedOrderTotals],
+  );
+  const manualShippingPresentation = useMemo(
+    () => getShippingPresentation(effectiveManualSummary, manualTotals),
+    [effectiveManualSummary, manualTotals],
+  );
+  const isAddressComplete = (address = null) => {
+    const value = address || {};
+    return ["line1", "city", "state", "zip"].every((field) =>
+      String(value?.[field] || "").trim(),
+    );
+  };
+  const getMissingAddressFields = (address = null) => {
+    const value = address || {};
+    const labels = {
+      line1: "Address line",
+      city: "City",
+      state: "State",
+      zip: "PIN code",
+    };
+    return ["line1", "city", "state", "zip"]
+      .filter((field) => !String(value?.[field] || "").trim())
+      .map((field) => labels[field]);
+  };
+  const resolvePrimaryAddress = (
+    shippingAddress = null,
+    billingAddress = null,
+  ) => {
+    if (isAddressComplete(shippingAddress)) return shippingAddress;
+    if (isAddressComplete(billingAddress)) return billingAddress;
+    return shippingAddress || billingAddress || { ...EMPTY_ADDRESS };
+  };
+  const formatInrOrDash = (value) => {
+    if (value == null || Number.isNaN(Number(value))) return "—";
+    return `₹${Number(value).toLocaleString("en-IN")}`;
+  };
+  const effectiveBillingAddress = useMemo(
+    () =>
+      !billingAddressEnabled || manualOrderForm.billingSameAsShipping
+        ? manualOrderForm.shippingAddress
+        : manualOrderForm.billingAddress,
+    [
+      manualOrderForm.billingAddress,
+      manualOrderForm.billingSameAsShipping,
+      manualOrderForm.shippingAddress,
+    ],
+  );
+  const resolvedManualMobile = useMemo(
+    () =>
+      normalizeMobileDigits(
+        selectedManualCustomer?.mobile || manualOrderForm.mobile || "",
+      ),
+    [manualOrderForm.mobile, selectedManualCustomer?.mobile],
+  );
+  const customerNeedsManualMobile = useMemo(
+    () =>
+      Boolean(manualOrderForm.userId) &&
+      !normalizeMobileDigits(selectedManualCustomer?.mobile || ""),
+    [manualOrderForm.userId, selectedManualCustomer?.mobile],
+  );
+  const isManualMobileValid = useMemo(
+    () =>
+      resolvedManualMobile.length >= 10 && resolvedManualMobile.length <= 14,
+    [resolvedManualMobile],
+  );
+  const manualValidationState = useMemo(() => {
+    const shippingMissing = getMissingAddressFields(
+      manualOrderForm.shippingAddress,
+    );
+    const billingMissing =
+      !billingAddressEnabled || manualOrderForm.billingSameAsShipping
+        ? []
+        : getMissingAddressFields(manualOrderForm.billingAddress);
+    return {
+      missingCustomer: !manualOrderForm.userId,
+      missingCustomerMobile: !resolvedManualMobile,
+      invalidCustomerMobile:
+        Boolean(resolvedManualMobile) && !isManualMobileValid,
+      missingItems: manualItemPayload.length === 0,
+      shippingMissing,
+      billingMissing,
+    };
+  }, [
+    isManualMobileValid,
+    manualItemPayload.length,
+    manualOrderForm.billingAddress,
+    manualOrderForm.billingSameAsShipping,
+    manualOrderForm.shippingAddress,
+    manualOrderForm.userId,
+    resolvedManualMobile,
+  ]);
+  const canSubmitManualOrder = useMemo(() => {
+    if (!manualOrderForm.userId) return false;
+    if (!resolvedManualMobile || !isManualMobileValid) return false;
+    if (!isAddressComplete(manualOrderForm.shippingAddress)) return false;
+    if (!isAddressComplete(effectiveBillingAddress)) return false;
+    if (!manualItemPayload.length) return false;
+    return true;
+  }, [
+    effectiveBillingAddress,
+    isManualMobileValid,
+    manualItemPayload.length,
+    manualOrderForm.shippingAddress,
+    manualOrderForm.userId,
+    resolvedManualMobile,
+  ]);
+  const hasManualVariantGaps = useMemo(() => {
+    for (const row of manualOrderItems || []) {
+      const productId = String(row?.productId || "").trim();
+      if (!productId) continue;
+      const selectedProduct = (manualProducts || []).find(
+        (p) => String(p?.id || "") === productId,
+      );
+      const hasVariants =
+        Array.isArray(selectedProduct?.variants) &&
+        selectedProduct.variants.length > 0;
+      if (hasVariants && !String(row?.variantId || "").trim()) return true;
+    }
+    return false;
+  }, [manualOrderItems, manualProducts]);
+  const getRefundAmount = (order) =>
+    Number(order?.refund_amount ?? order?.refundAmount ?? 0);
+  const getRefundReference = (order) =>
+    order?.refund_reference || order?.refundReference || "";
+  const hasRefundInitiated = (order) =>
+    Boolean(
+      getRefundReference(order) ||
+      String(order?.refund_status || "").trim() ||
+      String(order?.payment_status || "").toLowerCase() === "refunded" ||
+      getRefundAmount(order) > 0,
+    );
+  const isRefundLockedOrder = (order) =>
+    String(order?.status || "").toLowerCase() === "cancelled" &&
+    hasRefundInitiated(order);
+  const formatSettlementAmount = (value, snapshot = null) =>
+    `₹${toSettlementRupees(value, snapshot).toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  const formatSettlementDateTime = (value) => {
+    if (!value && value !== 0) return "—";
+    const raw = Number(value);
+    const parsed =
+      Number.isFinite(raw) && raw > 0
+        ? new Date(raw < 1e12 ? raw * 1000 : raw)
+        : new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "—";
+    return formatAdminDateTime(parsed.toISOString());
+  };
+  const patchOrderRow = useCallback(
+    (nextOrder) => {
+      if (!nextOrder?.id) return;
+      setOrders((prev) => {
+        const nextRow = {
+          ...nextOrder,
+          entity_type: "order",
+          order_id: nextOrder.id,
+        };
+        const matchesCurrentFilter = orderMatchesStatusFilter(
+          nextRow,
+          statusFilter,
+        );
+        const idx = prev.findIndex(
+          (row) =>
+            !isAttemptEntry(row) &&
+            String(row.order_id || row.id) === String(nextOrder.id),
+        );
+        if (idx >= 0) {
+          if (!matchesCurrentFilter) {
+            return prev.filter(
+              (row) => String(row.order_id || row.id) !== String(nextOrder.id),
+            );
+          }
+          const copy = [...prev];
+          copy[idx] = { ...copy[idx], ...nextRow };
+          return sortOrdersForView(copy, sortBy);
+        }
+        if (page === 1 && matchesCurrentFilter) {
+          return sortOrdersForView([nextRow, ...prev], sortBy);
+        }
+        return prev;
+      });
+    },
+    [page, sortBy, statusFilter],
+  );
+  const patchAttemptRow = useCallback((attempt) => {
+    if (!attempt?.id) return;
+    setOrders((prev) => {
+      const idx = prev.findIndex(
+        (row) => String(row.attempt_id || row.id) === String(attempt.id),
+      );
+      if (idx < 0) return prev;
+      const copy = [...prev];
+      copy[idx] = {
+        ...copy[idx],
+        payment_status: attempt.status || copy[idx].payment_status,
+        razorpay_payment_id:
+          attempt.razorpay_payment_id || copy[idx].razorpay_payment_id,
+        failure_reason: attempt.failure_reason || copy[idx].failure_reason,
+      };
+      return copy;
+    });
+  }, []);
+  const removeRow = useCallback((id, type = "order") => {
+    if (!id) return;
+    setOrders((prev) =>
+      prev.filter((row) => {
+        if (type === "attempt")
+          return String(row.attempt_id || row.id) !== String(id);
+        return String(row.order_id || row.id) !== String(id);
+      }),
+    );
+  }, []);
+
+  const fetchOrders = useCallback(async () => {
+    const requestSeq = ++fetchSeqRef.current;
+    setIsLoading(true);
+    try {
+      const listParams = {
+        page,
+        status: requestedStatusFilter,
+        search,
+        startDate,
+        endDate,
+        quickRange,
+        sortBy,
+        sourceChannel,
+        limit: quickRange === "latest_10" ? 10 : 12,
+      };
+      const listData = await orderService.getAdminOrders(listParams);
+      if (requestSeq !== fetchSeqRef.current) return;
+
+      if (import.meta.env.DEV) {
+        console.debug("[admin orders] list response", {
+          params: listParams,
+          pagination: listData?.pagination || null,
+          totalOrders: listData?.pagination?.totalOrders,
+          ordersCount: Array.isArray(listData?.orders)
+            ? listData.orders.length
+            : 0,
+        });
+      }
+
+      setOrders(sortOrdersForView(listData.orders || [], sortBy));
+      const totalOrdersValue = Number(listData?.pagination?.totalOrders);
+      setSelectedStatusCount(
+        Number.isFinite(totalOrdersValue) ? totalOrdersValue : 0,
+      );
+      setSelectedStatusCountKey(requestedStatusFilter);
+      if (Number.isFinite(totalOrdersValue)) {
+        setStatusCountCache((prev) => ({
+          ...prev,
+          [requestedStatusFilter]: totalOrdersValue,
+        }));
+      }
+      const resolvedMetrics = listData?.metrics || null;
+      setMetrics(resolvedMetrics);
+      if (resolvedMetrics) {
+        setOrderMetricsSnapshot(metricsQuery, resolvedMetrics);
+      }
+      setTotalPages(listData.pagination?.totalPages || 1);
+    } catch (error) {
+      const cooldownUntil = Number(error?.cooldownUntil || 0);
+      if (error?.code === "FETCH_RETRY_COOLDOWN") {
+        if (
+          cooldownUntil > Number(ordersFailureToastCooldownRef.current || 0)
+        ) {
+          ordersFailureToastCooldownRef.current = cooldownUntil;
+          toast.error(
+            error.message || "Server unavailable. Retry paused briefly.",
+          );
+        }
+      } else {
+        ordersFailureToastCooldownRef.current = cooldownUntil;
+        toast.error(error.message || "Failed to load orders");
+      }
+    } finally {
+      if (requestSeq === fetchSeqRef.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [
+    endDate,
+    metricsQuery,
+    page,
+    quickRange,
+    requestedStatusFilter,
+    search,
+    setOrderMetricsSnapshot,
+    sortBy,
+    sourceChannel,
+    startDate,
+    toast,
+  ]);
+
+  useEffect(() => {
+    registerOrderMetricsQuery(metricsQuery);
+    fetchOrderMetrics(metricsQuery).catch(() => {});
+  }, [fetchOrderMetrics, metricsQuery, registerOrderMetricsQuery]);
+
+  useEffect(() => {
+    mobileStatusMetricQueries.forEach((query) => {
+      registerOrderMetricsQuery(query);
+      fetchOrderMetrics(query).catch(() => {});
+    });
+  }, [fetchOrderMetrics, mobileStatusMetricQueries, registerOrderMetricsQuery]);
+
+  useEffect(() => {
+    fetchOrders();
+  }, [fetchOrders]);
+
+  useEffect(() => {
+    let active = true;
+    adminService
+      .getCompanyInfo()
+      .then((data) => {
+        if (!active) return;
+        setCompanyProfile(data?.company || null);
+      })
+      .catch(() => {
+        if (!active) return;
+        setCompanyProfile(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedOrder) return;
+    setPendingStatus("");
+    setCancellationMode("");
+    setManualRefundAmount("");
+    setManualRefundMethod("");
+    setManualRefundRef("");
+    setManualRefundUtr("");
+  }, [selectedOrder?.id, selectedOrder?.status]);
+
+  const handleOrderRealtimeUpdate = useCallback(
+    (payload = {}) => {
+      if (payload?.deleted && payload?.orderId) {
+        removeRow(payload.orderId, "order");
+        orderService.removeAdminEntityCache({
+          id: payload.orderId,
+          entityType: "order",
+        });
+        markOrderMetricsDirty(metricsQuery);
+        fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
+        return;
+      }
+      if (
+        payload?.order &&
+        selectedOrder?.id &&
+        String(payload.order.id) === String(selectedOrder.id)
+      ) {
+        setSelectedOrder((prev) => ({ ...prev, ...payload.order }));
+      }
+      if (payload?.order) {
+        orderService.patchAdminOrderCache(payload.order);
+        patchOrderRow(payload.order);
+        markOrderMetricsDirty(metricsQuery);
+        fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
+      }
+    },
+    [
+      fetchOrderMetrics,
+      markOrderMetricsDirty,
+      metricsQuery,
+      patchOrderRow,
+      removeRow,
+      selectedOrder?.id,
+    ],
+  );
+
+  useAdminCrudSync({
+    "order:create": handleOrderRealtimeUpdate,
+    "order:update": handleOrderRealtimeUpdate,
+    "payment:update": handleOrderRealtimeUpdate,
+  });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const normalizedSearch = normalizeOrderSearchTerm(searchInput);
+      if (normalizedSearch) {
+        const allStatus = normalizeStatusSelection("all");
+        if (draftStatusFilter !== allStatus) {
+          setDraftStatusFilter(allStatus);
+        }
+        if (statusFilter !== allStatus) {
+          setStatusFilter(allStatus);
+        }
+      }
+      if (search === normalizedSearch) return;
+      setSearch(normalizedSearch);
+      setPage(1);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [
+    draftStatusFilter,
+    normalizeStatusSelection,
+    search,
+    searchInput,
+    statusFilter,
+  ]);
+
+  useEffect(() => {
+    const activeChip = mobileStatusChipRefs.current?.[statusFilter];
+    if (!activeChip || typeof activeChip.scrollIntoView !== "function") return;
+    activeChip.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+  }, [statusFilter]);
+
+  useEffect(() => {
+    const rawInitialStatus = String(initialStatusFilter || "").trim();
+    if (!rawInitialStatus) return;
+    const next = normalizeStatusSelection(rawInitialStatus);
+    setDraftStatusFilter(next);
+    if (statusFilter !== next) {
+      setStatusFilter(next);
+    }
+    if (page !== 1) {
+      setPage(1);
+    }
+    onInitialStatusApplied(next);
+  }, [
+    initialStatusFilter,
+    normalizeStatusSelection,
+    onInitialStatusApplied,
+    page,
+    statusFilter,
+  ]);
+
+  useEffect(() => {
+    const rawInitialQuickRange = String(initialQuickRange || "").trim();
+    if (!rawInitialQuickRange) return;
+    const nextRange = normalizeAdminQuickRange(rawInitialQuickRange);
+    if (!nextRange) return;
+    setDraftQuickRange(nextRange);
+    if (quickRange !== nextRange) {
+      setQuickRange(nextRange);
+    }
+    if (nextRange === "custom") {
+      shouldResetDashboardRangeOnNextStatusChangeRef.current = true;
+    }
+    if (page !== 1) {
+      setPage(1);
+    }
+    onInitialQuickRangeApplied(nextRange);
+  }, [initialQuickRange, onInitialQuickRangeApplied, page, quickRange]);
+
+  useEffect(() => {
+    const hasStart = String(initialStartDate || "").trim().length > 0;
+    const hasEnd = String(initialEndDate || "").trim().length > 0;
+    if (!hasStart && !hasEnd) return;
+    const nextStart = hasStart ? String(initialStartDate).trim() : "";
+    const nextEnd = hasEnd ? String(initialEndDate).trim() : "";
+    const nextStartDate = toDateOnly(nextStart);
+    const nextEndDate = toDateOnly(nextEnd);
+    const span =
+      nextStartDate && nextEndDate ? diffInDays(nextStartDate, nextEndDate) : 0;
+    if (nextStartDate && nextEndDate && span > MAX_RANGE_DAYS) {
+      setDraftQuickRange(DEFAULT_ADMIN_QUICK_RANGE);
+      setDraftStartDate("");
+      setDraftEndDate("");
+      setQuickRange(DEFAULT_ADMIN_QUICK_RANGE);
+      setStartDate("");
+      setEndDate("");
+      shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
+      if (page !== 1) {
+        setPage(1);
+      }
+      onInitialDateRangeApplied();
+      return;
+    }
+    setDraftQuickRange("custom");
+    setDraftStartDate(nextStart);
+    setDraftEndDate(nextEnd);
+    setQuickRange("custom");
+    setStartDate(nextStart);
+    setEndDate(nextEnd);
+    shouldResetDashboardRangeOnNextStatusChangeRef.current = true;
+    if (page !== 1) {
+      setPage(1);
+    }
+    onInitialDateRangeApplied();
+  }, [initialEndDate, initialStartDate, onInitialDateRangeApplied, page]);
+
+  useEffect(() => {
+    const nextSort = String(initialSortBy || "")
+      .trim()
+      .toLowerCase();
+    if (!nextSort) return;
+    setSortBy(nextSort);
+    if (page !== 1) {
+      setPage(1);
+    }
+    onInitialSortApplied(nextSort);
+  }, [initialSortBy, onInitialSortApplied, page]);
+
+  useEffect(() => {
+    const nextChannel = String(initialSourceChannel || "")
+      .trim()
+      .toLowerCase();
+    if (!nextChannel) return;
+    setSourceChannel(nextChannel);
+    if (page !== 1) {
+      setPage(1);
+    }
+    onInitialSourceChannelApplied(nextChannel);
+  }, [initialSourceChannel, onInitialSourceChannelApplied, page]);
+
+  const handleStatusFilterChange = (nextStatus) => {
+    const normalizedStatus = normalizeStatusSelection(nextStatus);
+    const nextDisplayedCount = Number(
+      mobileStatusChipCounts[normalizedStatus] || 0,
+    );
+    setDraftStatusFilter(normalizedStatus);
+    setSelectedStatusCount(nextDisplayedCount);
+    setSelectedStatusCountKey(normalizedStatus);
+    setStatusCountCache((prev) => ({
+      ...prev,
+      [normalizedStatus]: nextDisplayedCount,
+    }));
+    if (
+      shouldResetDashboardRangeOnNextStatusChangeRef.current &&
+      quickRange === "custom"
+    ) {
+      setDraftQuickRange(DEFAULT_ADMIN_QUICK_RANGE);
+      setDraftStartDate("");
+      setDraftEndDate("");
+      setQuickRange(DEFAULT_ADMIN_QUICK_RANGE);
+      setStartDate("");
+      setEndDate("");
+      shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
+    }
+    if (statusFilter !== normalizedStatus) {
+      setStatusFilter(normalizedStatus);
+      setPage(1);
+    }
+  };
+
+  const handleApplyFilters = (closeAfter = false) => {
+    const nextQuickRange = draftQuickRange;
+    const nextStartDate = nextQuickRange === "custom" ? draftStartDate : "";
+    const nextEndDate = nextQuickRange === "custom" ? draftEndDate : "";
+    const start = toDateOnly(nextStartDate);
+    const end = toDateOnly(nextEndDate);
+    if (nextQuickRange === "custom" && start && end) {
+      const span = diffInDays(start, end);
+      if (span > MAX_RANGE_DAYS) {
+        toast.error(`Custom range cannot exceed ${MAX_RANGE_DAYS} days`);
+        return;
+      }
+    }
+    const hasChanges =
+      statusFilter !== normalizeStatusSelection(draftStatusFilter) ||
+      quickRange !== nextQuickRange ||
+      startDate !== nextStartDate ||
+      endDate !== nextEndDate;
+
+    setStatusFilter(normalizeStatusSelection(draftStatusFilter));
+    setQuickRange(nextQuickRange);
+    setStartDate(nextStartDate);
+    setEndDate(nextEndDate);
+    shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
+    if (closeAfter) {
+      setIsFilterModalOpen(false);
+    }
+
+    if (page !== 1) {
+      setPage(1);
+      return;
+    }
+    if (!hasChanges) {
+      fetchOrders();
+    }
+  };
+
+  const handleQuickRangeDraftChange = (nextValue) => {
+    const next = normalizeAdminQuickRange(
+      nextValue || DEFAULT_ADMIN_QUICK_RANGE,
+    );
+    setDraftQuickRange(next);
+    if (next === "custom") return;
+    setDraftStartDate("");
+    setDraftEndDate("");
+    shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
+    if (quickRange !== next) {
+      setQuickRange(next);
+    }
+    if (startDate) {
+      setStartDate("");
+    }
+    if (endDate) {
+      setEndDate("");
+    }
+    if (page !== 1) {
+      setPage(1);
+    }
+  };
+
+  const formatReportAmount = (value) => Number(value || 0).toFixed(2);
+  const companyAddressParts = [
+    companyProfile?.address,
+    companyProfile?.city,
+    companyProfile?.state,
+    companyProfile?.postalCode,
+    companyProfile?.country,
+  ]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
+  const companyAddressLine = companyAddressParts.join(", ");
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      let currentPage = 1;
+      const batchLimit = quickRange === "latest_10" ? 10 : 200;
+      const exportRows = [];
+
+      while (currentPage <= 100) {
+        const data = await orderService.getAdminOrders({
+          page: currentPage,
+          limit: batchLimit,
+          status: requestedStatusFilter,
+          search,
+          startDate,
+          endDate,
+          quickRange,
+          sortBy,
+          sourceChannel,
+        });
+        const pageOrders = data.orders || [];
+        exportRows.push(...pageOrders);
+        if (
+          currentPage >= (data.pagination?.totalPages || 1) ||
+          pageOrders.length === 0
+        )
+          break;
+        currentPage += 1;
+      }
+
+      if (exportRows.length === 0) {
+        toast.error("No orders found for the selected filters");
+        return;
+      }
+
+      const detailedOrders = [];
+      const detailBatchSize = 10;
+      for (let index = 0; index < exportRows.length; index += detailBatchSize) {
+        const batch = exportRows.slice(index, index + detailBatchSize);
+        const batchResults = await Promise.all(
+          batch.map(async (order) => {
+            const targetId = order?.order_id || order?.id;
+            if (!targetId) return order;
+            try {
+              const data = await orderService.getAdminOrder(targetId);
+              return data?.order || order;
+            } catch {
+              return order;
+            }
+          }),
+        );
+        detailedOrders.push(...batchResults);
+      }
+
+      const columns = [
+        "Order Ref",
+        "Order Date",
+        "Customer",
+        "Mobile",
+        "Member Tier",
+        "Status",
+        "Payment Status",
+        "Payment Ref",
+        "Settlement Status",
+        "Settlement Date",
+        "Subtotal",
+        "Shipping",
+        "Price Before Discounts",
+        "Product Discount",
+        "Coupon Discount",
+        "Member Discount",
+        "Member Shipping Benefit",
+        "Total Savings",
+        "Price After Discounts",
+        "GST",
+        "Tax Type",
+        "Tax Rate",
+        "IGST",
+        "SGST",
+        "CGST",
+        "Company State",
+        "Shipping State",
+        "Round Off",
+        "Grand Total",
+        "Tax Regime",
+        "Coupon Code",
+        "Source Channel",
+      ];
+
+      const rows = detailedOrders.map((order) => {
+        const totals = computeInvoiceAlignedSummary(order);
+        const gstContext = getOrderGstContext(order || {});
+        const gst = getGstDisplayDetails({
+          taxAmount: Number(totals?.gstTotal || 0),
+          ...gstContext,
+        });
+        const jurisdiction = resolveGstJurisdiction(gstContext);
+        const taxRateLabel = getOrderTaxRateLabel(order, jurisdiction.kind);
+        return [
+          order.order_ref,
+          formatAdminDate(order.created_at),
+          order.customer_name || "Guest",
+          order.customer_mobile || "",
+          getTierLabel(order),
+          order.status || "pending",
+          getPaymentStatusLabel(order),
+          getPaymentReference(order),
+          order?.settlement_snapshot?.status || "—",
+          order?.settlement_snapshot?.created_at
+            ? formatAdminDateTime(
+                new Date(
+                  Number(order.settlement_snapshot.created_at) * 1000,
+                ).toISOString(),
+              )
+            : "—",
+          formatReportAmount(totals?.subtotal),
+          formatReportAmount(totals?.shipping),
+          formatReportAmount(totals?.priceBeforeDiscounts),
+          formatReportAmount(totals?.discounts?.product),
+          formatReportAmount(totals?.discounts?.coupon),
+          formatReportAmount(totals?.discounts?.member),
+          formatReportAmount(totals?.discounts?.memberShippingBenefit),
+          formatReportAmount(totals?.discounts?.totalSavings),
+          formatReportAmount(totals?.priceAfterDiscounts),
+          formatReportAmount(totals?.gstTotal),
+          gst.taxTypeLabel,
+          taxRateLabel,
+          formatReportAmount(
+            jurisdiction.kind === "inter_state" ? gst.igstAmount : 0,
+          ),
+          formatReportAmount(
+            jurisdiction.kind === "intra_state" ? gst.sgstAmount : 0,
+          ),
+          formatReportAmount(
+            jurisdiction.kind === "intra_state" ? gst.cgstAmount : 0,
+          ),
+          gstContext.companyState || "",
+          gstContext.shippingState || "",
+          formatReportAmount(totals?.roundOffAmount),
+          formatReportAmount(totals?.grandTotal),
+          String(totals?.taxRegime || "exclusive"),
+          order.coupon_code || "",
+          getSourceLabel(order),
+        ];
+      });
+
+      const prefaceRows = [
+        ["Company", companyProfile?.displayName || "SSC Jewellery"],
+        ["GST Number", companyProfile?.gstNumber || "—"],
+        ["Support Email", companyProfile?.supportEmail || "—"],
+        ["Contact Number", companyProfile?.contactNumber || "—"],
+        ["Address", companyAddressLine || "—"],
+        ["Generated At", formatAdminDateTime(new Date().toISOString())],
+        [
+          "Filters",
+          `Status: ${requestedStatusFilter === "all" ? "All Sales" : requestedStatusFilter}, Search: ${search || "—"}, Range: ${quickRange}, Source: ${sourceChannel || "all"}, Sort: ${sortBy}`,
+        ],
+        [],
+      ];
+
+      await downloadWorkbook({
+        fileName: `orders-report-${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheetName: "Orders",
+        columns,
+        rows,
+        prefaceRows,
+      });
+    } catch (error) {
+      toast.error(error.message || "Failed to export order report");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleDownloadInvoice = async (order, e = null) => {
+    if (e) e.stopPropagation();
+    if (!order || isAttemptEntry(order) || !canDownloadInvoice(order)) return;
+    const targetId = order.order_id || order.id;
+    setDownloadingInvoiceId(targetId);
+    try {
+      await orderService.downloadAdminInvoice(targetId);
+    } catch (error) {
+      toast.error(error.message || "Unable to generate invoice");
+    } finally {
+      setDownloadingInvoiceId(null);
+    }
+  };
+
+  const handleSendInvoiceCommunication = async (order, e = null) => {
+    if (e) e.stopPropagation();
+    if (!order || isAttemptEntry(order) || !canDownloadInvoice(order)) return;
+    const targetId = order.order_id || order.id;
+    setSendingInvoiceId(targetId);
+    try {
+      const response =
+        await orderService.sendAdminInvoiceCommunication(targetId);
+      if (response?.queued === true) {
+        toast.success(response?.message || "Invoice communication queued");
+        return;
+      }
+      const emailSent = response?.delivery?.email?.ok === true;
+      const whatsappSent = response?.delivery?.whatsapp?.ok === true;
+      if (emailSent && whatsappSent) {
+        toast.success("Invoice sent to customer via email and WhatsApp");
+        return;
+      }
+      if (emailSent || whatsappSent) {
+        const sentChannels = [
+          emailSent ? "email" : "",
+          whatsappSent ? "WhatsApp" : "",
+        ]
+          .filter(Boolean)
+          .join(" + ");
+        toast.success(`Invoice sent via ${sentChannels}`);
+        return;
+      }
+      toast.error(
+        "Invoice could not be sent on email/WhatsApp for this customer",
+      );
+    } catch (error) {
+      toast.error(error.message || "Unable to send invoice to customer");
+    } finally {
+      setSendingInvoiceId(null);
+    }
+  };
+  const closeLabelPrintModal = useCallback(() => {
+    if (printingLabelId || isPrinterConnecting) return;
+    setLabelPrintModalOrder(null);
+  }, [isPrinterConnecting, printingLabelId]);
+
+  const handleOpenPrintLabelModal = (order, e = null) => {
+    if (e) e.stopPropagation();
+    if (!order || isAttemptEntry(order)) return;
+    setLabelPrintModalOrder(order);
+  };
+
+  const handleConnectLabelPrinter = async (
+    transport = preferredPrinterTransport,
+  ) => {
+    if (!printerSupport.supported) {
+      toast.error(printerSupport.reason);
+      return;
+    }
+    setIsPrinterConnecting(true);
+    try {
+      const printer = await configurePreferredPrinter({ transport });
+      const storedPrinter = getStoredPrinterPreference();
+      setPreferredPrinter(storedPrinter);
+      const transportLabel =
+        String(printer?.transport || transport).toLowerCase() === "usb"
+          ? "USB"
+          : "Bluetooth";
+      toast.success(
+        `${printer?.name || "Printer"} paired over ${transportLabel}`,
+      );
+    } catch (error) {
+      toast.error(error?.message || "Failed to pair printer");
+    } finally {
+      setIsPrinterConnecting(false);
+    }
+  };
+
+  const handlePrintSingleLabel = async (type, order) => {
+    if (!printerSupport.supported) {
+      toast.error(printerSupport.reason);
+      return;
+    }
+    const validation =
+      type === "from"
+        ? getFromLabelValidation(order)
+        : getToLabelValidation(order);
+    if (!validation.ok) {
+      toast.error(
+        `${type === "from" ? "From" : "To"} label unavailable: missing ${validation.missing.join(", ")}`,
+      );
+      return;
+    }
+    setPrintingLabelId(order.order_id || order.id);
+    setPrintingLabelType(type);
+    try {
+      let result;
+      try {
+        result =
+          type === "from"
+            ? await printFromLabel({
+                order,
+                companyProfile,
+                forceReconnect: false,
+                transport: preferredPrinterTransport,
+                onProgress: () => {},
+              })
+            : await printToLabel({
+                order,
+                forceReconnect: false,
+                transport: preferredPrinterTransport,
+                onProgress: () => {},
+              });
+      } catch (error) {
+        result =
+          type === "from"
+            ? await printFromLabel({
+                order,
+                companyProfile,
+                forceReconnect: true,
+                transport: preferredPrinterTransport,
+                onProgress: () => {},
+              }).catch(() => {
+                throw error;
+              })
+            : await printToLabel({
+                order,
+                forceReconnect: true,
+                transport: preferredPrinterTransport,
+                onProgress: () => {},
+              }).catch(() => {
+                throw error;
+              });
+      }
+      const transportLabel =
+        String(result?.printer?.transport || "").toLowerCase() === "usb"
+          ? "USB"
+          : "Bluetooth";
+      setPreferredPrinter(getStoredPrinterPreference());
+      toast.success(
+        `${type === "from" ? "From" : "To"} label printed for ${order.order_ref} via ${transportLabel}`,
+      );
+    } catch (error) {
+      toast.error(error?.message || `Failed to print ${type} label`);
+    } finally {
+      setPrintingLabelId(null);
+      setPrintingLabelType("");
+    }
+  };
+
+  const normalizeUserAddress = (address = null) => {
+    if (!address || typeof address !== "object") return { ...EMPTY_ADDRESS };
+    return {
+      line1: String(
+        address.line1 ||
+          address.address1 ||
+          address.street ||
+          address.address ||
+          "",
+      ).trim(),
+      city: String(address.city || address.town || "").trim(),
+      state: String(address.state || address.province || "").trim(),
+      zip: String(
+        address.zip ||
+          address.pincode ||
+          address.pin ||
+          address.postalCode ||
+          "",
+      ).trim(),
+    };
+  };
+
+  const loadManualCustomers = useCallback(
+    async (query = "") => {
+      const seq = ++customerFetchSeqRef.current;
+      setIsManualCustomersLoading(true);
+      try {
+        const first = await adminService.getUsers(1, "customer", 50, query);
+        if (seq !== customerFetchSeqRef.current) return;
+        const normalizeRows = (rows = []) =>
+          rows.map((row) => ({
+            ...row,
+            address: normalizeUserAddress(row?.address),
+            billingAddress: normalizeUserAddress(
+              row?.billingAddress || row?.address,
+            ),
+          }));
+        const firstRows = normalizeRows(first?.users || []);
+        setManualCustomers(firstRows);
+        const totalPages = Math.max(
+          1,
+          Number(first?.pagination?.totalPages || 1),
+        );
+        if (totalPages > 1) setIsManualCustomersFetchingMore(true);
+        for (let pageNo = 2; pageNo <= totalPages; pageNo += 1) {
+          const next = await adminService.getUsers(
+            pageNo,
+            "customer",
+            50,
+            query,
+          );
+          if (seq !== customerFetchSeqRef.current) return;
+          const nextRows = normalizeRows(next?.users || []);
+          setManualCustomers((prev) => {
+            const seen = new Set((prev || []).map((entry) => String(entry.id)));
+            const merged = [...(prev || [])];
+            for (const row of nextRows) {
+              if (!seen.has(String(row.id))) {
+                merged.push(row);
+              }
+            }
+            return merged;
+          });
+        }
+      } catch (error) {
+        if (seq === customerFetchSeqRef.current) {
+          toast.error(error?.message || "Failed to load customers");
+        }
+      } finally {
+        if (seq === customerFetchSeqRef.current) {
+          setIsManualCustomersLoading(false);
+          setIsManualCustomersFetchingMore(false);
+        }
+      }
+    },
+    [toast],
+  );
+
+  const loadManualProducts = useCallback(
+    async (query = "") => {
+      const seq = ++productFetchSeqRef.current;
+      setIsManualProductsLoading(true);
+      try {
+        const term = String(query || "").trim();
+        if (term) {
+          const data = await productService.searchProducts({
+            query: term,
+            page: 1,
+            limit: 60,
+            category: "all",
+            status: "active",
+            sort: "relevance",
+            inStockOnly: true,
+          });
+          if (seq !== productFetchSeqRef.current) return;
+          setManualProducts(Array.isArray(data?.products) ? data.products : []);
+        } else {
+          const first = await productService.getProducts(
+            1,
+            "all",
+            "active",
+            "newest",
+            100,
+          );
+          if (seq !== productFetchSeqRef.current) return;
+          const firstRows = Array.isArray(first?.products)
+            ? first.products
+            : [];
+          setManualProducts(firstRows);
+          const totalPages = Math.max(1, Number(first?.totalPages || 1));
+          if (totalPages > 1) setIsManualProductsFetchingMore(true);
+          for (let pageNo = 2; pageNo <= Math.min(totalPages, 8); pageNo += 1) {
+            const next = await productService.getProducts(
+              pageNo,
+              "all",
+              "active",
+              "newest",
+              100,
+            );
+            if (seq !== productFetchSeqRef.current) return;
+            const nextRows = Array.isArray(next?.products) ? next.products : [];
+            setManualProducts((prev) => {
+              const seen = new Set(
+                (prev || []).map((entry) => String(entry.id)),
+              );
+              const merged = [...(prev || [])];
+              for (const row of nextRows) {
+                if (!seen.has(String(row.id))) merged.push(row);
+              }
+              return merged;
+            });
+          }
+        }
+      } catch (error) {
+        if (seq === productFetchSeqRef.current) {
+          toast.error(error?.message || "Failed to load products");
+        }
+      } finally {
+        if (seq === productFetchSeqRef.current) {
+          setIsManualProductsLoading(false);
+          setIsManualProductsFetchingMore(false);
+        }
+      }
+    },
+    [toast],
+  );
+
+  const openCreateManualOrder = useCallback(async () => {
+    setIsCreateOrderOpen(true);
+    setManualCreateAttempted(false);
+    setManualCartTouched(false);
+    setManualDraftItem({ ...EMPTY_MANUAL_ITEM });
+    setManualOrderItems([]);
+    setManualCoupons([]);
+    setManualProductQuery("");
+    setManualSummaryError("");
+    setManualCouponError("");
+    setManualOrderForm((prev) => ({ ...prev, couponCode: "" }));
+    await Promise.all([loadManualProducts(""), loadManualCustomers("")]);
+  }, [loadManualCustomers, loadManualProducts]);
+
+  const closeCreateManualOrder = useCallback(async () => {
+    if (isCreatingManualOrder) return;
+    const selectedUserId = String(manualOrderForm.userId || "").trim();
+    const shouldClearCart = manualCartTouched && selectedUserId;
+    setIsCreateOrderOpen(false);
+    if (shouldClearCart) {
+      try {
+        await adminService.clearUserCart(selectedUserId);
+      } catch {
+        // no-op; close should not block on cleanup
+      }
+    }
+    setManualDraftItem({ ...EMPTY_MANUAL_ITEM });
+    setManualOrderItems([]);
+    setManualCoupons([]);
+    setManualSummary(null);
+    setManualCreateAttempted(false);
+    setManualCartTouched(false);
+  }, [isCreatingManualOrder, manualCartTouched, manualOrderForm.userId]);
+
+  const updateManualDraftItem = (patch = {}) => {
+    setManualDraftItem((prev) => {
+      const merged = { ...(prev || EMPTY_MANUAL_ITEM), ...patch };
+      const qty = Math.max(1, Number(merged.quantity || 1));
+      return { ...merged, quantity: qty };
+    });
+  };
+
+  const addManualDraftToCart = async () => {
+    if (!manualOrderForm.userId) {
+      toast.error("Select customer first");
+      return;
+    }
+    const productId = String(manualDraftItem?.productId || "").trim();
+    if (!productId) {
+      toast.error("Select a product first");
+      return;
+    }
+    const product = (manualProducts || []).find(
+      (entry) => String(entry?.id) === productId,
+    );
+    if (!product) {
+      toast.error("Selected product is unavailable");
+      return;
+    }
+    const variants = Array.isArray(product?.variants)
+      ? product.variants.filter((variant) => isVariantInStock(variant))
+      : [];
+    const hasVariants = variants.length > 0;
+    const variantId = String(manualDraftItem?.variantId || "").trim();
+    if (hasVariants && !variantId) {
+      toast.error("Select a variant before adding");
+      return;
+    }
+    if (
+      variantId &&
+      !variants.some((entry) => String(entry?.id) === variantId)
+    ) {
+      toast.error("Selected variant is unavailable");
+      return;
+    }
+    const quantity = Math.max(1, Number(manualDraftItem?.quantity || 1));
+    try {
+      await adminService.addUserCartItem(manualOrderForm.userId, {
+        productId,
+        variantId,
+        quantity,
+      });
+      const rows = await syncManualOrderItemsFromUserCart(
+        manualOrderForm.userId,
+      );
+      setManualCartTouched(true);
+      setManualDraftItem({ ...EMPTY_MANUAL_ITEM });
+      await refreshManualCartDerivedData(manualOrderForm.userId, rows);
+    } catch (error) {
+      toast.error(error?.message || "Failed to add item to customer cart");
+    }
+  };
+
+  const removeManualCartItem = async (productId, variantId = "") => {
+    if (!manualOrderForm.userId) return;
+    try {
+      await adminService.removeUserCartItem(manualOrderForm.userId, {
+        productId,
+        variantId,
+      });
+      const rows = await syncManualOrderItemsFromUserCart(
+        manualOrderForm.userId,
+      );
+      setManualCartTouched(true);
+      await refreshManualCartDerivedData(manualOrderForm.userId, rows);
+    } catch (error) {
+      toast.error(error?.message || "Failed to remove item from customer cart");
+    }
+  };
+
+  const updateManualAddress = (type, field, value) => {
+    setManualOrderForm((prev) => {
+      const next = {
+        ...prev,
+        [type]: {
+          ...(prev[type] || { ...EMPTY_ADDRESS }),
+          [field]: value,
+        },
+      };
+      if (type === "shippingAddress" && prev.billingSameAsShipping) {
+        next.billingAddress = { ...next.shippingAddress };
+      }
+      return next;
+    });
+  };
+
+  const handleManualCustomerSelect = useCallback(
+    async (userId) => {
+      const customer = (manualCustomers || []).find(
+        (row) => String(row?.id) === String(userId || ""),
+      );
+      const normalizedShipping = customer?.address
+        ? normalizeUserAddress(customer.address)
+        : { ...EMPTY_ADDRESS };
+      const normalizedBilling = customer?.billingAddress
+        ? normalizeUserAddress(customer.billingAddress)
+        : normalizedShipping;
+      const primaryAddress = resolvePrimaryAddress(
+        normalizedShipping,
+        normalizedBilling,
+      );
+      setManualOrderForm((prev) => ({
+        ...prev,
+        userId: userId || "",
+        mobile: customer?.mobile || "",
+        couponCode: "",
+        shippingAddress: { ...primaryAddress },
+        billingAddress: prev.billingSameAsShipping
+          ? { ...primaryAddress }
+          : normalizedBilling,
+      }));
+      setManualCoupons([]);
+      setManualSummary(null);
+      setManualSummaryError("");
+      setManualCouponError("");
+      const rows = await syncManualOrderItemsFromUserCart(userId);
+      await refreshManualCartDerivedData(userId, rows);
+    },
+    [
+      manualCustomers,
+      refreshManualCartDerivedData,
+      syncManualOrderItemsFromUserCart,
+    ],
+  );
+
+  useEffect(() => {
+    const userId = String(initialManualCustomerId || "").trim();
+    if (!userId) return;
+    const boot = async () => {
+      await openCreateManualOrder();
+      await handleManualCustomerSelect(userId);
+      onInitialManualCustomerApplied(userId);
+    };
+    boot();
+  }, [
+    handleManualCustomerSelect,
+    initialManualCustomerId,
+    onInitialManualCustomerApplied,
+    openCreateManualOrder,
+  ]);
+
+  useEffect(() => {
+    if (!isCreateOrderOpen) return;
+    const timer = setTimeout(() => {
+      loadManualCustomers(manualCustomerQuery);
+    }, 220);
+    return () => clearTimeout(timer);
+  }, [isCreateOrderOpen, loadManualCustomers, manualCustomerQuery]);
+
+  useEffect(() => {
+    if (!isCreateOrderOpen) return;
+    const timer = setTimeout(() => {
+      loadManualProducts(manualProductQuery);
+    }, 220);
+    return () => clearTimeout(timer);
+  }, [isCreateOrderOpen, loadManualProducts, manualProductQuery]);
+
+  useEffect(() => {
+    if (!isCreateOrderOpen || !manualOrderForm.userId) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+      await refreshManualCartDerivedData(manualOrderForm.userId);
+    }, 120);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    isCreateOrderOpen,
+    manualOrderForm.billingAddress,
+    manualOrderForm.couponCode,
+    manualOrderForm.shippingAddress,
+    manualOrderForm.userId,
+    refreshManualCartDerivedData,
+  ]);
+
+  const validateManualAddress = (address = null) => {
+    return isAddressComplete(address);
+  };
+
+  const handleCreateManualOrder = async () => {
+    setManualCreateAttempted(true);
+    if (!canSubmitManualOrder) {
+      toast.error("Complete all mandatory fields before creating order");
+      return;
+    }
+    if (!manualOrderForm.userId) {
+      toast.error("Select a customer");
+      return;
+    }
+    if (!validateManualAddress(manualOrderForm.shippingAddress)) {
+      toast.error("Complete shipping address fields");
+      return;
+    }
+    if (!validateManualAddress(effectiveBillingAddress)) {
+      toast.error("Complete billing address fields");
+      return;
+    }
+    if (!resolvedManualMobile) {
+      toast.error("Enter a customer mobile number");
+      return;
+    }
+    if (!isManualMobileValid) {
+      toast.error("Customer mobile must contain 10-14 digits");
+      return;
+    }
+    if (!manualItemPayload.length) {
+      toast.error("Add at least one product item");
+      return;
+    }
+    if (hasManualVariantGaps) {
+      toast.error("Select variant for all variant products");
+      return;
+    }
+    setIsCreatingManualOrder(true);
+    try {
+      const payload = {
+        userId: manualOrderForm.userId,
+        paymentMode: manualOrderForm.paymentMode,
+        paymentReference: manualOrderForm.paymentReference || "",
+        couponCode: manualOrderForm.couponCode || "",
+        useCustomerCart: true,
+        mobile: resolvedManualMobile,
+        shippingAddress: manualOrderForm.shippingAddress,
+        billingAddress: effectiveBillingAddress,
+      };
+      const data = await orderService.createAdminManualOrder(payload);
+      const nextOrder = data?.order || null;
+      if (!nextOrder) throw new Error("Order creation failed");
+      toast.success("Manual order created");
+      setIsCreateOrderOpen(false);
+      setManualCreateAttempted(false);
+      setManualOrderForm({
+        userId: "",
+        mobile: "",
+        paymentMode: "cash",
+        paymentReference: "",
+        couponCode: "",
         shippingAddress: { ...EMPTY_ADDRESS },
         billingAddress: { ...EMPTY_ADDRESS },
-        billingSameAsShipping: true
-    });
-    const [manualDraftItem, setManualDraftItem] = useState({ ...EMPTY_MANUAL_ITEM });
-    const [manualOrderItems, setManualOrderItems] = useState([]);
-    const [manualProducts, setManualProducts] = useState([]);
-    const [manualProductQuery, setManualProductQuery] = useState('');
-    const [isManualProductsLoading, setIsManualProductsLoading] = useState(false);
-    const [isManualCustomersFetchingMore, setIsManualCustomersFetchingMore] = useState(false);
-    const [isManualProductsFetchingMore, setIsManualProductsFetchingMore] = useState(false);
-    const [manualCoupons, setManualCoupons] = useState([]);
-    const [isManualCouponsLoading, setIsManualCouponsLoading] = useState(false);
-    const [manualSummary, setManualSummary] = useState(null);
-    const [isManualSummaryLoading, setIsManualSummaryLoading] = useState(false);
-    const [manualSummaryError, setManualSummaryError] = useState('');
-    const [manualCouponError, setManualCouponError] = useState('');
-    const [isCreatingManualOrder, setIsCreatingManualOrder] = useState(false);
-    const [manualCreateAttempted, setManualCreateAttempted] = useState(false);
-    const [manualCartTouched, setManualCartTouched] = useState(false);
-    const normalizeStatusSelection = useCallback((value) => {
-        const normalized = String(value || 'all').trim().toLowerCase() || 'all';
-        return normalized;
-    }, []);
-    const requestedStatusFilter = useMemo(() => {
-        return normalizeStatusSelection(statusFilter);
-    }, [normalizeStatusSelection, statusFilter]);
-    const customerFetchSeqRef = useRef(0);
-    const productFetchSeqRef = useRef(0);
-    const {
-        orderMetricsByKey,
-        registerOrderMetricsQuery,
-        setOrderMetricsSnapshot,
-        markOrderMetricsDirty,
-        fetchOrderMetrics,
-        toOrderMetricsKey
-    } = useAdminKPI();
-    const metricsQuery = useMemo(() => ({
-        search,
-        startDate,
-        endDate,
-        quickRange,
-        sourceChannel,
-        status: statusFilter
-    }), [endDate, quickRange, search, sourceChannel, startDate, statusFilter]);
-    const mobileStatusMetricQueries = useMemo(() => (
-        MOBILE_STATUS_FILTER_VALUES.map((value) => ({
-            search,
-            startDate,
-            endDate,
-            quickRange,
-            sourceChannel,
-            status: value
-        }))
-    ), [endDate, quickRange, search, sourceChannel, startDate]);
+        billingSameAsShipping: true,
+      });
+      setManualDraftItem({ ...EMPTY_MANUAL_ITEM });
+      setManualOrderItems([]);
+      setManualCoupons([]);
+      setManualProductQuery("");
+      setManualCartTouched(false);
+      setPage(1);
+      fetchOrders(1);
+      openDetails(nextOrder);
+    } catch (error) {
+      toast.error(error?.message || "Failed to create manual order");
+    } finally {
+      setIsCreatingManualOrder(false);
+    }
+  };
 
-    useEffect(() => {
-        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
-        const media = window.matchMedia(MOBILE_ORDERS_MEDIA_QUERY);
-        const handleChange = (event) => {
-            setIsMobileViewport(Boolean(event.matches));
-        };
-        setIsMobileViewport(media.matches);
-        if (typeof media.addEventListener === 'function') {
-            media.addEventListener('change', handleChange);
-            return () => media.removeEventListener('change', handleChange);
-        }
-        media.addListener(handleChange);
-        return () => media.removeListener(handleChange);
-    }, []);
+  const handleConvertAttemptToPaidOrder = async () => {
+    if (!selectedOrder || !isAttemptEntry(selectedOrder)) return;
+    setIsConvertingAttempt(true);
+    try {
+      const payload = {
+        paymentMode: attemptConversionMode,
+        paymentReference: attemptConversionReference,
+        conversionReason: attemptConversionReason,
+      };
+      const data = await orderService.convertAdminPaymentAttemptToOrder(
+        selectedOrder.attempt_id || selectedOrder.id,
+        payload,
+      );
+      const order = data?.order || null;
+      if (!order) throw new Error("Attempt conversion failed");
+      toast.success("Failed attempt converted to successful order");
+      setSelectedOrder(order);
+      setPendingStatus("");
+      setDetailsLastSyncedAt(new Date().toISOString());
+      setAttemptConversionReference("");
+      setAttemptConversionReason("");
+      setPage(1);
+      fetchOrders(1);
+    } catch (error) {
+      toast.error(error?.message || "Failed to convert payment attempt");
+    } finally {
+      setIsConvertingAttempt(false);
+    }
+  };
 
-    useEffect(() => {
-        const normalizedStatus = normalizeStatusSelection(statusFilter);
-        const normalizedDraft = normalizeStatusSelection(draftStatusFilter);
-        if (normalizedStatus !== statusFilter) {
-            setStatusFilter(normalizedStatus);
-        }
-        if (normalizedDraft !== draftStatusFilter) {
-            setDraftStatusFilter(normalizedDraft);
-        }
-    }, [draftStatusFilter, normalizeStatusSelection, statusFilter]);
-    const metricsKey = toOrderMetricsKey(metricsQuery);
-    const sharedMetrics = orderMetricsByKey[metricsKey]?.metrics || null;
-    const getPaymentMethodLabel = (order) => {
-        const method = String(order?.payment_gateway || order?.paymentGateway || 'razorpay').toLowerCase();
-        if (method === 'razorpay') return 'Razorpay';
-        if (method === 'cod') return 'Online Payment';
-        return method ? method.toUpperCase() : '—';
-    };
-    const getPaymentReference = (order) => {
-        const settlement = order?.settlement_snapshot || order?.settlementSnapshot || null;
-        const loyaltyMeta = order?.loyalty_meta || order?.loyaltyMeta || null;
-        return order?.gateway_payment_ref
-            || order?.gatewayPaymentRef
-            || order?.razorpay_payment_id
-            || order?.razorpayPaymentId
-            || settlement?.payment_reference
-            || settlement?.paymentReference
-            || loyaltyMeta?.paymentReference
-            || loyaltyMeta?.manualPaymentReference
-            || '—';
-    };
-    const getInvoiceNumber = (order) => {
-        const ref = order?.order_ref || order?.orderRef || order?.id || 'N/A';
-        return `INV-${ref}`;
-    };
-    const getPaymentStatusLabel = (order) => {
-        if (getEffectiveOrderDisplayStatus(order) === 'attempted') return 'Attempted';
-        const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
-        if (!status) return '—';
-        return `${status.charAt(0).toUpperCase()}${status.slice(1)}`;
-    };
-    const getTierLabel = (order) => {
-        const tier = String(order?.loyalty_tier || order?.loyaltyTier || 'regular').toLowerCase();
-        if (tier === 'regular') return 'Basic';
-        return `${tier.charAt(0).toUpperCase()}${tier.slice(1)}`;
-    };
-    const isAttemptEntry = (order) => String(order?.entity_type || '').toLowerCase() === 'attempt';
-    const isAbandonedRecoveryOrder = (order) => Boolean(order?.is_abandoned_recovery || order?.source_channel === 'abandoned_recovery');
-    const getSourceLabel = (order) => {
-        if (isAbandonedRecoveryOrder(order)) return 'Abandoned cart recovery';
-        const rawSource = String(order?.source_channel || order?.sourceChannel || '').trim().toLowerCase();
-        if (!rawSource || rawSource === 'direct' || rawSource === 'checkout_webhook_recovery') {
-            return 'Website Direct';
-        }
-        if (rawSource === 'admin_manual') return 'Admin Manual';
-        if (rawSource === 'admin_attempt_conversion') return 'Admin Attempt Conversion';
-        if (rawSource === 'checkout_reconciler') return 'Checkout Reconciler';
-        if (rawSource === 'checkout') return 'Website Direct';
-        return rawSource
-            .split('_')
-            .filter(Boolean)
-            .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-            .join(' ');
-    };
-    const formatRangeDate = (value) => {
-        if (!value) return '—';
-        if (value instanceof Date) {
-            if (Number.isNaN(value.getTime())) return '—';
-            return formatAdminDate(value.toISOString());
-        }
-        const raw = String(value || '').trim();
-        if (!raw) return '—';
-        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-            return formatAdminDate(`${raw}T00:00:00`);
-        }
-        return formatAdminDate(raw);
-    };
-    const isFailedRow = (order) => String(order?.status || '').toLowerCase() === 'failed';
-    const getRowKey = (order) => {
-        if (isAttemptEntry(order)) return `attempt:${order?.attempt_id || order?.id}`;
-        return `order:${order?.order_id || order?.id}`;
-    };
-    const isPaidPayment = (order) => ['paid', 'captured'].includes(String(order?.payment_status || '').toLowerCase());
-    const canDeleteRow = (order) => !isPaidPayment(order);
-    const canReconcileAttempt = (order) => {
-        if (!isAttemptEntry(order)) return false;
-        const status = String(order?.payment_status || order?.paymentStatus || '').trim().toLowerCase();
-        return ['created', 'checkout_opened', 'verification_pending', 'attempted', 'paid_unverified', 'reconciliation_pending', 'failed'].includes(status);
-    };
-    const canDownloadInvoice = (order) => {
-        if (isAttemptEntry(order)) return false;
-        const status = String(order?.payment_status || order?.paymentStatus || '').toLowerCase();
-        return status === 'paid' || status === 'refunded';
-    };
-    const getFromLabelValidation = useCallback((order) => {
-        if (!companyProfile) {
-            return { ok: false, missing: ['company profile'] };
-        }
-        return validateFromLabelData(companyProfile, order);
-    }, [companyProfile]);
-    const getToLabelValidation = useCallback((order) => validateToLabelData(order), []);
-    const canOpenShippingLabelModal = useCallback((order) => {
-        if (isAttemptEntry(order)) return false;
-        return getFromLabelValidation(order).ok || getToLabelValidation(order).ok;
-    }, [getFromLabelValidation, getToLabelValidation]);
-    const canFetchPaymentStatus = (order) => {
-        if (isAttemptEntry(order)) return false;
-        if (!order?.razorpay_order_id && !order?.razorpay_payment_id) return false;
-        const paymentStatus = String(order?.payment_status || '').toLowerCase();
-        return ['pending', 'created', 'attempted', 'paid', 'refunded', 'failed'].includes(paymentStatus);
-    };
-    const filteredManualCustomers = useMemo(() => {
-        const term = String(manualCustomerQuery || '').trim().toLowerCase();
-        const rows = Array.isArray(manualCustomers) ? manualCustomers : [];
-        if (!term) return rows;
-        return rows.filter((customer) => {
-            const haystack = [
-                customer?.name,
-                customer?.mobile,
-                customer?.email
-            ].map((v) => String(v || '').toLowerCase()).join(' ');
-            return haystack.includes(term);
-        });
-    }, [manualCustomerQuery, manualCustomers]);
-    const selectedManualCustomer = useMemo(
-        () => (manualCustomers || []).find((row) => String(row?.id) === String(manualOrderForm.userId || '')) || null,
-        [manualCustomers, manualOrderForm.userId]
-    );
-    const manualItemPayload = useMemo(() => (
-        (manualOrderItems || [])
-            .map((row) => ({
-                productId: String(row?.productId || '').trim(),
-                variantId: String(row?.variantId || '').trim(),
-                quantity: Number(row?.quantity || 0)
-            }))
-            .filter((row) => row.productId && Number.isFinite(row.quantity) && row.quantity > 0)
-    ), [manualOrderItems]);
-    const isVariantInStock = (variant = {}) => {
-        const track = String(variant?.track_quantity) === '1' || variant?.track_quantity === true;
-        if (!track) return true;
-        return Number(variant?.quantity || 0) > 0;
-    };
-    const isProductInStock = (product = {}) => {
-        const variants = Array.isArray(product?.variants) ? product.variants : [];
-        if (variants.length > 0) return variants.some((variant) => isVariantInStock(variant));
-        const track = String(product?.track_quantity) === '1' || product?.track_quantity === true;
-        if (!track) return true;
-        return Number(product?.quantity || 0) > 0;
-    };
-    const activeInStockProducts = useMemo(() => (
-        (manualProducts || []).filter((product) =>
-            String(product?.status || '').toLowerCase() === 'active' && isProductInStock(product)
-        )
-    ), [manualProducts]);
-    const filteredManualProducts = useMemo(() => {
-        const term = String(manualProductQuery || '').trim().toLowerCase();
-        const rows = Array.isArray(activeInStockProducts) ? activeInStockProducts : [];
-        if (!term) return rows;
-        return rows.filter((product) => {
-            const haystack = [
-                product?.title,
-                product?.sku,
-                ...(Array.isArray(product?.variants) ? product.variants.map((v) => `${v?.variant_title || ''} ${v?.sku || ''}`) : [])
-            ].map((v) => String(v || '').toLowerCase()).join(' ');
-            return haystack.includes(term);
-        });
-    }, [activeInStockProducts, manualProductQuery]);
-    const manualCartDisplayItems = useMemo(() => (
-        (manualOrderItems || [])
-            .filter((row) => String(row?.productId || '').trim())
-            .map((row, idx) => {
-            const product = (manualProducts || []).find((entry) => String(entry?.id || '') === String(row?.productId || ''));
-            const variants = Array.isArray(product?.variants) ? product.variants : [];
-            const variant = variants.find((entry) => String(entry?.id || '') === String(row?.variantId || ''));
-            const qty = Math.max(1, Number(row?.quantity || 1));
-            const unitPrice = Number(row?.unitPrice ?? getManualUnitPrice(product, variant));
-            return {
-                id: `${row?.productId || 'p'}:${row?.variantId || ''}:${idx}`,
-                productId: row?.productId || '',
-                variantId: row?.variantId || '',
-                title: row?.title || product?.title || `Product #${row?.productId || ''}`,
-                variantTitle: row?.variantTitle || variant?.variant_title || '',
-                quantity: qty,
-                lineTotal: Number((unitPrice * qty).toFixed(2))
-            };
-            })
-    ), [manualOrderItems, manualProducts]);
-    const fallbackManualSummary = useMemo(() => {
-        const subtotal = (manualCartDisplayItems || []).reduce((sum, item) => sum + Number(item?.lineTotal || 0), 0);
-        return {
-            subtotal,
-            shippingFee: null,
-            couponDiscountTotal: null,
-            loyaltyDiscountTotal: null,
-            loyaltyShippingDiscountTotal: null,
-            taxTotal: null,
-            total: subtotal
+  const openDetails = async (order) => {
+    setIsDetailsOpen(true);
+    const hasSeedData = Boolean(order && !isAttemptEntry(order));
+    setIsDetailsLoading(!hasSeedData);
+    setSettlementContext({ mode: null, isTestMode: false });
+    setPaymentMethodContext(null);
+    if (order) {
+      setSelectedOrder((prev) => ({ ...(prev || {}), ...order }));
+      setPendingStatus("");
+      setDetailsLastSyncedAt(new Date().toISOString());
+    }
+    try {
+      if (isAttemptEntry(order)) {
+        const attemptOrder = {
+          ...order,
+          items: Array.isArray(order?.items) ? order.items : [],
+          events: Array.isArray(order?.events) ? order.events : [],
         };
-    }, [manualCartDisplayItems]);
-    const syncManualOrderItemsFromUserCart = useCallback(async (userId) => {
-        const id = String(userId || '').trim();
-        if (!id) {
-            setManualOrderItems([]);
-            return [];
-        }
-        const data = await adminService.getUserCart(id);
-        const rows = Array.isArray(data?.items) ? data.items : [];
-        const normalizedRows = rows.map((item) => ({
-            productId: String(item?.productId || ''),
-            variantId: String(item?.variantId || ''),
-            quantity: Math.max(1, Number(item?.quantity || 1)),
-            title: String(item?.title || '').trim(),
-            variantTitle: String(item?.variantTitle || '').trim(),
-            unitPrice: Number(item?.price || 0)
-        }));
-        setManualOrderItems(normalizedRows);
-        return normalizedRows;
-    }, []);
-    const refreshManualCartDerivedData = useCallback(async (userId, cartRows = null) => {
-        const id = String(userId || '').trim();
-        if (!id) return;
-        const rows = Array.isArray(cartRows) ? cartRows : await syncManualOrderItemsFromUserCart(id);
-        setIsManualCouponsLoading(true);
+        setSelectedOrder(attemptOrder);
+        setPendingStatus(attemptOrder.status || "failed");
+        setAttemptConversionMode("cash");
+        setAttemptConversionReference("");
+        setAttemptConversionReason("");
+        setDetailsLastSyncedAt(new Date().toISOString());
+        return;
+      }
+      const data = await orderService.getAdminOrder(
+        order?.order_id || order?.id,
+      );
+      const nextOrder = data.order || null;
+      setSelectedOrder(nextOrder);
+      setPendingStatus("");
+      setDetailsLastSyncedAt(new Date().toISOString());
+      if (
+        nextOrder &&
+        (needsSettlementSync(nextOrder) || needsPaymentMethodSync(nextOrder))
+      ) {
         try {
-            const data = await adminService.getUserAvailableCoupons(id);
-            const coupons = Array.isArray(data?.coupons) ? data.coupons : [];
-            setManualCoupons(coupons);
-            setManualCouponError('');
-            const selectedCode = String(manualOrderForm.couponCode || '').trim().toUpperCase();
-            if (selectedCode && !coupons.some((row) => String(row?.code || '').trim().toUpperCase() === selectedCode && row?.isEligible !== false)) {
-                setManualOrderForm((prev) => ({ ...prev, couponCode: '' }));
-            }
+          const sync = await orderService.fetchAdminPaymentStatus({
+            orderId: nextOrder.order_id || nextOrder.id,
+            attemptId: null,
+            razorpayOrderId: nextOrder.razorpay_order_id || "",
+            razorpayPaymentId: nextOrder.razorpay_payment_id || "",
+          });
+          if (sync?.order) {
+            setSelectedOrder(sync.order);
+            patchOrderRow(sync.order);
+            setDetailsLastSyncedAt(new Date().toISOString());
+          }
+          if (sync?.settlementContext) {
+            setSettlementContext(sync.settlementContext);
+          }
+          if (sync?.razorpay?.payment) {
+            setPaymentMethodContext(sync.razorpay.payment);
+          }
         } catch (error) {
-            setManualCoupons([]);
-            setManualCouponError(String(error?.message || 'Failed to load coupons'));
-        } finally {
-            setIsManualCouponsLoading(false);
+          void error;
         }
+      }
+    } catch (error) {
+      toast.error(error.message || "Failed to load order details");
+    } finally {
+      setIsDetailsLoading(false);
+    }
+  };
 
-        if (!(rows || []).length) {
-            setManualSummary(null);
-            setManualSummaryError('');
-            return;
-        }
-        const preferredShipping = resolvePrimaryAddress(manualOrderForm.shippingAddress, manualOrderForm.billingAddress);
-        if (!isAddressComplete(preferredShipping)) {
-            setManualSummary(null);
-            setManualSummaryError('Shipping address is incomplete. Fill Address line, City, State, and PIN code.');
-            return;
-        }
-        setIsManualSummaryLoading(true);
-        try {
-            const data = await adminService.getUserCartSummary(id, {
-                couponCode: manualOrderForm.couponCode || '',
-                shippingAddress: preferredShipping
-            });
-            setManualSummary(data?.summary || null);
-            setManualSummaryError('');
-        } catch (error) {
-            setManualSummary(null);
-            setManualSummaryError(String(error?.message || 'Failed to calculate order pricing'));
-        } finally {
-            setIsManualSummaryLoading(false);
-        }
-    }, [manualOrderForm.billingAddress, manualOrderForm.couponCode, manualOrderForm.shippingAddress, syncManualOrderItemsFromUserCart]);
-    const effectiveManualSummary = useMemo(() => {
-        if (manualSummary) return manualSummary;
-        if ((manualOrderItems || []).length > 0) return fallbackManualSummary;
-        return null;
-    }, [fallbackManualSummary, manualOrderItems, manualSummary]);
-    const selectedOrderTotals = useMemo(
-        () => computeInvoiceAlignedSummary(selectedOrder),
-        [selectedOrder]
-    );
-    const selectedOrderInvoiceItems = useMemo(
-        () => computeInvoiceStyleItemRows(selectedOrder, selectedOrderTotals?.taxRegime),
-        [selectedOrder, selectedOrderTotals]
-    );
-    const selectedOrderGstContext = useMemo(
-        () => getOrderGstContext(selectedOrder || {}),
-        [selectedOrder]
-    );
-    const selectedOrderCouponCode = useMemo(
-        () => String(selectedOrder?.coupon_code || selectedOrder?.couponCode || selectedOrderTotals?.couponCode || '').trim(),
-        [selectedOrder, selectedOrderTotals]
-    );
-    const selectedOrderHasAppliedCoupon = useMemo(
-        () => Number(selectedOrderTotals?.discounts?.coupon || 0) > 0 && Boolean(selectedOrderCouponCode),
-        [selectedOrderCouponCode, selectedOrderTotals]
-    );
-    const manualTotals = useMemo(
-        () => computeOrderTotalsDisplay(effectiveManualSummary),
-        [effectiveManualSummary]
-    );
-    const manualGstContext = useMemo(() => ({
-        shippingState: String(manualOrderForm.shippingAddress?.state || '').trim(),
-        companyState: String(companyProfile?.state || '').trim()
-    }), [companyProfile?.state, manualOrderForm.shippingAddress?.state]);
-    const selectedOrderShippingPresentation = useMemo(
-        () => getShippingPresentation(selectedOrder, selectedOrderTotals),
-        [selectedOrder, selectedOrderTotals]
-    );
-    const manualShippingPresentation = useMemo(
-        () => getShippingPresentation(effectiveManualSummary, manualTotals),
-        [effectiveManualSummary, manualTotals]
-    );
-    const isAddressComplete = (address = null) => {
-        const value = address || {};
-        return ['line1', 'city', 'state', 'zip'].every((field) => String(value?.[field] || '').trim());
-    };
-    const getMissingAddressFields = (address = null) => {
-        const value = address || {};
-        const labels = { line1: 'Address line', city: 'City', state: 'State', zip: 'PIN code' };
-        return ['line1', 'city', 'state', 'zip']
-            .filter((field) => !String(value?.[field] || '').trim())
-            .map((field) => labels[field]);
-    };
-    const resolvePrimaryAddress = (shippingAddress = null, billingAddress = null) => {
-        if (isAddressComplete(shippingAddress)) return shippingAddress;
-        if (isAddressComplete(billingAddress)) return billingAddress;
-        return shippingAddress || billingAddress || { ...EMPTY_ADDRESS };
-    };
-    const formatInrOrDash = (value) => {
-        if (value == null || Number.isNaN(Number(value))) return '—';
-        return `₹${Number(value).toLocaleString('en-IN')}`;
-    };
-    const effectiveBillingAddress = useMemo(
-        () => (!billingAddressEnabled || manualOrderForm.billingSameAsShipping ? manualOrderForm.shippingAddress : manualOrderForm.billingAddress),
-        [manualOrderForm.billingAddress, manualOrderForm.billingSameAsShipping, manualOrderForm.shippingAddress]
-    );
-    const resolvedManualMobile = useMemo(
-        () => normalizeMobileDigits(selectedManualCustomer?.mobile || manualOrderForm.mobile || ''),
-        [manualOrderForm.mobile, selectedManualCustomer?.mobile]
-    );
-    const customerNeedsManualMobile = useMemo(
-        () => Boolean(manualOrderForm.userId) && !normalizeMobileDigits(selectedManualCustomer?.mobile || ''),
-        [manualOrderForm.userId, selectedManualCustomer?.mobile]
-    );
-    const isManualMobileValid = useMemo(
-        () => resolvedManualMobile.length >= 10 && resolvedManualMobile.length <= 14,
-        [resolvedManualMobile]
-    );
-    const manualValidationState = useMemo(() => {
-        const shippingMissing = getMissingAddressFields(manualOrderForm.shippingAddress);
-        const billingMissing = (!billingAddressEnabled || manualOrderForm.billingSameAsShipping) ? [] : getMissingAddressFields(manualOrderForm.billingAddress);
-        return {
-            missingCustomer: !manualOrderForm.userId,
-            missingCustomerMobile: !resolvedManualMobile,
-            invalidCustomerMobile: Boolean(resolvedManualMobile) && !isManualMobileValid,
-            missingItems: manualItemPayload.length === 0,
-            shippingMissing,
-            billingMissing
-        };
-    }, [isManualMobileValid, manualItemPayload.length, manualOrderForm.billingAddress, manualOrderForm.billingSameAsShipping, manualOrderForm.shippingAddress, manualOrderForm.userId, resolvedManualMobile]);
-    const canSubmitManualOrder = useMemo(() => {
-        if (!manualOrderForm.userId) return false;
-        if (!resolvedManualMobile || !isManualMobileValid) return false;
-        if (!isAddressComplete(manualOrderForm.shippingAddress)) return false;
-        if (!isAddressComplete(effectiveBillingAddress)) return false;
-        if (!manualItemPayload.length) return false;
-        return true;
-    }, [effectiveBillingAddress, isManualMobileValid, manualItemPayload.length, manualOrderForm.shippingAddress, manualOrderForm.userId, resolvedManualMobile]);
-    const hasManualVariantGaps = useMemo(() => {
-        for (const row of (manualOrderItems || [])) {
-            const productId = String(row?.productId || '').trim();
-            if (!productId) continue;
-            const selectedProduct = (manualProducts || []).find((p) => String(p?.id || '') === productId);
-            const hasVariants = Array.isArray(selectedProduct?.variants) && selectedProduct.variants.length > 0;
-            if (hasVariants && !String(row?.variantId || '').trim()) return true;
-        }
-        return false;
-    }, [manualOrderItems, manualProducts]);
-    const getRefundAmount = (order) => Number(order?.refund_amount ?? order?.refundAmount ?? 0);
-    const getRefundReference = (order) => order?.refund_reference || order?.refundReference || '';
-    const hasRefundInitiated = (order) => Boolean(
-        getRefundReference(order)
-        || String(order?.refund_status || '').trim()
-        || String(order?.payment_status || '').toLowerCase() === 'refunded'
-        || getRefundAmount(order) > 0
-    );
-    const isRefundLockedOrder = (order) => (
-        String(order?.status || '').toLowerCase() === 'cancelled'
-        && hasRefundInitiated(order)
-    );
-    const formatSettlementAmount = (value, snapshot = null) => `₹${toSettlementRupees(value, snapshot).toLocaleString('en-IN', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-    })}`;
-    const formatSettlementDateTime = (value) => {
-        if (!value && value !== 0) return '—';
-        const raw = Number(value);
-        const parsed = Number.isFinite(raw) && raw > 0
-            ? new Date(raw < 1e12 ? raw * 1000 : raw)
-            : new Date(value);
-        if (Number.isNaN(parsed.getTime())) return '—';
-        return formatAdminDateTime(parsed.toISOString());
-    };
-    const patchOrderRow = useCallback((nextOrder) => {
-        if (!nextOrder?.id) return;
-        setOrders((prev) => {
-            const nextRow = { ...nextOrder, entity_type: 'order', order_id: nextOrder.id };
-            const matchesCurrentFilter = orderMatchesStatusFilter(nextRow, statusFilter);
-            const idx = prev.findIndex((row) =>
-                !isAttemptEntry(row) && String(row.order_id || row.id) === String(nextOrder.id)
-            );
-            if (idx >= 0) {
-                if (!matchesCurrentFilter) {
-                    return prev.filter((row) => String(row.order_id || row.id) !== String(nextOrder.id));
-                }
-                const copy = [...prev];
-                copy[idx] = { ...copy[idx], ...nextRow };
-                return sortOrdersForView(copy, sortBy);
-            }
-            if (page === 1 && matchesCurrentFilter) {
-                return sortOrdersForView([nextRow, ...prev], sortBy);
-            }
-            return prev;
-        });
-    }, [page, sortBy, statusFilter]);
-    const patchAttemptRow = useCallback((attempt) => {
-        if (!attempt?.id) return;
-        setOrders((prev) => {
-            const idx = prev.findIndex((row) => String(row.attempt_id || row.id) === String(attempt.id));
-            if (idx < 0) return prev;
-            const copy = [...prev];
-            copy[idx] = {
-                ...copy[idx],
-                payment_status: attempt.status || copy[idx].payment_status,
-                razorpay_payment_id: attempt.razorpay_payment_id || copy[idx].razorpay_payment_id,
-                failure_reason: attempt.failure_reason || copy[idx].failure_reason
-            };
-            return copy;
-        });
-    }, []);
-    const removeRow = useCallback((id, type = 'order') => {
-        if (!id) return;
-        setOrders((prev) => prev.filter((row) => {
-            if (type === 'attempt') return String(row.attempt_id || row.id) !== String(id);
-            return String(row.order_id || row.id) !== String(id);
-        }));
-    }, []);
+  const selectedOrderGateway = String(
+    selectedOrder?.payment_gateway ||
+      selectedOrder?.paymentGateway ||
+      "razorpay",
+  )
+    .trim()
+    .toLowerCase();
+  const isSelectedOrderIcici = selectedOrderGateway === "icici";
 
-    const fetchOrders = useCallback(async () => {
-        const requestSeq = ++fetchSeqRef.current;
-        setIsLoading(true);
-        try {
-            const listParams = {
-                page,
-                status: requestedStatusFilter,
-                search,
-                startDate,
-                endDate,
-                quickRange,
-                sortBy,
-                sourceChannel,
-                limit: quickRange === 'latest_10' ? 10 : 12
-            };
-            const listData = await orderService.getAdminOrders(listParams);
-            if (requestSeq !== fetchSeqRef.current) return;
-
-            if (import.meta.env.DEV) {
-                console.debug('[admin orders] list response', {
-                    params: listParams,
-                    pagination: listData?.pagination || null,
-                    totalOrders: listData?.pagination?.totalOrders,
-                    ordersCount: Array.isArray(listData?.orders) ? listData.orders.length : 0
-                });
-            }
-
-            setOrders(sortOrdersForView(listData.orders || [], sortBy));
-            const totalOrdersValue = Number(listData?.pagination?.totalOrders);
-            setSelectedStatusCount(Number.isFinite(totalOrdersValue) ? totalOrdersValue : 0);
-            setSelectedStatusCountKey(requestedStatusFilter);
-            if (Number.isFinite(totalOrdersValue)) {
-                setStatusCountCache((prev) => ({ ...prev, [requestedStatusFilter]: totalOrdersValue }));
-            }
-            const resolvedMetrics = listData?.metrics || null;
-            setMetrics(resolvedMetrics);
-            if (resolvedMetrics) {
-                setOrderMetricsSnapshot(metricsQuery, resolvedMetrics);
-            }
-            setTotalPages(listData.pagination?.totalPages || 1);
-        } catch (error) {
-            const cooldownUntil = Number(error?.cooldownUntil || 0);
-            if (error?.code === 'FETCH_RETRY_COOLDOWN') {
-                if (cooldownUntil > Number(ordersFailureToastCooldownRef.current || 0)) {
-                    ordersFailureToastCooldownRef.current = cooldownUntil;
-                    toast.error(error.message || 'Server unavailable. Retry paused briefly.');
-                }
-            } else {
-                ordersFailureToastCooldownRef.current = cooldownUntil;
-                toast.error(error.message || 'Failed to load orders');
-            }
-        } finally {
-            if (requestSeq === fetchSeqRef.current) {
-                setIsLoading(false);
-            }
-        }
-    }, [endDate, metricsQuery, page, quickRange, requestedStatusFilter, search, setOrderMetricsSnapshot, sortBy, sourceChannel, startDate, toast]);
-
-    useEffect(() => {
-        registerOrderMetricsQuery(metricsQuery);
-        fetchOrderMetrics(metricsQuery).catch(() => {});
-    }, [fetchOrderMetrics, metricsQuery, registerOrderMetricsQuery]);
-
-    useEffect(() => {
-        mobileStatusMetricQueries.forEach((query) => {
-            registerOrderMetricsQuery(query);
-            fetchOrderMetrics(query).catch(() => {});
-        });
-    }, [fetchOrderMetrics, mobileStatusMetricQueries, registerOrderMetricsQuery]);
-
-    useEffect(() => {
-        fetchOrders();
-    }, [fetchOrders]);
-
-    useEffect(() => {
-        let active = true;
-        adminService.getCompanyInfo()
-            .then((data) => {
-                if (!active) return;
-                setCompanyProfile(data?.company || null);
-            })
-            .catch(() => {
-                if (!active) return;
-                setCompanyProfile(null);
-            });
-        return () => {
-            active = false;
-        };
-    }, []);
-
-    useEffect(() => {
-        if (!selectedOrder) return;
-        setPendingStatus('');
-        setCancellationMode('');
-        setManualRefundAmount('');
-        setManualRefundMethod('');
-        setManualRefundRef('');
-        setManualRefundUtr('');
-    }, [selectedOrder?.id, selectedOrder?.status]);
-
-    const handleOrderRealtimeUpdate = useCallback((payload = {}) => {
-            if (payload?.deleted && payload?.orderId) {
-                removeRow(payload.orderId, 'order');
-                orderService.removeAdminEntityCache({ id: payload.orderId, entityType: 'order' });
-                markOrderMetricsDirty(metricsQuery);
-                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
-                return;
-            }
-            if (payload?.order && selectedOrder?.id && String(payload.order.id) === String(selectedOrder.id)) {
-                setSelectedOrder((prev) => ({ ...prev, ...payload.order }));
-            }
-            if (payload?.order) {
-                orderService.patchAdminOrderCache(payload.order);
-                patchOrderRow(payload.order);
-                markOrderMetricsDirty(metricsQuery);
-                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
-            }
-        }, [fetchOrderMetrics, markOrderMetricsDirty, metricsQuery, patchOrderRow, removeRow, selectedOrder?.id]);
-
-    useAdminCrudSync({
-        'order:create': handleOrderRealtimeUpdate,
-        'order:update': handleOrderRealtimeUpdate,
-        'payment:update': handleOrderRealtimeUpdate
-    });
-
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            const normalizedSearch = normalizeOrderSearchTerm(searchInput);
-            if (normalizedSearch) {
-                const allStatus = normalizeStatusSelection('all');
-                if (draftStatusFilter !== allStatus) {
-                    setDraftStatusFilter(allStatus);
-                }
-                if (statusFilter !== allStatus) {
-                    setStatusFilter(allStatus);
-                }
-            }
-            if (search === normalizedSearch) return;
-            setSearch(normalizedSearch);
-            setPage(1);
-        }, 250);
-        return () => clearTimeout(timer);
-    }, [draftStatusFilter, normalizeStatusSelection, search, searchInput, statusFilter]);
-
-    useEffect(() => {
-        const activeChip = mobileStatusChipRefs.current?.[statusFilter];
-        if (!activeChip || typeof activeChip.scrollIntoView !== 'function') return;
-        activeChip.scrollIntoView({
-            behavior: 'smooth',
-            block: 'nearest',
-            inline: 'center'
-        });
-    }, [statusFilter]);
-
-    useEffect(() => {
-        const rawInitialStatus = String(initialStatusFilter || '').trim();
-        if (!rawInitialStatus) return;
-        const next = normalizeStatusSelection(rawInitialStatus);
-        setDraftStatusFilter(next);
-        if (statusFilter !== next) {
-            setStatusFilter(next);
-        }
-        if (page !== 1) {
-            setPage(1);
-        }
-        onInitialStatusApplied(next);
-    }, [initialStatusFilter, normalizeStatusSelection, onInitialStatusApplied, page, statusFilter]);
-
-    useEffect(() => {
-        const rawInitialQuickRange = String(initialQuickRange || '').trim();
-        if (!rawInitialQuickRange) return;
-        const nextRange = normalizeAdminQuickRange(rawInitialQuickRange);
-        if (!nextRange) return;
-        setDraftQuickRange(nextRange);
-        if (quickRange !== nextRange) {
-            setQuickRange(nextRange);
-        }
-        if (nextRange === 'custom') {
-            shouldResetDashboardRangeOnNextStatusChangeRef.current = true;
-        }
-        if (page !== 1) {
-            setPage(1);
-        }
-        onInitialQuickRangeApplied(nextRange);
-    }, [initialQuickRange, onInitialQuickRangeApplied, page, quickRange]);
-
-    useEffect(() => {
-        const hasStart = String(initialStartDate || '').trim().length > 0;
-        const hasEnd = String(initialEndDate || '').trim().length > 0;
-        if (!hasStart && !hasEnd) return;
-        const nextStart = hasStart ? String(initialStartDate).trim() : '';
-        const nextEnd = hasEnd ? String(initialEndDate).trim() : '';
-        const nextStartDate = toDateOnly(nextStart);
-        const nextEndDate = toDateOnly(nextEnd);
-        const span = (nextStartDate && nextEndDate) ? diffInDays(nextStartDate, nextEndDate) : 0;
-        if (nextStartDate && nextEndDate && span > MAX_RANGE_DAYS) {
-            setDraftQuickRange(DEFAULT_ADMIN_QUICK_RANGE);
-            setDraftStartDate('');
-            setDraftEndDate('');
-            setQuickRange(DEFAULT_ADMIN_QUICK_RANGE);
-            setStartDate('');
-            setEndDate('');
-            shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
-            if (page !== 1) {
-                setPage(1);
-            }
-            onInitialDateRangeApplied();
-            return;
-        }
-        setDraftQuickRange('custom');
-        setDraftStartDate(nextStart);
-        setDraftEndDate(nextEnd);
-        setQuickRange('custom');
-        setStartDate(nextStart);
-        setEndDate(nextEnd);
-        shouldResetDashboardRangeOnNextStatusChangeRef.current = true;
-        if (page !== 1) {
-            setPage(1);
-        }
-        onInitialDateRangeApplied();
-    }, [initialEndDate, initialStartDate, onInitialDateRangeApplied, page]);
-
-    useEffect(() => {
-        const nextSort = String(initialSortBy || '').trim().toLowerCase();
-        if (!nextSort) return;
-        setSortBy(nextSort);
-        if (page !== 1) {
-            setPage(1);
-        }
-        onInitialSortApplied(nextSort);
-    }, [initialSortBy, onInitialSortApplied, page]);
-
-    useEffect(() => {
-        const nextChannel = String(initialSourceChannel || '').trim().toLowerCase();
-        if (!nextChannel) return;
-        setSourceChannel(nextChannel);
-        if (page !== 1) {
-            setPage(1);
-        }
-        onInitialSourceChannelApplied(nextChannel);
-    }, [initialSourceChannel, onInitialSourceChannelApplied, page]);
-
-    const handleStatusFilterChange = (nextStatus) => {
-        const normalizedStatus = normalizeStatusSelection(nextStatus);
-        const nextDisplayedCount = Number(mobileStatusChipCounts[normalizedStatus] || 0);
-        setDraftStatusFilter(normalizedStatus);
-        setSelectedStatusCount(nextDisplayedCount);
-        setSelectedStatusCountKey(normalizedStatus);
-        setStatusCountCache((prev) => ({ ...prev, [normalizedStatus]: nextDisplayedCount }));
-        if (shouldResetDashboardRangeOnNextStatusChangeRef.current && quickRange === 'custom') {
-            setDraftQuickRange(DEFAULT_ADMIN_QUICK_RANGE);
-            setDraftStartDate('');
-            setDraftEndDate('');
-            setQuickRange(DEFAULT_ADMIN_QUICK_RANGE);
-            setStartDate('');
-            setEndDate('');
-            shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
-        }
-        if (statusFilter !== normalizedStatus) {
-            setStatusFilter(normalizedStatus);
-            setPage(1);
-        }
-    };
-
-    const handleApplyFilters = (closeAfter = false) => {
-        const nextQuickRange = draftQuickRange;
-        const nextStartDate = nextQuickRange === 'custom' ? draftStartDate : '';
-        const nextEndDate = nextQuickRange === 'custom' ? draftEndDate : '';
-        const start = toDateOnly(nextStartDate);
-        const end = toDateOnly(nextEndDate);
-        if (nextQuickRange === 'custom' && start && end) {
-            const span = diffInDays(start, end);
-            if (span > MAX_RANGE_DAYS) {
-                toast.error(`Custom range cannot exceed ${MAX_RANGE_DAYS} days`);
-                return;
-            }
-        }
-        const hasChanges = (
-            statusFilter !== normalizeStatusSelection(draftStatusFilter) ||
-            quickRange !== nextQuickRange ||
-            startDate !== nextStartDate ||
-            endDate !== nextEndDate
+  const handleStatusUpdate = useCallback(async () => {
+    if (!selectedOrder || !pendingStatus) return;
+    const isPaid = isPaidPayment(selectedOrder);
+    const refundableBase =
+      getRefundableBaseForOrder(selectedOrder).refundableBase;
+    const normalizedCancellationMode =
+      pendingStatus === "cancelled"
+        ? selectedOrderGateway === "icici" && cancellationMode === "razorpay"
+          ? ""
+          : selectedOrderGateway === "razorpay" && cancellationMode === "icici"
+            ? ""
+            : cancellationMode
+        : cancellationMode;
+    if (pendingStatus === "cancelled" && isPaid) {
+      if (isSelectedOrderIcici && cancellationMode === "razorpay") {
+        toast.error("Razorpay refund is not available for ICICI orders");
+        return;
+      }
+      if (selectedOrderGateway === "razorpay" && cancellationMode === "icici") {
+        toast.error("ICICI refund is not available for Razorpay orders");
+        return;
+      }
+      if (!normalizedCancellationMode) {
+        toast.error(
+          "Select cancellation mode before cancelling this paid order",
         );
-
-        setStatusFilter(normalizeStatusSelection(draftStatusFilter));
-        setQuickRange(nextQuickRange);
-        setStartDate(nextStartDate);
-        setEndDate(nextEndDate);
-        shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
-        if (closeAfter) {
-            setIsFilterModalOpen(false);
+        return;
+      }
+      if (normalizedCancellationMode === "manual") {
+        const amount = Number(manualRefundAmount);
+        if (!manualRefundMethod) {
+          toast.error("Select manual refund method");
+          return;
         }
-
-        if (page !== 1) {
-            setPage(1);
-            return;
+        if (!Number.isFinite(amount) || amount <= 0) {
+          toast.error("Enter manual refunded amount");
+          return;
         }
-        if (!hasChanges) {
-            fetchOrders();
+        if (amount > refundableBase) {
+          toast.error(
+            `Refund cannot exceed ₹${refundableBase.toLocaleString("en-IN")} (after excluding shipping actually paid).`,
+          );
+          return;
         }
-    };
-
-    const handleQuickRangeDraftChange = (nextValue) => {
-        const next = normalizeAdminQuickRange(nextValue || DEFAULT_ADMIN_QUICK_RANGE);
-        setDraftQuickRange(next);
-        if (next === 'custom') return;
-        setDraftStartDate('');
-        setDraftEndDate('');
-        shouldResetDashboardRangeOnNextStatusChangeRef.current = false;
-        if (quickRange !== next) {
-            setQuickRange(next);
+        if (
+          manualRefundMethod === "NEFT/RTGS" &&
+          !String(manualRefundUtr || "").trim()
+        ) {
+          toast.error("Enter UTR number for NEFT/RTGS");
+          return;
         }
-        if (startDate) {
-            setStartDate('');
+        if (
+          (manualRefundMethod === "UPI" ||
+            manualRefundMethod === "Bank A/c Transfer") &&
+          !String(manualRefundRef || "").trim()
+        ) {
+          toast.error(`Enter reference number for ${manualRefundMethod}`);
+          return;
         }
-        if (endDate) {
-            setEndDate('');
+      }
+    }
+    setIsUpdatingStatus(true);
+    try {
+      const data = await orderService.updateAdminOrderStatus(
+        selectedOrder.order_id || selectedOrder.id,
+        pendingStatus,
+        {
+          cancellationMode:
+            pendingStatus === "cancelled" ? normalizedCancellationMode : "",
+          manualRefundAmount:
+            pendingStatus === "cancelled" ? manualRefundAmount : "",
+          manualRefundMethod:
+            pendingStatus === "cancelled" ? manualRefundMethod : "",
+          manualRefundRef: pendingStatus === "cancelled" ? manualRefundRef : "",
+          manualRefundUtr: pendingStatus === "cancelled" ? manualRefundUtr : "",
+        },
+      );
+      if (data?.order) {
+        setSelectedOrder(data.order);
+        patchOrderRow(data.order);
+        markOrderMetricsDirty(metricsQuery);
+        fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
+        if (
+          pendingStatus === "cancelled" &&
+          normalizedCancellationMode === "razorpay" &&
+          data?.refund?.id
+        ) {
+          toast.success(
+            `Order cancelled and refund initiated (${data.refund.id})`,
+          );
+        } else if (
+          pendingStatus === "cancelled" &&
+          normalizedCancellationMode === "icici" &&
+          data?.refund?.id
+        ) {
+          toast.success(
+            `Order cancelled and ICICI refund initiated (${data.refund.id})`,
+          );
+        } else if (
+          pendingStatus === "cancelled" &&
+          normalizedCancellationMode === "manual"
+        ) {
+          toast.success("Order cancelled and manual refund details recorded");
+        } else {
+          toast.success("Order status updated");
         }
-        if (page !== 1) {
-            setPage(1);
+      }
+    } catch (error) {
+      toast.error(error.message || "Failed to update status");
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  }, [
+    cancellationMode,
+    fetchOrderMetrics,
+    manualRefundAmount,
+    manualRefundMethod,
+    manualRefundRef,
+    manualRefundUtr,
+    markOrderMetricsDirty,
+    metricsQuery,
+    patchOrderRow,
+    pendingStatus,
+    selectedOrder,
+    selectedOrderGateway,
+    isSelectedOrderIcici,
+    toast,
+  ]);
+
+  const handleQuickComplete = useCallback(
+    async (order, event) => {
+      event?.stopPropagation?.();
+      if (!order || isAttemptEntry(order)) return;
+      const current = normalizeOrderStatus(order.status);
+      if (current === "completed" || current === "cancelled") return;
+      const targetId = order.order_id || order.id;
+      setQuickCompletingOrderId(targetId);
+      try {
+        const data = await orderService.updateAdminOrderStatus(
+          targetId,
+          "completed",
+        );
+        if (data?.order) {
+          patchOrderRow(data.order);
+          if (
+            selectedOrder &&
+            String(selectedOrder.id || selectedOrder.order_id) ===
+              String(data.order.id || data.order.order_id)
+          ) {
+            setSelectedOrder(data.order);
+          }
+          markOrderMetricsDirty(metricsQuery);
+          fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
+          toast.success("Order marked as completed");
         }
-    };
+      } catch (error) {
+        toast.error(error.message || "Failed to complete order");
+      } finally {
+        setQuickCompletingOrderId(null);
+      }
+    },
+    [
+      fetchOrderMetrics,
+      markOrderMetricsDirty,
+      metricsQuery,
+      patchOrderRow,
+      selectedOrder,
+      toast,
+    ],
+  );
 
-    const formatReportAmount = (value) => Number(value || 0).toFixed(2);
-    const companyAddressParts = [
-        companyProfile?.address,
-        companyProfile?.city,
-        companyProfile?.state,
-        companyProfile?.postalCode,
-        companyProfile?.country
-    ].map((part) => String(part || '').trim()).filter(Boolean);
-    const companyAddressLine = companyAddressParts.join(', ');
+  const handleFetchPaymentStatus = async ({ reason = "payment" } = {}) => {
+    if (!selectedOrder) return;
+    setIsFetchingPaymentStatus(true);
+    try {
+      const data = await orderService.fetchAdminPaymentStatus({
+        orderId: isAttemptEntry(selectedOrder)
+          ? null
+          : selectedOrder.order_id || selectedOrder.id,
+        attemptId: selectedOrder.attempt_id || null,
+        razorpayOrderId: selectedOrder.razorpay_order_id || "",
+        razorpayPaymentId: selectedOrder.razorpay_payment_id || "",
+      });
 
-    const handleExport = async () => {
-        setIsExporting(true);
-        try {
-            let currentPage = 1;
-            const batchLimit = quickRange === 'latest_10' ? 10 : 200;
-            const exportRows = [];
-
-            while (currentPage <= 100) {
-                const data = await orderService.getAdminOrders({
-                    page: currentPage,
-                    limit: batchLimit,
-                    status: requestedStatusFilter,
-                    search,
-                    startDate,
-                    endDate,
-                    quickRange,
-                    sortBy,
-                    sourceChannel
-                });
-                const pageOrders = data.orders || [];
-                exportRows.push(...pageOrders);
-                if (currentPage >= (data.pagination?.totalPages || 1) || pageOrders.length === 0) break;
-                currentPage += 1;
-            }
-
-            if (exportRows.length === 0) {
-                toast.error('No orders found for the selected filters');
-                return;
-            }
-
-            const detailedOrders = [];
-            const detailBatchSize = 10;
-            for (let index = 0; index < exportRows.length; index += detailBatchSize) {
-                const batch = exportRows.slice(index, index + detailBatchSize);
-                const batchResults = await Promise.all(batch.map(async (order) => {
-                    const targetId = order?.order_id || order?.id;
-                    if (!targetId) return order;
-                    try {
-                        const data = await orderService.getAdminOrder(targetId);
-                        return data?.order || order;
-                    } catch {
-                        return order;
-                    }
-                }));
-                detailedOrders.push(...batchResults);
-            }
-
-            const columns = [
-                'Order Ref',
-                'Order Date',
-                'Customer',
-                'Mobile',
-                'Member Tier',
-                'Status',
-                'Payment Status',
-                'Payment Ref',
-                'Settlement Status',
-                'Settlement Date',
-                'Subtotal',
-                'Shipping',
-                'Price Before Discounts',
-                'Product Discount',
-                'Coupon Discount',
-                'Member Discount',
-                'Member Shipping Benefit',
-                'Total Savings',
-                'Price After Discounts',
-                'GST',
-                'Tax Type',
-                'Tax Rate',
-                'IGST',
-                'SGST',
-                'CGST',
-                'Company State',
-                'Shipping State',
-                'Round Off',
-                'Grand Total',
-                'Tax Regime',
-                'Coupon Code',
-                'Source Channel'
-            ];
-
-            const rows = detailedOrders.map((order) => {
-                const totals = computeInvoiceAlignedSummary(order);
-                const gstContext = getOrderGstContext(order || {});
-                const gst = getGstDisplayDetails({
-                    taxAmount: Number(totals?.gstTotal || 0),
-                    ...gstContext
-                });
-                const jurisdiction = resolveGstJurisdiction(gstContext);
-                const taxRateLabel = getOrderTaxRateLabel(order, jurisdiction.kind);
-                return [
-                    order.order_ref,
-                    formatAdminDate(order.created_at),
-                    order.customer_name || 'Guest',
-                    order.customer_mobile || '',
-                    getTierLabel(order),
-                    order.status || 'pending',
-                    getPaymentStatusLabel(order),
-                    getPaymentReference(order),
-                    order?.settlement_snapshot?.status || '—',
-                    order?.settlement_snapshot?.created_at ? formatAdminDateTime(new Date(Number(order.settlement_snapshot.created_at) * 1000).toISOString()) : '—',
-                    formatReportAmount(totals?.subtotal),
-                    formatReportAmount(totals?.shipping),
-                    formatReportAmount(totals?.priceBeforeDiscounts),
-                    formatReportAmount(totals?.discounts?.product),
-                    formatReportAmount(totals?.discounts?.coupon),
-                    formatReportAmount(totals?.discounts?.member),
-                    formatReportAmount(totals?.discounts?.memberShippingBenefit),
-                    formatReportAmount(totals?.discounts?.totalSavings),
-                    formatReportAmount(totals?.priceAfterDiscounts),
-                    formatReportAmount(totals?.gstTotal),
-                    gst.taxTypeLabel,
-                    taxRateLabel,
-                    formatReportAmount(jurisdiction.kind === 'inter_state' ? gst.igstAmount : 0),
-                    formatReportAmount(jurisdiction.kind === 'intra_state' ? gst.sgstAmount : 0),
-                    formatReportAmount(jurisdiction.kind === 'intra_state' ? gst.cgstAmount : 0),
-                    gstContext.companyState || '',
-                    gstContext.shippingState || '',
-                    formatReportAmount(totals?.roundOffAmount),
-                    formatReportAmount(totals?.grandTotal),
-                    String(totals?.taxRegime || 'exclusive'),
-                    order.coupon_code || '',
-                    getSourceLabel(order)
-                ];
-            });
-
-            const prefaceRows = [
-                ['Company', companyProfile?.displayName || 'SSC Jewellery'],
-                ['GST Number', companyProfile?.gstNumber || '—'],
-                ['Support Email', companyProfile?.supportEmail || '—'],
-                ['Contact Number', companyProfile?.contactNumber || '—'],
-                ['Address', companyAddressLine || '—'],
-                ['Generated At', formatAdminDateTime(new Date().toISOString())],
-                ['Filters', `Status: ${requestedStatusFilter === 'all' ? 'All Sales' : requestedStatusFilter}, Search: ${search || '—'}, Range: ${quickRange}, Source: ${sourceChannel || 'all'}, Sort: ${sortBy}`],
-                []
-            ];
-
-            await downloadWorkbook({
-                fileName: `orders-report-${new Date().toISOString().slice(0, 10)}.xlsx`,
-                sheetName: 'Orders',
-                columns,
-                rows,
-                prefaceRows
-            });
-        } catch (error) {
-            toast.error(error.message || 'Failed to export order report');
-        } finally {
-            setIsExporting(false);
-        }
-    };
-
-    const handleDownloadInvoice = async (order, e = null) => {
-        if (e) e.stopPropagation();
-        if (!order || isAttemptEntry(order) || !canDownloadInvoice(order)) return;
-        const targetId = order.order_id || order.id;
-        setDownloadingInvoiceId(targetId);
-        try {
-            await orderService.downloadAdminInvoice(targetId);
-        } catch (error) {
-            toast.error(error.message || 'Unable to generate invoice');
-        } finally {
-            setDownloadingInvoiceId(null);
-        }
-    };
-
-    const handleSendInvoiceCommunication = async (order, e = null) => {
-        if (e) e.stopPropagation();
-        if (!order || isAttemptEntry(order) || !canDownloadInvoice(order)) return;
-        const targetId = order.order_id || order.id;
-        setSendingInvoiceId(targetId);
-        try {
-            const response = await orderService.sendAdminInvoiceCommunication(targetId);
-            if (response?.queued === true) {
-                toast.success(response?.message || 'Invoice communication queued');
-                return;
-            }
-            const emailSent = response?.delivery?.email?.ok === true;
-            const whatsappSent = response?.delivery?.whatsapp?.ok === true;
-            if (emailSent && whatsappSent) {
-                toast.success('Invoice sent to customer via email and WhatsApp');
-                return;
-            }
-            if (emailSent || whatsappSent) {
-                const sentChannels = [emailSent ? 'email' : '', whatsappSent ? 'WhatsApp' : ''].filter(Boolean).join(' + ');
-                toast.success(`Invoice sent via ${sentChannels}`);
-                return;
-            }
-            toast.error('Invoice could not be sent on email/WhatsApp for this customer');
-        } catch (error) {
-            toast.error(error.message || 'Unable to send invoice to customer');
-        } finally {
-            setSendingInvoiceId(null);
-        }
-    };
-    const closeLabelPrintModal = useCallback(() => {
-        if (printingLabelId || isPrinterConnecting) return;
-        setLabelPrintModalOrder(null);
-    }, [isPrinterConnecting, printingLabelId]);
-
-    const handleOpenPrintLabelModal = (order, e = null) => {
-        if (e) e.stopPropagation();
-        if (!order || isAttemptEntry(order)) return;
-        setLabelPrintModalOrder(order);
-    };
-
-    const handleConnectLabelPrinter = async (transport = preferredPrinterTransport) => {
-        if (!printerSupport.supported) {
-            toast.error(printerSupport.reason);
-            return;
-        }
-        setIsPrinterConnecting(true);
-        try {
-            const printer = await configurePreferredPrinter({ transport });
-            const storedPrinter = getStoredPrinterPreference();
-            setPreferredPrinter(storedPrinter);
-            const transportLabel = String(printer?.transport || transport).toLowerCase() === 'usb' ? 'USB' : 'Bluetooth';
-            toast.success(`${printer?.name || 'Printer'} paired over ${transportLabel}`);
-        } catch (error) {
-            toast.error(error?.message || 'Failed to pair printer');
-        } finally {
-            setIsPrinterConnecting(false);
-        }
-    };
-
-    const handlePrintSingleLabel = async (type, order) => {
-        if (!printerSupport.supported) {
-            toast.error(printerSupport.reason);
-            return;
-        }
-        const validation = type === 'from' ? getFromLabelValidation(order) : getToLabelValidation(order);
-        if (!validation.ok) {
-            toast.error(`${type === 'from' ? 'From' : 'To'} label unavailable: missing ${validation.missing.join(', ')}`);
-            return;
-        }
-        setPrintingLabelId(order.order_id || order.id);
-        setPrintingLabelType(type);
-        try {
-            let result;
-            try {
-                result = type === 'from'
-                    ? await printFromLabel({
-                        order,
-                        companyProfile,
-                        forceReconnect: false,
-                        transport: preferredPrinterTransport,
-                        onProgress: () => {}
-                    })
-                    : await printToLabel({
-                        order,
-                        forceReconnect: false,
-                        transport: preferredPrinterTransport,
-                        onProgress: () => {}
-                    });
-            } catch (error) {
-                result = type === 'from'
-                    ? await printFromLabel({
-                        order,
-                        companyProfile,
-                        forceReconnect: true,
-                        transport: preferredPrinterTransport,
-                        onProgress: () => {}
-                    }).catch(() => { throw error; })
-                    : await printToLabel({
-                        order,
-                        forceReconnect: true,
-                        transport: preferredPrinterTransport,
-                        onProgress: () => {}
-                    }).catch(() => { throw error; });
-            }
-            const transportLabel = String(result?.printer?.transport || '').toLowerCase() === 'usb' ? 'USB' : 'Bluetooth';
-            setPreferredPrinter(getStoredPrinterPreference());
-            toast.success(`${type === 'from' ? 'From' : 'To'} label printed for ${order.order_ref} via ${transportLabel}`);
-        } catch (error) {
-            toast.error(error?.message || `Failed to print ${type} label`);
-        } finally {
-            setPrintingLabelId(null);
-            setPrintingLabelType('');
-        }
-    };
-
-    const normalizeUserAddress = (address = null) => {
-        if (!address || typeof address !== 'object') return { ...EMPTY_ADDRESS };
-        return {
-            line1: String(address.line1 || address.address1 || address.street || address.address || '').trim(),
-            city: String(address.city || address.town || '').trim(),
-            state: String(address.state || address.province || '').trim(),
-            zip: String(address.zip || address.pincode || address.pin || address.postalCode || '').trim()
-        };
-    };
-
-    const loadManualCustomers = useCallback(async (query = '') => {
-        const seq = ++customerFetchSeqRef.current;
-        setIsManualCustomersLoading(true);
-        try {
-            const first = await adminService.getUsers(1, 'customer', 50, query);
-            if (seq !== customerFetchSeqRef.current) return;
-            const normalizeRows = (rows = []) => rows.map((row) => ({
-                ...row,
-                address: normalizeUserAddress(row?.address),
-                billingAddress: normalizeUserAddress(row?.billingAddress || row?.address)
-            }));
-            const firstRows = normalizeRows(first?.users || []);
-            setManualCustomers(firstRows);
-            const totalPages = Math.max(1, Number(first?.pagination?.totalPages || 1));
-            if (totalPages > 1) setIsManualCustomersFetchingMore(true);
-            for (let pageNo = 2; pageNo <= totalPages; pageNo += 1) {
-                const next = await adminService.getUsers(pageNo, 'customer', 50, query);
-                if (seq !== customerFetchSeqRef.current) return;
-                const nextRows = normalizeRows(next?.users || []);
-                setManualCustomers((prev) => {
-                    const seen = new Set((prev || []).map((entry) => String(entry.id)));
-                    const merged = [...(prev || [])];
-                    for (const row of nextRows) {
-                        if (!seen.has(String(row.id))) {
-                            merged.push(row);
-                        }
-                    }
-                    return merged;
-                });
-            }
-        } catch (error) {
-            if (seq === customerFetchSeqRef.current) {
-                toast.error(error?.message || 'Failed to load customers');
-            }
-        } finally {
-            if (seq === customerFetchSeqRef.current) {
-                setIsManualCustomersLoading(false);
-                setIsManualCustomersFetchingMore(false);
-            }
-        }
-    }, [toast]);
-
-    const loadManualProducts = useCallback(async (query = '') => {
-        const seq = ++productFetchSeqRef.current;
-        setIsManualProductsLoading(true);
-        try {
-            const term = String(query || '').trim();
-            if (term) {
-                const data = await productService.searchProducts({
-                    query: term,
-                    page: 1,
-                    limit: 60,
-                    category: 'all',
-                    status: 'active',
-                    sort: 'relevance',
-                    inStockOnly: true
-                });
-                if (seq !== productFetchSeqRef.current) return;
-                setManualProducts(Array.isArray(data?.products) ? data.products : []);
-            } else {
-                const first = await productService.getProducts(1, 'all', 'active', 'newest', 100);
-                if (seq !== productFetchSeqRef.current) return;
-                const firstRows = Array.isArray(first?.products) ? first.products : [];
-                setManualProducts(firstRows);
-                const totalPages = Math.max(1, Number(first?.totalPages || 1));
-                if (totalPages > 1) setIsManualProductsFetchingMore(true);
-                for (let pageNo = 2; pageNo <= Math.min(totalPages, 8); pageNo += 1) {
-                    const next = await productService.getProducts(pageNo, 'all', 'active', 'newest', 100);
-                    if (seq !== productFetchSeqRef.current) return;
-                    const nextRows = Array.isArray(next?.products) ? next.products : [];
-                    setManualProducts((prev) => {
-                        const seen = new Set((prev || []).map((entry) => String(entry.id)));
-                        const merged = [...(prev || [])];
-                        for (const row of nextRows) {
-                            if (!seen.has(String(row.id))) merged.push(row);
-                        }
-                        return merged;
-                    });
-                }
-            }
-        } catch (error) {
-            if (seq === productFetchSeqRef.current) {
-                toast.error(error?.message || 'Failed to load products');
-            }
-        } finally {
-            if (seq === productFetchSeqRef.current) {
-                setIsManualProductsLoading(false);
-                setIsManualProductsFetchingMore(false);
-            }
-        }
-    }, [toast]);
-
-    const openCreateManualOrder = useCallback(async () => {
-        setIsCreateOrderOpen(true);
-        setManualCreateAttempted(false);
-        setManualCartTouched(false);
-        setManualDraftItem({ ...EMPTY_MANUAL_ITEM });
-        setManualOrderItems([]);
-        setManualCoupons([]);
-        setManualProductQuery('');
-        setManualSummaryError('');
-        setManualCouponError('');
-        setManualOrderForm((prev) => ({ ...prev, couponCode: '' }));
-        await Promise.all([loadManualProducts(''), loadManualCustomers('')]);
-    }, [loadManualCustomers, loadManualProducts]);
-
-    const closeCreateManualOrder = useCallback(async () => {
-        if (isCreatingManualOrder) return;
-        const selectedUserId = String(manualOrderForm.userId || '').trim();
-        const shouldClearCart = manualCartTouched && selectedUserId;
-        setIsCreateOrderOpen(false);
-        if (shouldClearCart) {
-            try {
-                await adminService.clearUserCart(selectedUserId);
-            } catch {
-                // no-op; close should not block on cleanup
-            }
-        }
-        setManualDraftItem({ ...EMPTY_MANUAL_ITEM });
-        setManualOrderItems([]);
-        setManualCoupons([]);
-        setManualSummary(null);
-        setManualCreateAttempted(false);
-        setManualCartTouched(false);
-    }, [isCreatingManualOrder, manualCartTouched, manualOrderForm.userId]);
-
-    const updateManualDraftItem = (patch = {}) => {
-        setManualDraftItem((prev) => {
-            const merged = { ...(prev || EMPTY_MANUAL_ITEM), ...patch };
-            const qty = Math.max(1, Number(merged.quantity || 1));
-            return { ...merged, quantity: qty };
-        });
-    };
-
-    const addManualDraftToCart = async () => {
-        if (!manualOrderForm.userId) {
-            toast.error('Select customer first');
-            return;
-        }
-        const productId = String(manualDraftItem?.productId || '').trim();
-        if (!productId) {
-            toast.error('Select a product first');
-            return;
-        }
-        const product = (manualProducts || []).find((entry) => String(entry?.id) === productId);
-        if (!product) {
-            toast.error('Selected product is unavailable');
-            return;
-        }
-        const variants = Array.isArray(product?.variants) ? product.variants.filter((variant) => isVariantInStock(variant)) : [];
-        const hasVariants = variants.length > 0;
-        const variantId = String(manualDraftItem?.variantId || '').trim();
-        if (hasVariants && !variantId) {
-            toast.error('Select a variant before adding');
-            return;
-        }
-        if (variantId && !variants.some((entry) => String(entry?.id) === variantId)) {
-            toast.error('Selected variant is unavailable');
-            return;
-        }
-        const quantity = Math.max(1, Number(manualDraftItem?.quantity || 1));
-        try {
-            await adminService.addUserCartItem(manualOrderForm.userId, { productId, variantId, quantity });
-            const rows = await syncManualOrderItemsFromUserCart(manualOrderForm.userId);
-            setManualCartTouched(true);
-            setManualDraftItem({ ...EMPTY_MANUAL_ITEM });
-            await refreshManualCartDerivedData(manualOrderForm.userId, rows);
-        } catch (error) {
-            toast.error(error?.message || 'Failed to add item to customer cart');
-        }
-    };
-
-    const removeManualCartItem = async (productId, variantId = '') => {
-        if (!manualOrderForm.userId) return;
-        try {
-            await adminService.removeUserCartItem(manualOrderForm.userId, { productId, variantId });
-            const rows = await syncManualOrderItemsFromUserCart(manualOrderForm.userId);
-            setManualCartTouched(true);
-            await refreshManualCartDerivedData(manualOrderForm.userId, rows);
-        } catch (error) {
-            toast.error(error?.message || 'Failed to remove item from customer cart');
-        }
-    };
-
-    const updateManualAddress = (type, field, value) => {
-        setManualOrderForm((prev) => {
-            const next = {
-                ...prev,
-                [type]: {
-                    ...(prev[type] || { ...EMPTY_ADDRESS }),
-                    [field]: value
-                }
-            };
-            if (type === 'shippingAddress' && prev.billingSameAsShipping) {
-                next.billingAddress = { ...next.shippingAddress };
-            }
-            return next;
-        });
-    };
-
-    const handleManualCustomerSelect = useCallback(async (userId) => {
-        const customer = (manualCustomers || []).find((row) => String(row?.id) === String(userId || ''));
-        const normalizedShipping = customer?.address ? normalizeUserAddress(customer.address) : { ...EMPTY_ADDRESS };
-        const normalizedBilling = customer?.billingAddress ? normalizeUserAddress(customer.billingAddress) : normalizedShipping;
-        const primaryAddress = resolvePrimaryAddress(normalizedShipping, normalizedBilling);
-        setManualOrderForm((prev) => ({
-            ...prev,
-            userId: userId || '',
-            mobile: customer?.mobile || '',
-            couponCode: '',
-            shippingAddress: { ...primaryAddress },
-            billingAddress: prev.billingSameAsShipping ? { ...primaryAddress } : normalizedBilling
+      if (data?.order) {
+        setSelectedOrder(data.order);
+        patchOrderRow(data.order);
+        setDetailsLastSyncedAt(new Date().toISOString());
+      } else if (data?.attempt) {
+        patchAttemptRow(data.attempt);
+        setSelectedOrder((prev) => ({
+          ...(prev || {}),
+          payment_status: data.attempt.status || prev?.payment_status || "",
+          razorpay_payment_id:
+            data.attempt.razorpay_payment_id || prev?.razorpay_payment_id || "",
+          failure_reason:
+            data.attempt.failure_reason || prev?.failure_reason || "",
         }));
-        setManualCoupons([]);
-        setManualSummary(null);
-        setManualSummaryError('');
-        setManualCouponError('');
-        const rows = await syncManualOrderItemsFromUserCart(userId);
-        await refreshManualCartDerivedData(userId, rows);
-    }, [manualCustomers, refreshManualCartDerivedData, syncManualOrderItemsFromUserCart]);
+        setDetailsLastSyncedAt(new Date().toISOString());
+      } else if (data?.paymentStatus) {
+        setSelectedOrder((prev) => ({
+          ...(prev || {}),
+          payment_status: data.paymentStatus,
+        }));
+        setDetailsLastSyncedAt(new Date().toISOString());
+      }
+      if (data?.settlementContext) {
+        setSettlementContext(data.settlementContext);
+      }
+      if (data?.razorpay?.payment) {
+        setPaymentMethodContext(data.razorpay.payment);
+      }
+      if (reason === "refund") {
+        toast.success(
+          `Refund status synced: ${data?.order?.refund_status || data?.paymentStatus || "updated"}`,
+        );
+      } else {
+        toast.success(
+          `Payment status synced: ${data?.paymentStatus || "updated"}`,
+        );
+      }
+    } catch (error) {
+      toast.error(
+        error.message ||
+          (reason === "refund"
+            ? "Failed to fetch refund status"
+            : "Failed to fetch payment status"),
+      );
+    } finally {
+      setIsFetchingPaymentStatus(false);
+    }
+  };
 
-    useEffect(() => {
-        const userId = String(initialManualCustomerId || '').trim();
-        if (!userId) return;
-        const boot = async () => {
-            await openCreateManualOrder();
-            await handleManualCustomerSelect(userId);
-            onInitialManualCustomerApplied(userId);
-        };
-        boot();
-    }, [handleManualCustomerSelect, initialManualCustomerId, onInitialManualCustomerApplied, openCreateManualOrder]);
-
-    useEffect(() => {
-        if (!isCreateOrderOpen) return;
-        const timer = setTimeout(() => {
-            loadManualCustomers(manualCustomerQuery);
-        }, 220);
-        return () => clearTimeout(timer);
-    }, [isCreateOrderOpen, loadManualCustomers, manualCustomerQuery]);
-
-    useEffect(() => {
-        if (!isCreateOrderOpen) return;
-        const timer = setTimeout(() => {
-            loadManualProducts(manualProductQuery);
-        }, 220);
-        return () => clearTimeout(timer);
-    }, [isCreateOrderOpen, loadManualProducts, manualProductQuery]);
-
-    useEffect(() => {
-        if (!isCreateOrderOpen || !manualOrderForm.userId) return;
-        let cancelled = false;
-        const timer = setTimeout(async () => {
-            if (cancelled) return;
-            await refreshManualCartDerivedData(manualOrderForm.userId);
-        }, 120);
-        return () => {
-            cancelled = true;
-            clearTimeout(timer);
-        };
-    }, [isCreateOrderOpen, manualOrderForm.billingAddress, manualOrderForm.couponCode, manualOrderForm.shippingAddress, manualOrderForm.userId, refreshManualCartDerivedData]);
-
-    const validateManualAddress = (address = null) => {
-        return isAddressComplete(address);
-    };
-
-    const handleCreateManualOrder = async () => {
-        setManualCreateAttempted(true);
-        if (!canSubmitManualOrder) {
-            toast.error('Complete all mandatory fields before creating order');
-            return;
+  const handleReconcileAttempt = useCallback(
+    async (order, event = null) => {
+      event?.stopPropagation?.();
+      if (!order || !isAttemptEntry(order) || !canReconcileAttempt(order))
+        return;
+      const targetId = order.attempt_id || order.id;
+      setReconcilingAttemptId(targetId);
+      try {
+        const data = await orderService.reconcileAdminPaymentAttempt(targetId);
+        if (data?.order) {
+          toast.success("Payment attempt reconciled into an order");
+          setPage(1);
+          fetchOrders(1);
+          openDetails(data.order);
+          return;
         }
-        if (!manualOrderForm.userId) {
-            toast.error('Select a customer');
-            return;
-        }
-        if (!validateManualAddress(manualOrderForm.shippingAddress)) {
-            toast.error('Complete shipping address fields');
-            return;
-        }
-        if (!validateManualAddress(effectiveBillingAddress)) {
-            toast.error('Complete billing address fields');
-            return;
-        }
-        if (!resolvedManualMobile) {
-            toast.error('Enter a customer mobile number');
-            return;
-        }
-        if (!isManualMobileValid) {
-            toast.error('Customer mobile must contain 10-14 digits');
-            return;
-        }
-        if (!manualItemPayload.length) {
-            toast.error('Add at least one product item');
-            return;
-        }
-        if (hasManualVariantGaps) {
-            toast.error('Select variant for all variant products');
-            return;
-        }
-        setIsCreatingManualOrder(true);
-        try {
-            const payload = {
-                userId: manualOrderForm.userId,
-                paymentMode: manualOrderForm.paymentMode,
-                paymentReference: manualOrderForm.paymentReference || '',
-                couponCode: manualOrderForm.couponCode || '',
-                useCustomerCart: true,
-                mobile: resolvedManualMobile,
-                shippingAddress: manualOrderForm.shippingAddress,
-                billingAddress: effectiveBillingAddress
-            };
-            const data = await orderService.createAdminManualOrder(payload);
-            const nextOrder = data?.order || null;
-            if (!nextOrder) throw new Error('Order creation failed');
-            toast.success('Manual order created');
-            setIsCreateOrderOpen(false);
-            setManualCreateAttempted(false);
-            setManualOrderForm({
-                userId: '',
-                mobile: '',
-                paymentMode: 'cash',
-                paymentReference: '',
-                couponCode: '',
-                shippingAddress: { ...EMPTY_ADDRESS },
-                billingAddress: { ...EMPTY_ADDRESS },
-                billingSameAsShipping: true
-            });
-            setManualDraftItem({ ...EMPTY_MANUAL_ITEM });
-            setManualOrderItems([]);
-            setManualCoupons([]);
-            setManualProductQuery('');
-            setManualCartTouched(false);
-            setPage(1);
-            fetchOrders(1);
-            openDetails(nextOrder);
-        } catch (error) {
-            toast.error(error?.message || 'Failed to create manual order');
-        } finally {
-            setIsCreatingManualOrder(false);
-        }
-    };
-
-    const handleConvertAttemptToPaidOrder = async () => {
-        if (!selectedOrder || !isAttemptEntry(selectedOrder)) return;
-        setIsConvertingAttempt(true);
-        try {
-            const payload = {
-                paymentMode: attemptConversionMode,
-                paymentReference: attemptConversionReference,
-                conversionReason: attemptConversionReason
-            };
-            const data = await orderService.convertAdminPaymentAttemptToOrder(selectedOrder.attempt_id || selectedOrder.id, payload);
-            const order = data?.order || null;
-            if (!order) throw new Error('Attempt conversion failed');
-            toast.success('Failed attempt converted to successful order');
-            setSelectedOrder(order);
-            setPendingStatus('');
+        if (data?.attempt) {
+          patchAttemptRow(data.attempt);
+          if (
+            selectedOrder &&
+            String(selectedOrder.attempt_id || selectedOrder.id) ===
+              String(targetId)
+          ) {
+            setSelectedOrder((prev) => ({
+              ...(prev || {}),
+              payment_status: data.attempt.status || prev?.payment_status || "",
+              razorpay_payment_id:
+                data.attempt.razorpay_payment_id ||
+                prev?.razorpay_payment_id ||
+                "",
+              failure_reason:
+                data.attempt.failure_reason ||
+                data.attempt.last_gateway_error ||
+                prev?.failure_reason ||
+                "",
+            }));
             setDetailsLastSyncedAt(new Date().toISOString());
-            setAttemptConversionReference('');
-            setAttemptConversionReason('');
-            setPage(1);
-            fetchOrders(1);
-        } catch (error) {
-            toast.error(error?.message || 'Failed to convert payment attempt');
-        } finally {
-            setIsConvertingAttempt(false);
+          }
+          toast.success(
+            data?.result?.pending
+              ? "Attempt checked. Still awaiting gateway confirmation."
+              : "Attempt reconciled status refreshed",
+          );
+          return;
         }
-    };
+        toast.success("Attempt reconciliation completed");
+      } catch (error) {
+        toast.error(error?.message || "Failed to reconcile attempt");
+      } finally {
+        setReconcilingAttemptId(null);
+      }
+    },
+    [fetchOrders, openDetails, patchAttemptRow, selectedOrder, toast],
+  );
 
-    const openDetails = async (order) => {
-        setIsDetailsOpen(true);
-        const hasSeedData = Boolean(order && !isAttemptEntry(order));
-        setIsDetailsLoading(!hasSeedData);
-        setSettlementContext({ mode: null, isTestMode: false });
-        setPaymentMethodContext(null);
-        if (order) {
-            setSelectedOrder((prev) => ({ ...(prev || {}), ...order }));
-            setPendingStatus('');
-            setDetailsLastSyncedAt(new Date().toISOString());
-        }
-        try {
-            if (isAttemptEntry(order)) {
-                const attemptOrder = {
-                    ...order,
-                    items: Array.isArray(order?.items) ? order.items : [],
-                    events: Array.isArray(order?.events) ? order.events : []
-                };
-                setSelectedOrder(attemptOrder);
-                setPendingStatus(attemptOrder.status || 'failed');
-                setAttemptConversionMode('cash');
-                setAttemptConversionReference('');
-                setAttemptConversionReason('');
-                setDetailsLastSyncedAt(new Date().toISOString());
-                return;
-            }
-            const data = await orderService.getAdminOrder(order?.order_id || order?.id);
-            const nextOrder = data.order || null;
-            setSelectedOrder(nextOrder);
-            setPendingStatus('');
-            setDetailsLastSyncedAt(new Date().toISOString());
-            if (nextOrder && (needsSettlementSync(nextOrder) || needsPaymentMethodSync(nextOrder))) {
-                try {
-                    const sync = await orderService.fetchAdminPaymentStatus({
-                        orderId: nextOrder.order_id || nextOrder.id,
-                        attemptId: null,
-                        razorpayOrderId: nextOrder.razorpay_order_id || '',
-                        razorpayPaymentId: nextOrder.razorpay_payment_id || ''
-                    });
-                    if (sync?.order) {
-                        setSelectedOrder(sync.order);
-                        patchOrderRow(sync.order);
-                        setDetailsLastSyncedAt(new Date().toISOString());
-                    }
-                    if (sync?.settlementContext) {
-                        setSettlementContext(sync.settlementContext);
-                    }
-                    if (sync?.razorpay?.payment) {
-                        setPaymentMethodContext(sync.razorpay.payment);
-                    }
-                } catch (error) {
-                    void error;
-                }
-            }
-        } catch (error) {
-            toast.error(error.message || 'Failed to load order details');
-        } finally {
-            setIsDetailsLoading(false);
-        }
-    };
-
-    const selectedOrderGateway = String(
-        selectedOrder?.payment_gateway || selectedOrder?.paymentGateway || 'razorpay'
-    ).trim().toLowerCase();
-    const isSelectedOrderIcici = selectedOrderGateway === 'icici';
-
-    const handleStatusUpdate = useCallback(async () => {
-        if (!selectedOrder || !pendingStatus) return;
-        const isPaid = isPaidPayment(selectedOrder);
-        const refundableBase = getRefundableBaseForOrder(selectedOrder).refundableBase;
-        const normalizedCancellationMode =
-            pendingStatus === 'cancelled'
-                ? (selectedOrderGateway === 'icici' && cancellationMode === 'razorpay'
-                    ? ''
-                    : (selectedOrderGateway === 'razorpay' && cancellationMode === 'icici'
-                        ? ''
-                        : cancellationMode))
-                : cancellationMode;
-        if (pendingStatus === 'cancelled' && isPaid) {
-            if (isSelectedOrderIcici && cancellationMode === 'razorpay') {
-                toast.error('Razorpay refund is not available for ICICI orders');
-                return;
-            }
-            if (selectedOrderGateway === 'razorpay' && cancellationMode === 'icici') {
-                toast.error('ICICI refund is not available for Razorpay orders');
-                return;
-            }
-            if (!normalizedCancellationMode) {
-                toast.error('Select cancellation mode before cancelling this paid order');
-                return;
-            }
-            if (normalizedCancellationMode === 'manual') {
-                const amount = Number(manualRefundAmount);
-                if (!manualRefundMethod) {
-                    toast.error('Select manual refund method');
-                    return;
-                }
-                if (!Number.isFinite(amount) || amount <= 0) {
-                    toast.error('Enter manual refunded amount');
-                    return;
-                }
-                if (amount > refundableBase) {
-                    toast.error(`Refund cannot exceed ₹${refundableBase.toLocaleString('en-IN')} (after excluding shipping actually paid).`);
-                    return;
-                }
-                if (manualRefundMethod === 'NEFT/RTGS' && !String(manualRefundUtr || '').trim()) {
-                    toast.error('Enter UTR number for NEFT/RTGS');
-                    return;
-                }
-                if ((manualRefundMethod === 'UPI' || manualRefundMethod === 'Bank A/c Transfer') && !String(manualRefundRef || '').trim()) {
-                    toast.error(`Enter reference number for ${manualRefundMethod}`);
-                    return;
-                }
-            }
-        }
-        setIsUpdatingStatus(true);
-        try {
-            const data = await orderService.updateAdminOrderStatus(
-                selectedOrder.order_id || selectedOrder.id,
-                pendingStatus,
-                {
-                    cancellationMode: pendingStatus === 'cancelled' ? normalizedCancellationMode : '',
-                    manualRefundAmount: pendingStatus === 'cancelled' ? manualRefundAmount : '',
-                    manualRefundMethod: pendingStatus === 'cancelled' ? manualRefundMethod : '',
-                    manualRefundRef: pendingStatus === 'cancelled' ? manualRefundRef : '',
-                    manualRefundUtr: pendingStatus === 'cancelled' ? manualRefundUtr : ''
-                }
-            );
-            if (data?.order) {
-                setSelectedOrder(data.order);
-                patchOrderRow(data.order);
-                markOrderMetricsDirty(metricsQuery);
-                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
-                if (pendingStatus === 'cancelled' && normalizedCancellationMode === 'razorpay' && data?.refund?.id) {
-                    toast.success(`Order cancelled and refund initiated (${data.refund.id})`);
-                } else if (pendingStatus === 'cancelled' && normalizedCancellationMode === 'icici' && data?.refund?.id) {
-                    toast.success(`Order cancelled and ICICI refund initiated (${data.refund.id})`);
-                } else if (pendingStatus === 'cancelled' && normalizedCancellationMode === 'manual') {
-                    toast.success('Order cancelled and manual refund details recorded');
-                } else {
-                    toast.success('Order status updated');
-                }
-            }
-        } catch (error) {
-            toast.error(error.message || 'Failed to update status');
-        } finally {
-            setIsUpdatingStatus(false);
-        }
-    }, [cancellationMode, fetchOrderMetrics, manualRefundAmount, manualRefundMethod, manualRefundRef, manualRefundUtr, markOrderMetricsDirty, metricsQuery, patchOrderRow, pendingStatus, selectedOrder, selectedOrderGateway, isSelectedOrderIcici, toast]);
-
-    const handleQuickComplete = useCallback(async (order, event) => {
-        event?.stopPropagation?.();
-        if (!order || isAttemptEntry(order)) return;
-        const current = normalizeOrderStatus(order.status);
-        if (current === 'completed' || current === 'cancelled') return;
-        const targetId = order.order_id || order.id;
-        setQuickCompletingOrderId(targetId);
-        try {
-            const data = await orderService.updateAdminOrderStatus(targetId, 'completed');
-            if (data?.order) {
-                patchOrderRow(data.order);
-                if (selectedOrder && String(selectedOrder.id || selectedOrder.order_id) === String(data.order.id || data.order.order_id)) {
-                    setSelectedOrder(data.order);
-                }
-                markOrderMetricsDirty(metricsQuery);
-                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
-                toast.success('Order marked as completed');
-            }
-        } catch (error) {
-            toast.error(error.message || 'Failed to complete order');
-        } finally {
-            setQuickCompletingOrderId(null);
-        }
-    }, [fetchOrderMetrics, markOrderMetricsDirty, metricsQuery, patchOrderRow, selectedOrder, toast]);
-
-    const handleFetchPaymentStatus = async ({ reason = 'payment' } = {}) => {
-        if (!selectedOrder) return;
-        setIsFetchingPaymentStatus(true);
-        try {
-            const data = await orderService.fetchAdminPaymentStatus({
-                orderId: isAttemptEntry(selectedOrder) ? null : (selectedOrder.order_id || selectedOrder.id),
-                attemptId: selectedOrder.attempt_id || null,
-                razorpayOrderId: selectedOrder.razorpay_order_id || '',
-                razorpayPaymentId: selectedOrder.razorpay_payment_id || ''
-            });
-
-            if (data?.order) {
-                setSelectedOrder(data.order);
-                patchOrderRow(data.order);
-                setDetailsLastSyncedAt(new Date().toISOString());
-            } else if (data?.attempt) {
-                patchAttemptRow(data.attempt);
-                setSelectedOrder((prev) => ({
-                    ...(prev || {}),
-                    payment_status: data.attempt.status || prev?.payment_status || '',
-                    razorpay_payment_id: data.attempt.razorpay_payment_id || prev?.razorpay_payment_id || '',
-                    failure_reason: data.attempt.failure_reason || prev?.failure_reason || ''
-                }));
-                setDetailsLastSyncedAt(new Date().toISOString());
-            } else if (data?.paymentStatus) {
-                setSelectedOrder((prev) => ({ ...(prev || {}), payment_status: data.paymentStatus }));
-                setDetailsLastSyncedAt(new Date().toISOString());
-            }
-            if (data?.settlementContext) {
-                setSettlementContext(data.settlementContext);
-            }
-            if (data?.razorpay?.payment) {
-                setPaymentMethodContext(data.razorpay.payment);
-            }
-            if (reason === 'refund') {
-                toast.success(`Refund status synced: ${data?.order?.refund_status || data?.paymentStatus || 'updated'}`);
-            } else {
-                toast.success(`Payment status synced: ${data?.paymentStatus || 'updated'}`);
-            }
-        } catch (error) {
-            toast.error(error.message || (reason === 'refund' ? 'Failed to fetch refund status' : 'Failed to fetch payment status'));
-        } finally {
-            setIsFetchingPaymentStatus(false);
-        }
-    };
-
-    const handleReconcileAttempt = useCallback(async (order, event = null) => {
-        event?.stopPropagation?.();
-        if (!order || !isAttemptEntry(order) || !canReconcileAttempt(order)) return;
-        const targetId = order.attempt_id || order.id;
-        setReconcilingAttemptId(targetId);
-        try {
-            const data = await orderService.reconcileAdminPaymentAttempt(targetId);
-            if (data?.order) {
-                toast.success('Payment attempt reconciled into an order');
-                setPage(1);
-                fetchOrders(1);
-                openDetails(data.order);
-                return;
-            }
-            if (data?.attempt) {
-                patchAttemptRow(data.attempt);
-                if (selectedOrder && String(selectedOrder.attempt_id || selectedOrder.id) === String(targetId)) {
-                    setSelectedOrder((prev) => ({
-                        ...(prev || {}),
-                        payment_status: data.attempt.status || prev?.payment_status || '',
-                        razorpay_payment_id: data.attempt.razorpay_payment_id || prev?.razorpay_payment_id || '',
-                        failure_reason: data.attempt.failure_reason || data.attempt.last_gateway_error || prev?.failure_reason || ''
-                    }));
-                    setDetailsLastSyncedAt(new Date().toISOString());
-                }
-                toast.success(data?.result?.pending ? 'Attempt checked. Still awaiting gateway confirmation.' : 'Attempt reconciled status refreshed');
-                return;
-            }
-            toast.success('Attempt reconciliation completed');
-        } catch (error) {
-            toast.error(error?.message || 'Failed to reconcile attempt');
-        } finally {
-            setReconcilingAttemptId(null);
-        }
-    }, [fetchOrders, openDetails, patchAttemptRow, selectedOrder, toast]);
-
-    useEffect(() => {
-        if (!focusOrderId) return;
-        if (isLoading) return;
-        const hit = (orders || []).find((row) => !isAttemptEntry(row) && String(row.order_id || row.id) === String(focusOrderId));
-        if (hit) {
-            openDetails(hit);
-            onFocusHandled();
-            return;
-        }
-        const loadDirect = async () => {
-            try {
-                setIsDetailsOpen(true);
-                setIsDetailsLoading(true);
-                const data = await orderService.getAdminOrder(focusOrderId);
-                const target = data?.order || null;
-                if (target) {
-                    setSelectedOrder(target);
-                    setPendingStatus('');
-                    setDetailsLastSyncedAt(new Date().toISOString());
-                    setSettlementContext({ mode: null, isTestMode: false });
-                }
-            } catch (error) {
-                toast.error(error.message || 'Failed to open focused order');
-            } finally {
-                setIsDetailsLoading(false);
-                onFocusHandled();
-            }
-        };
-        loadDirect();
-    }, [focusOrderId, isLoading, onFocusHandled, orders, toast]);
-
-    const handleDeleteOrder = async (e, order) => {
-        e.stopPropagation();
-        if (!order || !canDeleteRow(order)) return;
-        const targetId = isAttemptEntry(order)
-            ? (order.attempt_id || order.id)
-            : (order.order_id || order.id);
-        if (!targetId) return;
-        setConfirmModal({
-            isOpen: true,
-            type: 'delete',
-            title: 'Delete Order',
-            message: `Delete order ${order.order_ref || targetId}? This cannot be undone.`,
-            confirmText: 'Delete',
-            action: { type: 'delete_single', order }
-        });
-    };
-
-    const handleConfirmModalClose = () => {
-        if (isConfirmProcessing) return;
-        setConfirmModal((prev) => ({ ...prev, isOpen: false, action: null }));
-    };
-
-    const handleConfirmAction = async () => {
-        const actionType = confirmModal?.action?.type;
-        if (!actionType) {
-            handleConfirmModalClose();
-            return;
-        }
-
-        setIsConfirmProcessing(true);
-        try {
-            if (actionType === 'delete_single') {
-                const row = confirmModal.action.order;
-                const targetId = isAttemptEntry(row) ? (row.attempt_id || row.id) : (row.order_id || row.id);
-                setDeletingOrderId(targetId);
-                if (isAttemptEntry(row)) {
-                    await orderService.deleteAdminPaymentAttempt(targetId);
-                    removeRow(targetId, 'attempt');
-                } else {
-                    await orderService.deleteAdminOrder(targetId);
-                    removeRow(targetId, 'order');
-                }
-                if (selectedOrder && String(selectedOrder.id || selectedOrder.order_id || selectedOrder.attempt_id) === String(targetId)) {
-                    setIsDetailsOpen(false);
-                    setSelectedOrder(null);
-                }
-                markOrderMetricsDirty(metricsQuery);
-                fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
-                toast.success('Order deleted');
-            }
-        } catch (error) {
-            toast.error(error.message || 'Action failed');
-        } finally {
-            setDeletingOrderId(null);
-            setIsConfirmProcessing(false);
-            setConfirmModal((prev) => ({ ...prev, isOpen: false, action: null }));
-        }
-    };
-
-    const formatAddress = (address) => {
-        if (!address) return '—';
-        if (typeof address === 'string') {
-            try {
-                const parsed = JSON.parse(address);
-                return [parsed.line1, parsed.city, parsed.state, parsed.zip].filter(Boolean).join(', ') || '—';
-            } catch {
-                return address;
-            }
-        }
-        return [address.line1, address.city, address.state, address.zip].filter(Boolean).join(', ') || '—';
-    };
-    const getPendingDurationLabel = (createdAt) => {
-        if (!createdAt) return '';
-        const created = new Date(createdAt);
-        if (Number.isNaN(created.getTime())) return '';
-        const now = new Date();
-        const diffMs = Math.max(0, now.getTime() - created.getTime());
-        const hourMs = 60 * 60 * 1000;
-        const dayMs = 24 * hourMs;
-        const weekMs = 7 * dayMs;
-        const monthMs = 30 * dayMs;
-
-        if (diffMs < dayMs) {
-            const hours = Math.max(1, Math.floor(diffMs / hourMs));
-            return `${hours}h pending`;
-        }
-        if (diffMs < weekMs) {
-            const days = Math.floor(diffMs / dayMs);
-            return `${days}d pending`;
-        }
-        if (diffMs < monthMs) {
-            const weeks = Math.floor(diffMs / weekMs);
-            return `${weeks}w pending`;
-        }
-        const months = Math.floor(diffMs / monthMs);
-        return `${months}mo pending`;
-    };
-
-    const effectiveMetrics = sharedMetrics || metrics;
-    const allOrdersMetricsQuery = useMemo(() => ({
-        search,
-        startDate,
-        endDate,
-        quickRange,
-        sourceChannel,
-        status: 'all'
-    }), [endDate, quickRange, search, sourceChannel, startDate]);
-    const pendingOrdersMetricsQuery = useMemo(() => ({
-        search,
-        startDate,
-        endDate,
-        quickRange,
-        sourceChannel,
-        status: 'pending'
-    }), [endDate, quickRange, search, sourceChannel, startDate]);
-    const completedOrdersMetricsQuery = useMemo(() => ({
-        search,
-        startDate,
-        endDate,
-        quickRange,
-        sourceChannel,
-        status: 'completed'
-    }), [endDate, quickRange, search, sourceChannel, startDate]);
-    const allOrdersMetrics = orderMetricsByKey[toOrderMetricsKey(allOrdersMetricsQuery)]?.metrics
-        || (statusFilter === 'all' ? effectiveMetrics : null);
-    const pendingOrdersMetrics = orderMetricsByKey[toOrderMetricsKey(pendingOrdersMetricsQuery)]?.metrics
-        || (statusFilter === 'pending' ? effectiveMetrics : null);
-    const completedOrdersMetrics = orderMetricsByKey[toOrderMetricsKey(completedOrdersMetricsQuery)]?.metrics
-        || (statusFilter === 'completed' ? effectiveMetrics : null);
-    const cards = useMemo(() => {
-        const normalizeCardKey = (value = '') => String(value || '').trim().toLowerCase();
-        const buildStatusCard = (status) => {
-            const normalized = normalizeCardKey(status);
-            if (!normalized || normalized === 'all') return null;
-            const count = Number(
-                normalized === statusFilter
-                    ? (effectiveMetrics?.totalOrders || 0)
-                    : 0
-            );
-            if (normalized === 'pending') {
-                return { key: 'pending', label: 'Pending Orders', value: count || pendingOrdersMetrics?.totalOrders || 0, icon: Clock3, theme: 'amber' };
-            }
-            if (normalized === 'completed') {
-                return { key: 'completed', label: 'Completed Orders', value: count || completedOrdersMetrics?.totalOrders || 0, icon: CheckCircle2, theme: 'green' };
-            }
-            if (normalized === 'confirmed') {
-                return { key: 'confirmed', label: 'New Orders', value: count, icon: Package, theme: 'sky' };
-            }
-            if (normalized === 'attempted') {
-                return { key: 'attempted', label: 'Attempted Orders', value: count, icon: Smartphone, theme: 'pink' };
-            }
-            if (normalized === 'cancelled') {
-                return { key: 'cancelled', label: 'Cancelled Orders', value: count, icon: X, theme: 'red' };
-            }
-            if (normalized === 'failed') {
-                return { key: 'failed', label: 'Failed Orders', value: count, icon: AlertCircle, theme: 'red' };
-            }
-            return null;
-        };
-
-        const baseCards = [
-            {
-                key: 'total_orders',
-                label: 'Total Orders',
-                value: allOrdersMetrics?.totalOrders || 0,
-                icon: Package
-            },
-            {
-                key: 'total_revenue',
-                label: 'Total Revenue',
-                value: `₹${Number(allOrdersMetrics?.totalRevenue || 0).toLocaleString()}`,
-                icon: IndianRupee
-            },
-            buildStatusCard('pending'),
-            buildStatusCard(statusFilter === 'all' || normalizeCardKey(statusFilter) === 'pending' ? 'completed' : statusFilter)
-        ].filter(Boolean);
-
-        const dedupedCards = [];
-        const seenKeys = new Set();
-        baseCards.forEach((card) => {
-            const key = normalizeCardKey(card?.key || card?.label);
-            if (!key || seenKeys.has(key)) return;
-            seenKeys.add(key);
-            dedupedCards.push(card);
-        });
-
-        if (dedupedCards.length < 4) {
-            const fallbackCompletedCard = buildStatusCard('completed');
-            const fallbackKey = normalizeCardKey(fallbackCompletedCard?.key || fallbackCompletedCard?.label);
-            if (fallbackCompletedCard && fallbackKey && !seenKeys.has(fallbackKey)) {
-                seenKeys.add(fallbackKey);
-                dedupedCards.push(fallbackCompletedCard);
-            }
-        }
-
-        return applyKpiThemeRotation(dedupedCards.slice(0, 4)).map((card) => {
-            if (card.label === 'Pending Orders') return { ...card, theme: 'amber' };
-            if (card.label === 'Completed Orders') return { ...card, theme: 'green' };
-            if (card.label === 'Total Revenue') return { ...card, theme: 'brown' };
-            return card;
-        });
-    }, [allOrdersMetrics?.totalOrders, allOrdersMetrics?.totalRevenue, completedOrdersMetrics?.totalOrders, pendingOrdersMetrics?.totalOrders, statusFilter, effectiveMetrics?.totalOrders]);
-    const activeLabelOrder = labelPrintModalOrder;
-    const activeLabelOrderId = activeLabelOrder?.order_id || activeLabelOrder?.id || '';
-    const activeFromValidation = activeLabelOrder ? getFromLabelValidation(activeLabelOrder) : { ok: false, missing: [] };
-    const activeToValidation = activeLabelOrder ? getToLabelValidation(activeLabelOrder) : { ok: false, missing: [] };
-    const supportedTransports = Array.isArray(printerSupport?.transports) ? printerSupport.transports : [];
-    const canPairBluetooth = supportedTransports.includes('bluetooth');
-    const canPairUsb = !String(preferredPrinterTransport).toLowerCase().includes('bluetooth') && supportedTransports.includes('usb');
-    const printerStatusLabel = preferredPrinter
-        ? `${preferredPrinter.deviceName || preferredPrinter.productName || 'Saved printer'} (${preferredPrinter.transport === 'usb' ? 'USB' : 'Bluetooth'})`
-        : (printerSupport.supported
-            ? (preferredPrinterTransport === 'bluetooth'
-                ? 'No paired printer yet. This device will use Bluetooth.'
-                : 'No paired printer yet. You can pair via Bluetooth or USB.')
-            : printerSupport.reason);
-    const mobileStatusChips = [
-        { value: 'confirmed', label: 'New' },
-        { value: 'pending', label: 'Pending' },
-        { value: 'completed', label: 'Completed' },
-        { value: 'attempted', label: 'Attempted' },
-        { value: 'cancelled', label: 'Cancelled' },
-        { value: 'failed', label: 'Failed' },
-        { value: 'all', label: 'All Sales' }
-    ];
-    const mobileStatusMetricCounts = useMemo(() => (
-        mobileStatusMetricQueries.reduce((acc, query) => {
-            const key = toOrderMetricsKey(query);
-            const nextValue = orderMetricsByKey[key]?.metrics?.totalOrders;
-            acc[query.status] = Number.isFinite(Number(nextValue))
-                ? Number(nextValue)
-                : Number(statusCountCache[query.status] || 0);
-            return acc;
-        }, {})
-    ), [mobileStatusMetricQueries, orderMetricsByKey, statusCountCache, toOrderMetricsKey]);
-    const mobileStatusChipCounts = useMemo(() => {
-        const rows = Array.isArray(orders) ? orders : [];
-        const counts = {
-            confirmed: Number(mobileStatusMetricCounts.confirmed || 0),
-            attempted: Number(mobileStatusMetricCounts.attempted || 0),
-            pending: Number(mobileStatusMetricCounts.pending || 0),
-            completed: Number(mobileStatusMetricCounts.completed || 0),
-            cancelled: Number(mobileStatusMetricCounts.cancelled || 0),
-            failed: Number(mobileStatusMetricCounts.failed || 0),
-            all: Number(mobileStatusMetricCounts.all || rows.length)
-        };
-
-        if (!counts.confirmed && !counts.pending && !counts.completed && !counts.attempted && !counts.cancelled && !counts.failed && !counts.all) {
-            rows.forEach((order) => {
-                if (orderMatchesStatusFilter(order, 'confirmed')) counts.confirmed += 1;
-                if (orderMatchesStatusFilter(order, 'pending')) counts.pending += 1;
-                if (orderMatchesStatusFilter(order, 'completed')) counts.completed += 1;
-                if (orderMatchesStatusFilter(order, 'attempted')) counts.attempted += 1;
-                if (orderMatchesStatusFilter(order, 'cancelled')) counts.cancelled += 1;
-                if (orderMatchesStatusFilter(order, 'failed')) counts.failed += 1;
-            });
-            counts.all = rows.length;
-        }
-
-        if (selectedStatusCount !== null && selectedStatusCountKey === statusFilter) {
-            counts[statusFilter] = selectedStatusCount;
-        } else if (statusCountCache[statusFilter] !== undefined) {
-            counts[statusFilter] = Number(statusCountCache[statusFilter] || 0);
-        }
-        return counts;
-    }, [mobileStatusMetricCounts, orders, selectedStatusCount, selectedStatusCountKey, statusCountCache, statusFilter]);
-    const selectedPeriodText = useMemo(() => {
-        if (quickRange === 'custom' && startDate && endDate) {
-            return `${formatRangeDate(startDate)} - ${formatRangeDate(endDate)}`;
-        }
-        const resolvedRange = resolveNamedDateRange(quickRange);
-        if (resolvedRange?.startDate && resolvedRange?.endDate) {
-            return `${formatRangeDate(resolvedRange.startDate)} - ${formatRangeDate(resolvedRange.endDate)}`;
-        }
-        const option = QUICK_RANGES.find((entry) => entry.value === quickRange);
-        return option?.label || '';
-    }, [endDate, quickRange, startDate]);
-    const mobileOrdersWithDateBadges = useMemo(() => {
-        const list = [];
-        let previousDateKey = '';
-        (Array.isArray(orders) ? orders : []).forEach((order, idx) => {
-            const dateKey = getOrderDateKey(order);
-            if (dateKey && dateKey !== previousDateKey) {
-                list.push({
-                    type: 'date_badge',
-                    key: `date-${dateKey}`,
-                    label: formatAdminDate(order?.created_at || order?.createdAt || order?.updated_at || order?.updatedAt)
-                });
-                previousDateKey = dateKey;
-            }
-            list.push({
-                type: 'order',
-                key: `order-${order?.id || order?.order_id || order?.attempt_id || idx}`,
-                order
-            });
-        });
-        return list;
-    }, [orders]);
-    const selectedOrderTimelineEntries = useMemo(
-        () => buildOrderTimelineEntries(selectedOrder, { isAttempt: isAttemptEntry(selectedOrder) }),
-        [selectedOrder]
+  useEffect(() => {
+    if (!focusOrderId) return;
+    if (isLoading) return;
+    const hit = (orders || []).find(
+      (row) =>
+        !isAttemptEntry(row) &&
+        String(row.order_id || row.id) === String(focusOrderId),
     );
-    useEffect(() => {
-        if (!isDetailsOpen) {
-            setZoomedItemPreview(null);
-            setIsDetailsDrawerScrolled(false);
+    if (hit) {
+      openDetails(hit);
+      onFocusHandled();
+      return;
+    }
+    const loadDirect = async () => {
+      try {
+        setIsDetailsOpen(true);
+        setIsDetailsLoading(true);
+        const data = await orderService.getAdminOrder(focusOrderId);
+        const target = data?.order || null;
+        if (target) {
+          setSelectedOrder(target);
+          setPendingStatus("");
+          setDetailsLastSyncedAt(new Date().toISOString());
+          setSettlementContext({ mode: null, isTestMode: false });
         }
-    }, [isDetailsOpen]);
-    const sortOptions = [
-        { value: 'newest', label: 'Newest First' },
-        { value: 'oldest', label: 'Oldest First' },
-        { value: 'amount_high', label: 'Amount: High to Low' },
-        { value: 'amount_low', label: 'Amount: Low to High' },
-        { value: 'priority', label: 'Fulfillment Priority' }
-    ];
+      } catch (error) {
+        toast.error(error.message || "Failed to open focused order");
+      } finally {
+        setIsDetailsLoading(false);
+        onFocusHandled();
+      }
+    };
+    loadDirect();
+  }, [focusOrderId, isLoading, onFocusHandled, orders, toast]);
 
-    const visibleCancellationModes = CANCELLATION_MODES.filter((mode) => {
-        if (selectedOrderGateway === 'icici') return mode.value !== 'razorpay';
-        if (selectedOrderGateway === 'razorpay') return mode.value !== 'icici';
-        return mode.value === 'manual';
+  const handleDeleteOrder = async (e, order) => {
+    e.stopPropagation();
+    if (!order || !canDeleteRow(order)) return;
+    const targetId = isAttemptEntry(order)
+      ? order.attempt_id || order.id
+      : order.order_id || order.id;
+    if (!targetId) return;
+    setConfirmModal({
+      isOpen: true,
+      type: "delete",
+      title: "Delete Order",
+      message: `Delete order ${order.order_ref || targetId}? This cannot be undone.`,
+      confirmText: "Delete",
+      action: { type: "delete_single", order },
+    });
+  };
+
+  const handleConfirmModalClose = () => {
+    if (isConfirmProcessing) return;
+    setConfirmModal((prev) => ({ ...prev, isOpen: false, action: null }));
+  };
+
+  const handleConfirmAction = async () => {
+    const actionType = confirmModal?.action?.type;
+    if (!actionType) {
+      handleConfirmModalClose();
+      return;
+    }
+
+    setIsConfirmProcessing(true);
+    try {
+      if (actionType === "delete_single") {
+        const row = confirmModal.action.order;
+        const targetId = isAttemptEntry(row)
+          ? row.attempt_id || row.id
+          : row.order_id || row.id;
+        setDeletingOrderId(targetId);
+        if (isAttemptEntry(row)) {
+          await orderService.deleteAdminPaymentAttempt(targetId);
+          removeRow(targetId, "attempt");
+        } else {
+          await orderService.deleteAdminOrder(targetId);
+          removeRow(targetId, "order");
+        }
+        if (
+          selectedOrder &&
+          String(
+            selectedOrder.id ||
+              selectedOrder.order_id ||
+              selectedOrder.attempt_id,
+          ) === String(targetId)
+        ) {
+          setIsDetailsOpen(false);
+          setSelectedOrder(null);
+        }
+        markOrderMetricsDirty(metricsQuery);
+        fetchOrderMetrics(metricsQuery, { force: true }).catch(() => {});
+        toast.success("Order deleted");
+      }
+    } catch (error) {
+      toast.error(error.message || "Action failed");
+    } finally {
+      setDeletingOrderId(null);
+      setIsConfirmProcessing(false);
+      setConfirmModal((prev) => ({ ...prev, isOpen: false, action: null }));
+    }
+  };
+
+  const formatAddress = (address) => {
+    if (!address) return "—";
+    if (typeof address === "string") {
+      try {
+        const parsed = JSON.parse(address);
+        return (
+          [parsed.line1, parsed.city, parsed.state, parsed.zip]
+            .filter(Boolean)
+            .join(", ") || "—"
+        );
+      } catch {
+        return address;
+      }
+    }
+    return (
+      [address.line1, address.city, address.state, address.zip]
+        .filter(Boolean)
+        .join(", ") || "—"
+    );
+  };
+  const getPendingDurationLabel = (createdAt) => {
+    if (!createdAt) return "";
+    const created = new Date(createdAt);
+    if (Number.isNaN(created.getTime())) return "";
+    const now = new Date();
+    const diffMs = Math.max(0, now.getTime() - created.getTime());
+    const hourMs = 60 * 60 * 1000;
+    const dayMs = 24 * hourMs;
+    const weekMs = 7 * dayMs;
+    const monthMs = 30 * dayMs;
+
+    if (diffMs < dayMs) {
+      const hours = Math.max(1, Math.floor(diffMs / hourMs));
+      return `${hours}h pending`;
+    }
+    if (diffMs < weekMs) {
+      const days = Math.floor(diffMs / dayMs);
+      return `${days}d pending`;
+    }
+    if (diffMs < monthMs) {
+      const weeks = Math.floor(diffMs / weekMs);
+      return `${weeks}w pending`;
+    }
+    const months = Math.floor(diffMs / monthMs);
+    return `${months}mo pending`;
+  };
+
+  const effectiveMetrics = sharedMetrics || metrics;
+  const allOrdersMetricsQuery = useMemo(
+    () => ({
+      search,
+      startDate,
+      endDate,
+      quickRange,
+      sourceChannel,
+      status: "all",
+    }),
+    [endDate, quickRange, search, sourceChannel, startDate],
+  );
+  const pendingOrdersMetricsQuery = useMemo(
+    () => ({
+      search,
+      startDate,
+      endDate,
+      quickRange,
+      sourceChannel,
+      status: "pending",
+    }),
+    [endDate, quickRange, search, sourceChannel, startDate],
+  );
+  const completedOrdersMetricsQuery = useMemo(
+    () => ({
+      search,
+      startDate,
+      endDate,
+      quickRange,
+      sourceChannel,
+      status: "completed",
+    }),
+    [endDate, quickRange, search, sourceChannel, startDate],
+  );
+  const allOrdersMetrics =
+    orderMetricsByKey[toOrderMetricsKey(allOrdersMetricsQuery)]?.metrics ||
+    (statusFilter === "all" ? effectiveMetrics : null);
+  const pendingOrdersMetrics =
+    orderMetricsByKey[toOrderMetricsKey(pendingOrdersMetricsQuery)]?.metrics ||
+    (statusFilter === "pending" ? effectiveMetrics : null);
+  const completedOrdersMetrics =
+    orderMetricsByKey[toOrderMetricsKey(completedOrdersMetricsQuery)]
+      ?.metrics || (statusFilter === "completed" ? effectiveMetrics : null);
+  const cards = useMemo(() => {
+    const normalizeCardKey = (value = "") =>
+      String(value || "")
+        .trim()
+        .toLowerCase();
+    const buildStatusCard = (status) => {
+      const normalized = normalizeCardKey(status);
+      if (!normalized || normalized === "all") return null;
+      const count = Number(
+        normalized === statusFilter ? effectiveMetrics?.totalOrders || 0 : 0,
+      );
+      if (normalized === "pending") {
+        return {
+          key: "pending",
+          label: "Pending Orders",
+          value: count || pendingOrdersMetrics?.totalOrders || 0,
+          icon: Clock3,
+          theme: "amber",
+        };
+      }
+      if (normalized === "completed") {
+        return {
+          key: "completed",
+          label: "Completed Orders",
+          value: count || completedOrdersMetrics?.totalOrders || 0,
+          icon: CheckCircle2,
+          theme: "green",
+        };
+      }
+      if (normalized === "confirmed") {
+        return {
+          key: "confirmed",
+          label: "New Orders",
+          value: count,
+          icon: Package,
+          theme: "sky",
+        };
+      }
+      if (normalized === "attempted") {
+        return {
+          key: "attempted",
+          label: "Attempted Orders",
+          value: count,
+          icon: Smartphone,
+          theme: "pink",
+        };
+      }
+      if (normalized === "cancelled") {
+        return {
+          key: "cancelled",
+          label: "Cancelled Orders",
+          value: count,
+          icon: X,
+          theme: "red",
+        };
+      }
+      if (normalized === "failed") {
+        return {
+          key: "failed",
+          label: "Failed Orders",
+          value: count,
+          icon: AlertCircle,
+          theme: "red",
+        };
+      }
+      return null;
+    };
+
+    const baseCards = [
+      {
+        key: "total_orders",
+        label: "Total Orders",
+        value: allOrdersMetrics?.totalOrders || 0,
+        icon: Package,
+      },
+      {
+        key: "total_revenue",
+        label: "Total Revenue",
+        value: `₹${Number(allOrdersMetrics?.totalRevenue || 0).toLocaleString()}`,
+        icon: IndianRupee,
+      },
+      buildStatusCard("pending"),
+      buildStatusCard(
+        statusFilter === "all" || normalizeCardKey(statusFilter) === "pending"
+          ? "completed"
+          : statusFilter,
+      ),
+    ].filter(Boolean);
+
+    const dedupedCards = [];
+    const seenKeys = new Set();
+    baseCards.forEach((card) => {
+      const key = normalizeCardKey(card?.key || card?.label);
+      if (!key || seenKeys.has(key)) return;
+      seenKeys.add(key);
+      dedupedCards.push(card);
     });
 
-    useEffect(() => {
-        if (!selectedOrder) return;
-        if (
-            (selectedOrderGateway === 'icici' && cancellationMode === 'razorpay')
-            || (selectedOrderGateway === 'razorpay' && cancellationMode === 'icici')
-            || (selectedOrderGateway !== 'icici' && selectedOrderGateway !== 'razorpay' && ['razorpay', 'icici'].includes(cancellationMode))
-        ) {
-            setCancellationMode('');
-        }
-    }, [selectedOrder, selectedOrderGateway, cancellationMode]);
-    return (
-        <div className="animate-fade-in overflow-x-hidden md:overflow-x-visible">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4 mb-3 md:mb-6">
-                <div className="flex items-start justify-between gap-3">
-                    <div className="w-full">
-                        <div className="flex items-start justify-between gap-2 md:block">
-                            <div className="flex min-w-0 items-start gap-2">
-                                <h1 className={`${mobilePageHeaderActive ? 'hidden md:block' : ''} shrink-0 text-2xl md:text-3xl font-serif text-primary font-bold leading-none`}>Orders</h1>
-                                <button
-                                    type="button"
-                                    onClick={() => setIsAnalyticsPanelOpen((prev) => !prev)}
-                                    aria-pressed={isAnalyticsPanelOpen}
-                                    aria-label={isAnalyticsPanelOpen ? 'Hide order analytics' : 'Show order analytics'}
-                                    className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition md:hidden ${
-                                        isAnalyticsPanelOpen
-                                            ? 'border-primary bg-primary text-accent shadow-md shadow-primary/20'
-                                            : 'border-gray-200 bg-white text-gray-600'
-                                    }`}
-                                >
-                                    <BarChart3 size={15} />
-                                </button>
-                            </div>
-                            <div className="flex min-w-0 items-center gap-2 md:hidden">
-                                {selectedPeriodText && (
-                                    <p
-                                        className="min-w-0 text-right text-[10px] text-gray-400 leading-tight whitespace-nowrap overflow-hidden text-ellipsis"
-                                        style={{ fontSize: 'clamp(8px, 2.6vw, 10px)' }}
-                                    >
-                                        {selectedPeriodText}
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                        <p className={`${mobilePageHeaderActive ? 'hidden' : 'hidden md:block'} text-gray-500 text-sm mt-1`}>Track sales, payments, and order status.</p>
-                        {selectedPeriodText && (
-                            <p className="hidden md:block mt-0.5 md:mt-1 text-[11px] md:text-xs text-gray-400 leading-tight">Selected period: {selectedPeriodText}</p>
-                        )}
-                    </div>
-                </div>
-                <div className="hidden md:block w-full">
-                    <div className="flex flex-col md:flex-row md:flex-nowrap md:items-center gap-2 w-full md:w-auto">
-                    <div className="relative w-full md:w-auto order-1">
-                        <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
-                        <select
-                            value={draftQuickRange}
-                            onChange={(e) => {
-                                handleQuickRangeDraftChange(e.target.value);
-                            }}
-                            className="w-full md:w-auto pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer"
-                        >
-                            {QUICK_RANGES.map((range) => (
-                                <option key={range.value} value={range.value}>{range.label}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 order-2 md:order-2 w-full md:w-auto">
-                        <input
-                            ref={startDateInputRef}
-                            type="date"
-                            value={draftStartDate}
-                            min={draftEndDate ? addDays(draftEndDate, -MAX_RANGE_DAYS) : undefined}
-                            max={draftEndDate || undefined}
-                            onChange={(e) => setDraftStartDate(e.target.value)}
-                            className="sr-only"
-                        />
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (draftQuickRange !== 'custom') return;
-                                if (startDateInputRef.current?.showPicker) startDateInputRef.current.showPicker();
-                                else startDateInputRef.current?.click();
-                            }}
-                            disabled={draftQuickRange !== 'custom'}
-                            className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left whitespace-nowrap min-w-[170px]"
-                        >
-                            {draftStartDate ? formatRangeDate(draftStartDate) : 'Start Date'}
-                        </button>
-                        <input ref={endDateInputRef} type="date" value={draftEndDate} min={draftStartDate || undefined} max={draftStartDate ? addDays(draftStartDate, MAX_RANGE_DAYS) : undefined} onChange={(e) => setDraftEndDate(e.target.value)} className="sr-only" />
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (draftQuickRange !== 'custom') return;
-                                if (endDateInputRef.current?.showPicker) endDateInputRef.current.showPicker();
-                                else endDateInputRef.current?.click();
-                            }}
-                            disabled={draftQuickRange !== 'custom'}
-                            className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left whitespace-nowrap min-w-[170px]"
-                        >
-                            {draftEndDate ? formatRangeDate(draftEndDate) : 'End Date'}
-                        </button>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={handleExport}
-                        disabled={isExporting || isLoading}
-                        className="w-full md:w-auto px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-700 font-semibold hover:bg-gray-50 disabled:opacity-60 inline-flex items-center justify-center gap-2 order-3 md:order-3"
-                    >
-                        <Download size={16} />
-                        {isExporting ? 'Exporting...' : 'Export Report'}
-                    </button>
-                    <div className="relative w-full md:w-auto order-4 md:order-4">
-                        <button
-                            type="button"
-                            onClick={handleApplyFilters}
-                            className="w-full md:w-auto px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
-                        >
-                            Apply Filters
-                        </button>
-                    </div>
-                    </div>
-                </div>
-            </div>
+    if (dedupedCards.length < 4) {
+      const fallbackCompletedCard = buildStatusCard("completed");
+      const fallbackKey = normalizeCardKey(
+        fallbackCompletedCard?.key || fallbackCompletedCard?.label,
+      );
+      if (fallbackCompletedCard && fallbackKey && !seenKeys.has(fallbackKey)) {
+        seenKeys.add(fallbackKey);
+        dedupedCards.push(fallbackCompletedCard);
+      }
+    }
 
-            {isFilterModalOpen && createPortal(
-                <div className="fixed inset-0 z-[180] bg-black/50 backdrop-blur-sm flex items-end md:hidden">
-                    <div className="w-full rounded-t-[28px] bg-white border-t border-gray-200 shadow-2xl p-5 max-h-[85vh] overflow-y-auto">
-                        <div className="flex items-center justify-between gap-3">
-                            <div>
-                                <h3 className="text-lg font-semibold text-gray-900">Order Filters</h3>
-                                <p className="text-xs text-gray-500 mt-1">Refine the table and export the current view.</p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setIsFilterModalOpen(false)}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500"
-                                aria-label="Close order filters"
-                            >
-                                <X size={16} />
-                            </button>
-                        </div>
-                        <div className="mt-4 space-y-3">
-                            <div className="relative w-full">
-                                <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
-                                <select
-                                    value={draftQuickRange}
-                                    onChange={(e) => {
-                                        handleQuickRangeDraftChange(e.target.value);
-                                    }}
-                                    className="w-full pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer"
-                                >
-                                    {QUICK_RANGES.map((range) => (
-                                        <option key={range.value} value={range.value}>{range.label}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="grid grid-cols-1 gap-3">
-                                <input
-                                    ref={startDateInputRef}
-                                    type="date"
-                                    value={draftStartDate}
-                                    min={draftEndDate ? addDays(draftEndDate, -MAX_RANGE_DAYS) : undefined}
-                                    max={draftEndDate || undefined}
-                                    onChange={(e) => setDraftStartDate(e.target.value)}
-                                    className="sr-only"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (draftQuickRange !== 'custom') return;
-                                        if (startDateInputRef.current?.showPicker) startDateInputRef.current.showPicker();
-                                        else startDateInputRef.current?.click();
-                                    }}
-                                    disabled={draftQuickRange !== 'custom'}
-                                    className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left"
-                                >
-                                    {draftStartDate ? formatRangeDate(draftStartDate) : 'Start Date'}
-                                </button>
-                                <input
-                                    ref={endDateInputRef}
-                                    type="date"
-                                    value={draftEndDate}
-                                    min={draftStartDate || undefined}
-                                    max={draftStartDate ? addDays(draftStartDate, MAX_RANGE_DAYS) : undefined}
-                                    onChange={(e) => setDraftEndDate(e.target.value)}
-                                    className="sr-only"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        if (draftQuickRange !== 'custom') return;
-                                        if (endDateInputRef.current?.showPicker) endDateInputRef.current.showPicker();
-                                        else endDateInputRef.current?.click();
-                                    }}
-                                    disabled={draftQuickRange !== 'custom'}
-                                    className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left"
-                                >
-                                    {draftEndDate ? formatRangeDate(draftEndDate) : 'End Date'}
-                                </button>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={handleExport}
-                                disabled={isExporting || isLoading}
-                                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-700 font-semibold hover:bg-gray-50 disabled:opacity-60 inline-flex items-center justify-center gap-2"
-                            >
-                                <Download size={16} />
-                                {isExporting ? 'Exporting...' : 'Export Report'}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handleApplyFilters(true)}
-                                className="w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
-                            >
-                                Apply Filters
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setIsFilterModalOpen(false)}
-                                className="w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
-                            >
-                                Close
-                            </button>
-                        </div>
-                    </div>
-                </div>,
-                document.body
-            )}
+    return applyKpiThemeRotation(dedupedCards.slice(0, 4)).map((card) => {
+      if (card.label === "Pending Orders") return { ...card, theme: "amber" };
+      if (card.label === "Completed Orders") return { ...card, theme: "green" };
+      if (card.label === "Total Revenue") return { ...card, theme: "brown" };
+      return card;
+    });
+  }, [
+    allOrdersMetrics?.totalOrders,
+    allOrdersMetrics?.totalRevenue,
+    completedOrdersMetrics?.totalOrders,
+    pendingOrdersMetrics?.totalOrders,
+    statusFilter,
+    effectiveMetrics?.totalOrders,
+  ]);
+  const activeLabelOrder = labelPrintModalOrder;
+  const activeLabelOrderId =
+    activeLabelOrder?.order_id || activeLabelOrder?.id || "";
+  const activeFromValidation = activeLabelOrder
+    ? getFromLabelValidation(activeLabelOrder)
+    : { ok: false, missing: [] };
+  const activeToValidation = activeLabelOrder
+    ? getToLabelValidation(activeLabelOrder)
+    : { ok: false, missing: [] };
+  const supportedTransports = Array.isArray(printerSupport?.transports)
+    ? printerSupport.transports
+    : [];
+  const canPairBluetooth = supportedTransports.includes("bluetooth");
+  const canPairUsb =
+    !String(preferredPrinterTransport).toLowerCase().includes("bluetooth") &&
+    supportedTransports.includes("usb");
+  const printerStatusLabel = preferredPrinter
+    ? `${preferredPrinter.deviceName || preferredPrinter.productName || "Saved printer"} (${preferredPrinter.transport === "usb" ? "USB" : "Bluetooth"})`
+    : printerSupport.supported
+      ? preferredPrinterTransport === "bluetooth"
+        ? "No paired printer yet. This device will use Bluetooth."
+        : "No paired printer yet. You can pair via Bluetooth or USB."
+      : printerSupport.reason;
+  const mobileStatusChips = [
+    { value: "confirmed", label: "New" },
+    { value: "pending", label: "Pending" },
+    { value: "completed", label: "Completed" },
+    { value: "attempted", label: "Attempted" },
+    { value: "cancelled", label: "Cancelled" },
+    { value: "failed", label: "Failed" },
+    { value: "all", label: "All Sales" },
+  ];
+  const mobileStatusMetricCounts = useMemo(
+    () =>
+      mobileStatusMetricQueries.reduce((acc, query) => {
+        const key = toOrderMetricsKey(query);
+        const nextValue = orderMetricsByKey[key]?.metrics?.totalOrders;
+        acc[query.status] = Number.isFinite(Number(nextValue))
+          ? Number(nextValue)
+          : Number(statusCountCache[query.status] || 0);
+        return acc;
+      }, {}),
+    [
+      mobileStatusMetricQueries,
+      orderMetricsByKey,
+      statusCountCache,
+      toOrderMetricsKey,
+    ],
+  );
+  const mobileStatusChipCounts = useMemo(() => {
+    const rows = Array.isArray(orders) ? orders : [];
+    const counts = {
+      confirmed: Number(mobileStatusMetricCounts.confirmed || 0),
+      attempted: Number(mobileStatusMetricCounts.attempted || 0),
+      pending: Number(mobileStatusMetricCounts.pending || 0),
+      completed: Number(mobileStatusMetricCounts.completed || 0),
+      cancelled: Number(mobileStatusMetricCounts.cancelled || 0),
+      failed: Number(mobileStatusMetricCounts.failed || 0),
+      all: Number(mobileStatusMetricCounts.all || rows.length),
+    };
 
-            {isMobileSortOpen && createPortal(
-                <div className="fixed inset-0 z-[185] bg-black/40 backdrop-blur-sm flex items-end md:hidden">
-                    <div className="w-full rounded-t-[28px] bg-white border-t border-gray-200 shadow-2xl p-5">
-                        <div className="flex items-center justify-between gap-3">
-                            <div>
-                                <h3 className="text-lg font-semibold text-gray-900">Sort Orders</h3>
-                                <p className="text-xs text-gray-500 mt-1">Choose how the mobile list should be ordered.</p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setIsMobileSortOpen(false)}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500"
-                                aria-label="Close sort options"
-                            >
-                                <X size={16} />
-                            </button>
-                        </div>
-                        <div className="mt-4 space-y-2">
-                            {sortOptions.map((option) => (
-                                <button
-                                    key={option.value}
-                                    type="button"
-                                    onClick={() => {
-                                        setSortBy(option.value);
-                                        setPage(1);
-                                        setIsMobileSortOpen(false);
-                                    }}
-                                    className={`w-full rounded-xl border px-4 py-3 text-left text-sm font-semibold transition ${
-                                        sortBy === option.value
-                                            ? 'border-primary bg-primary/5 text-primary'
-                                            : 'border-gray-200 bg-white text-gray-700'
-                                    }`}
-                                >
-                                    {option.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                </div>,
-                document.body
-            )}
+    if (
+      !counts.confirmed &&
+      !counts.pending &&
+      !counts.completed &&
+      !counts.attempted &&
+      !counts.cancelled &&
+      !counts.failed &&
+      !counts.all
+    ) {
+      rows.forEach((order) => {
+        if (orderMatchesStatusFilter(order, "confirmed")) counts.confirmed += 1;
+        if (orderMatchesStatusFilter(order, "pending")) counts.pending += 1;
+        if (orderMatchesStatusFilter(order, "completed")) counts.completed += 1;
+        if (orderMatchesStatusFilter(order, "attempted")) counts.attempted += 1;
+        if (orderMatchesStatusFilter(order, "cancelled")) counts.cancelled += 1;
+        if (orderMatchesStatusFilter(order, "failed")) counts.failed += 1;
+      });
+      counts.all = rows.length;
+    }
 
-            <div className={`${isAnalyticsPanelOpen ? 'grid' : 'hidden'} md:grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 md:mb-6 w-full`}>
-                    {cards.map((card, index) => (
-                        <div
-                            key={`${card.label}-${index}`}
-                            className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm px-3 py-3 md:p-5 flex items-center gap-3 md:gap-4 ${KPI_CARD_THEMES[card.theme || 'sky'].shell}`}
-                            style={getKpiCardStyle(card.theme)}
-                        >
-                            <card.icon size={isMobileViewport ? 32 : 56} className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || 'sky'].iconGhost}`} />
-                            <div className="min-w-0">
-                                <p className={`text-[10px] md:text-xs uppercase tracking-[0.18em] md:tracking-widest font-semibold ${KPI_CARD_THEMES[card.theme || 'sky'].label}`}>{card.label}</p>
-                                <p className={`mt-1 text-lg md:text-2xl font-extrabold leading-none ${KPI_CARD_THEMES[card.theme || 'sky'].value}`}>{card.value}</p>
-                            </div>
-                        </div>
-                    ))}
-                </div>
+    if (
+      selectedStatusCount !== null &&
+      selectedStatusCountKey === statusFilter
+    ) {
+      counts[statusFilter] = selectedStatusCount;
+    } else if (statusCountCache[statusFilter] !== undefined) {
+      counts[statusFilter] = Number(statusCountCache[statusFilter] || 0);
+    }
+    return counts;
+  }, [
+    mobileStatusMetricCounts,
+    orders,
+    selectedStatusCount,
+    selectedStatusCountKey,
+    statusCountCache,
+    statusFilter,
+  ]);
+  const selectedPeriodText = useMemo(() => {
+    if (quickRange === "custom" && startDate && endDate) {
+      return `${formatRangeDate(startDate)} - ${formatRangeDate(endDate)}`;
+    }
+    const resolvedRange = resolveNamedDateRange(quickRange);
+    if (resolvedRange?.startDate && resolvedRange?.endDate) {
+      return `${formatRangeDate(resolvedRange.startDate)} - ${formatRangeDate(resolvedRange.endDate)}`;
+    }
+    const option = QUICK_RANGES.find((entry) => entry.value === quickRange);
+    return option?.label || "";
+  }, [endDate, quickRange, startDate]);
+  const mobileOrdersWithDateBadges = useMemo(() => {
+    const list = [];
+    let previousDateKey = "";
+    (Array.isArray(orders) ? orders : []).forEach((order, idx) => {
+      const dateKey = getOrderDateKey(order);
+      if (dateKey && dateKey !== previousDateKey) {
+        list.push({
+          type: "date_badge",
+          key: `date-${dateKey}`,
+          label: formatAdminDate(
+            order?.created_at ||
+              order?.createdAt ||
+              order?.updated_at ||
+              order?.updatedAt,
+          ),
+        });
+        previousDateKey = dateKey;
+      }
+      list.push({
+        type: "order",
+        key: `order-${order?.id || order?.order_id || order?.attempt_id || idx}`,
+        order,
+      });
+    });
+    return list;
+  }, [orders]);
+  const selectedOrderTimelineEntries = useMemo(
+    () =>
+      buildOrderTimelineEntries(selectedOrder, {
+        isAttempt: isAttemptEntry(selectedOrder),
+      }),
+    [selectedOrder],
+  );
+  useEffect(() => {
+    if (!isDetailsOpen) {
+      setZoomedItemPreview(null);
+      setIsDetailsDrawerScrolled(false);
+    }
+  }, [isDetailsOpen]);
+  const sortOptions = [
+    { value: "newest", label: "Newest First" },
+    { value: "oldest", label: "Oldest First" },
+    { value: "amount_high", label: "Amount: High to Low" },
+    { value: "amount_low", label: "Amount: Low to High" },
+    { value: "priority", label: "Fulfillment Priority" },
+  ];
 
-            <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-x-hidden overflow-y-visible">
-                <div className="md:hidden px-3 pt-2 pb-2 border-b border-gray-100 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                        <div className="flex min-w-0 flex-1 items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={() => setIsMobileSortOpen(true)}
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-amber-100 bg-gradient-to-br from-white to-amber-50/80 text-amber-700 shadow-sm shadow-amber-100/50"
-                                aria-label="Sort orders"
-                            >
-                                <ArrowUpDown size={15} />
-                            </button>
-                            <input
-                                placeholder="Search order / customer"
-                                className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px] leading-tight focus:border-accent outline-none"
-                                value={searchInput}
-                                onChange={(e) => setSearchInput(e.target.value)}
-                            />
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setIsFilterModalOpen(true)}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sky-100 bg-gradient-to-br from-white to-sky-50/80 text-sky-700 shadow-sm shadow-sky-100/50"
-                            aria-label="Open order filters"
-                        >
-                            <Filter size={15} />
-                        </button>
-                    </div>
-                    <div className="w-full max-w-full overflow-hidden">
-                        <div
-                            className="w-full overflow-x-auto overscroll-x-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-                            style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x' }}
-                        >
-                            <div className="inline-flex min-w-max flex-nowrap gap-2 pr-1">
-                                {mobileStatusChips.map((chip) => {
-                                    const active = statusFilter === chip.value;
-                                    return (
-                                        <button
-                                            key={chip.value}
-                                            type="button"
-                                            ref={(node) => {
-                                                if (node) {
-                                                    mobileStatusChipRefs.current[chip.value] = node;
-                                                } else {
-                                                    delete mobileStatusChipRefs.current[chip.value];
-                                                }
-                                            }}
-                                            onClick={() => handleStatusFilterChange(chip.value)}
-                                            className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1.5 text-[11px] font-semibold leading-none tracking-normal whitespace-nowrap transition ${
-                                                active ? getOrderStatusBadgeClasses(chip.value) : 'border-gray-200 bg-white text-gray-600'
-                                            }`}
-                                        >
-                                            {chip.label} ({mobileStatusChipCounts[chip.value] || 0})
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div className="px-6 py-4 border-b border-gray-100 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="flex flex-col md:flex-row md:items-center gap-2 w-full xl:w-auto">
-                        <div className="relative hidden md:block w-full md:w-auto order-1">
-                            <Filter className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
-                            <select
-                                value={draftStatusFilter}
-                                onChange={(e) => handleStatusFilterChange(e.target.value)}
-                                className="w-full md:w-auto pl-9 pr-7 py-2 bg-white rounded-lg border border-gray-200 text-sm focus:border-accent outline-none appearance-none cursor-pointer"
-                            >
-                                <option value="confirmed">New</option>
-                                <option value="pending">Pending</option>
-                                <option value="completed">Completed</option>
-                                <option value="attempted">Attempted</option>
-                                <option value="cancelled">Cancelled</option>
-                                <option value="failed">Failed</option>
-                                <option value="all">All Sales</option>
-                            </select>
-                        </div>
-                        <div className="relative hidden md:block w-full md:w-auto order-2 md:order-3">
-                            <ArrowUpDown className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
-                            <select
-                                value={sortBy}
-                                onChange={(e) => {
-                                    setSortBy(e.target.value);
-                                    setPage(1);
-                                }}
-                                className="w-full md:w-auto pl-9 pr-7 py-2 bg-white rounded-lg border border-gray-200 text-sm focus:border-accent outline-none appearance-none cursor-pointer"
-                            >
-                                <option value="newest">Newest First</option>
-                                <option value="oldest">Oldest First</option>
-                                <option value="amount_high">Amount: High to Low</option>
-                                <option value="amount_low">Amount: Low to High</option>
-                                <option value="priority">Fulfillment Priority (Tier)</option>
-                            </select>
-                        </div>
-                        <div className="relative hidden md:block w-full md:w-auto order-3 md:order-2">
-                            <Search className="absolute left-3 top-3 text-gray-400 w-4 h-4" />
-                            <input
-                                placeholder="Search order / customer"
-                                className="w-full md:w-64 pl-9 pr-3 py-2.5 bg-white rounded-lg border border-gray-200 text-sm focus:border-accent outline-none"
-                                value={searchInput}
-                                onChange={(e) => setSearchInput(e.target.value)}
-                            />
-                        </div>
-                        <button
-                            type="button"
-                            onClick={openCreateManualOrder}
-                            className="hidden md:inline-flex w-full md:w-auto order-4 items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm font-semibold hover:bg-emerald-100"
-                        >
-                            <Plus size={15} />
-                            Create Order
-                        </button>
-                    </div>
-                </div>
-                {isLoading ? (
-                    <div className="py-16 text-center text-gray-400">Loading orders...</div>
-                ) : orders.length === 0 ? (
-                    <div className="py-12 text-center text-gray-400 flex flex-col items-center gap-4">
-                        <img src={orderWaitIllustration} alt="No orders" className="w-40 h-40 object-contain opacity-85" />
-                        <div>
-                            <p className="text-gray-700 font-semibold">No orders available for the selected filters</p>
-                            <p className="text-sm text-gray-500 mt-1">Try adjusting status, search, or date range.</p>
-                        </div>
-                    </div>
-                ) : (
-                    <>
-                        <div className="hidden md:block">
-                            <table className="w-full text-left">
-                                <thead className="bg-gray-50 border-b border-gray-200">
-                                    <tr>
-                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Name</th>
-                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Date</th>
-                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Order ID</th>
-                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Total</th>
-                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Payment</th>
-                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                                        <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {orders.map((order) => {
-                                        const displayStatus = getEffectiveOrderDisplayStatus(order);
-                                        const pendingDurationLabel = displayStatus === 'pending'
-                                            ? getPendingDurationLabel(order.created_at)
-                                            : '';
-                                        return (
-                                        <tr
-                                            key={order.id}
-                                            onClick={() => openDetails(order)}
-                                            className={`transition-colors cursor-pointer ${isFailedRow(order) ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50/50'}`}
-                                        >
-                                            <td className="px-6 py-4 text-sm text-gray-700">
-                                                <div className="font-medium">{order.customer_name || 'Guest'}</div>
-                                                <div className="flex items-center gap-2 mt-0.5">
-                                                    <span className="text-xs text-gray-400">{order.customer_mobile || '—'}</span>
-                                                    <TierBadge
-                                                        tier={order?.loyalty_tier || order?.loyaltyTier || 'regular'}
-                                                        label={getTierLabel(order)}
-                                                        className="px-2 py-0.5 text-[10px]"
-                                                        iconSize={11}
-                                                        hideRegular
-                                                    />
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 text-sm text-gray-600">{formatAdminDate(order.created_at)}</td>
-                                            <td className="px-6 py-4 text-sm font-semibold text-gray-800">
-                                                <div className="flex items-center gap-2">
-                                                    <span>{order.order_ref}</span>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 text-sm font-semibold text-gray-800">₹{Number(order.total || 0).toLocaleString()}</td>
-                                            <td className="px-6 py-4">
-                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getPaymentStatusBadgeClasses(order.payment_status)}`}>
-                                                    {getPaymentStatusLabel(order)}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-center gap-2">
-                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getOrderStatusBadgeClasses(displayStatus)}`}>
-                                                        {formatStatusLabel(displayStatus)}
-                                                    </span>
-                                                    {!!pendingDurationLabel && (
-                                                        <span className="text-[10px] uppercase tracking-widest font-bold text-amber-100 bg-amber-950 border border-amber-700 px-2 py-0.5 rounded-full">
-                                                            {pendingDurationLabel}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <div className="inline-flex items-center gap-2">
-                                                    {getCallLink(order.customer_mobile) && (
-                                                        <a
-                                                            href={getCallLink(order.customer_mobile)}
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-sky-200 text-sky-700 hover:bg-sky-50"
-                                                            title="Call customer"
-                                                        >
-                                                            <Phone size={14} />
-                                                        </a>
-                                                    )}
-                                                    {getWhatsappLink(order.customer_mobile) && (
-                                                        <a
-                                                            href={getWhatsappLink(order.customer_mobile)}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                                                            title="Contact customer on WhatsApp"
-                                                        >
-                                                            <WhatsAppIcon size={14} />
-                                                        </a>
-                                                    )}
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => handleOpenPrintLabelModal(order, e)}
-                                                        disabled={printingLabelId === (order.order_id || order.id) || (!canOpenShippingLabelModal(order) && printerSupport.supported)}
-                                                        className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-60"
-                                                        title={canOpenShippingLabelModal(order)
-                                                            ? 'Open label print options'
-                                                            : 'Label printing requires at least sender or receiver address details'}
-                                                    >
-                                                        <Printer size={14} />
-                                                    </button>
-                                                    {canDownloadInvoice(order) && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => handleDownloadInvoice(order, e)}
-                                                            disabled={downloadingInvoiceId === (order.order_id || order.id)}
-                                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
-                                                            title="Download invoice"
-                                                        >
-                                                            <Download size={14} />
-                                                        </button>
-                                                    )}
-                                                    {canDownloadInvoice(order) && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => handleSendInvoiceCommunication(order, e)}
-                                                            disabled={sendingInvoiceId === (order.order_id || order.id)}
-                                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 disabled:opacity-60"
-                                                            title="Send invoice to email + WhatsApp"
-                                                        >
-                                                            <Send size={14} />
-                                                        </button>
-                                                    )}
-                                                    {canReconcileAttempt(order) && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => handleReconcileAttempt(order, e)}
-                                                            disabled={reconcilingAttemptId === (order.attempt_id || order.id)}
-                                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-60"
-                                                            title="Reconcile payment attempt"
-                                                        >
-                                                            <RotateCw size={14} className={reconcilingAttemptId === (order.attempt_id || order.id) ? 'animate-spin' : ''} />
-                                                        </button>
-                                                    )}
-                                                    {canDeleteRow(order) && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => handleDeleteOrder(e, order)}
-                                                            disabled={deletingOrderId === (isAttemptEntry(order) ? (order.attempt_id || order.id) : (order.order_id || order.id))}
-                                                            className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
-                                                            title="Delete order"
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    );})}
-                                </tbody>
-                            </table>
-                        </div>
+  const visibleCancellationModes = CANCELLATION_MODES.filter((mode) => {
+    if (selectedOrderGateway === "icici") return mode.value !== "razorpay";
+    if (selectedOrderGateway === "razorpay") return mode.value !== "icici";
+    return mode.value === "manual";
+  });
 
-                        <div className="md:hidden divide-y divide-gray-100">
-                            {mobileOrdersWithDateBadges.map((entry) => {
-                                if (entry.type === 'date_badge') {
-                                    return (
-                                        <div key={entry.key} className="sticky top-0 z-[2] flex justify-center bg-white/90 py-1 backdrop-blur-sm">
-                                            <span className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold leading-none tracking-normal text-slate-700 shadow-sm">
-                                                {entry.label}
-                                            </span>
-                                        </div>
-                                    );
-                                }
-                                const order = entry.order;
-                                const displayStatus = getEffectiveOrderDisplayStatus(order);
-                                const pendingDurationLabel = displayStatus === 'pending'
-                                    ? getPendingDurationLabel(order.created_at)
-                                    : '';
-                                const theme = getMobileOrderCardTheme(displayStatus);
-                                const isQuickCompleting = quickCompletingOrderId === (order.order_id || order.id);
-                                return (
-                                <div
-                                    key={entry.key}
-                                    onClick={() => openDetails(order)}
-                                    className="w-full text-left px-1.5 py-0.5 transition-colors hover:bg-slate-50/70"
-                                >
-                                    <div className={`relative overflow-hidden rounded-lg border px-2 pb-1 pt-1.5 shadow-sm ${theme.shell}`}>
-                                        <div className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${theme.strip}`} />
-                                        <div className="flex items-start justify-between gap-1.5">
-                                            <div className="min-w-0">
-                                                <p className="font-mono text-xs font-bold leading-tight tracking-normal text-slate-900 break-words">#{order.order_ref}</p>
-                                                <div className="mt-0 flex min-w-0 items-baseline gap-1">
-                                                    <p className="min-w-0 truncate text-xs font-semibold leading-tight text-slate-800">{order.customer_name || 'Guest'}</p>
-                                                    {order.customer_mobile && (
-                                                        <p className="shrink-0 text-[10px] leading-tight text-slate-600">{order.customer_mobile}</p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <div className="flex shrink-0 flex-col items-end gap-0.5">
-                                                <div className="flex items-center justify-end gap-1.5">
-                                                    <span className={`inline-flex min-w-[68px] items-center justify-center px-2 py-1 rounded-full text-[11px] font-semibold leading-none ${getOrderStatusBadgeClasses(displayStatus)}`}>
-                                                        {formatStatusLabel(displayStatus)}
-                                                    </span>
-                                                    {!isAttemptEntry(order) && !['completed', 'cancelled'].includes(displayStatus) && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => handleQuickComplete(order, e)}
-                                                            disabled={isQuickCompleting}
-                                                            className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-gradient-to-r from-emerald-50 via-lime-50 to-emerald-100 px-1.5 py-1 text-[11px] font-semibold leading-none text-emerald-800 shadow-sm shadow-emerald-100/70 transition-all hover:from-emerald-100 hover:via-lime-100 hover:to-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
-                                                            title="Mark order as completed"
-                                                        >
-                                                            <CheckCircle2 size={13} className={isQuickCompleting ? 'animate-pulse' : ''} />
-                                                            {isQuickCompleting ? 'Completing...' : 'Complete'}
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className={`mt-0.5 grid grid-cols-[1fr_auto] items-start gap-1.5 border-t px-0 pt-0.5 ${theme.divider}`}>
-                                            <div>
-                                                <p className="text-[11px] leading-tight text-slate-700">{formatAdminDateTime(order.created_at)}</p>
-                                            </div>
-                                            <div className="text-right">
-                                                <p className={`text-sm font-semibold leading-tight ${theme.amount}`}>₹{Number(order.total || 0).toLocaleString()}</p>
-                                            </div>
-                                        </div>
-
-                                        <div className={`mt-0.5 flex flex-wrap items-center gap-0.5 ${theme.divider}`}>
-                                            <span className={`inline-flex min-w-[64px] items-center justify-center px-1 py-0.5 rounded-full text-[9px] font-semibold leading-none ${getPaymentStatusBadgeClasses(order.payment_status)}`}>
-                                                {getPaymentStatusLabel(order)}
-                                            </span>
-                                            <TierBadge
-                                                tier={order?.loyalty_tier || order?.loyaltyTier || 'regular'}
-                                                label={getTierLabel(order)}
-                                                className="min-w-[64px] justify-center px-1 py-0.5 text-[8px]"
-                                                iconSize={9}
-                                                hideRegular
-                                            />
-                                            {!!pendingDurationLabel && (
-                                                <span className={`inline-flex items-center px-1 py-0.5 rounded-full text-[8px] font-semibold uppercase tracking-normal ${getOrderStatusBadgeClasses('pending')}`}>
-                                                    {pendingDurationLabel}
-                                                </span>
-                                            )}
-                                            <span className="ml-auto inline-flex items-center justify-center w-4.5 h-4.5 rounded-full border border-slate-200 bg-white text-slate-500 cursor-pointer transition-colors transition-transform hover:bg-primary/10 hover:text-primary hover:border-primary/30 active:scale-95">
-                                                <ArrowRight size={10} />
-                                            </span>
-                                        </div>
-
-                                        <div className={`mt-0.5 flex items-center justify-end gap-0.5 flex-nowrap overflow-hidden border-t pt-0.5 ${theme.divider}`}>
-                                        {getCallLink(order.customer_mobile) && (
-                                            <a
-                                                href={getCallLink(order.customer_mobile)}
-                                                onClick={(e) => e.stopPropagation()}
-                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm ${theme.actionInfo}`}
-                                                title="Call customer"
-                                            >
-                                                <Phone size={11} />
-                                            </a>
-                                        )}
-                                        {getWhatsappLink(order.customer_mobile) && (
-                                            <a
-                                                href={getWhatsappLink(order.customer_mobile)}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                onClick={(e) => e.stopPropagation()}
-                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm ${theme.actionSuccess}`}
-                                                title="Contact customer on WhatsApp"
-                                            >
-                                                <WhatsAppIcon size={11} />
-                                            </a>
-                                        )}
-                                            <button
-                                                type="button"
-                                                onClick={(e) => handleOpenPrintLabelModal(order, e)}
-                                                disabled={printingLabelId === (order.order_id || order.id) || (!canOpenShippingLabelModal(order) && printerSupport.supported)}
-                                            className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionAccent}`}
-                                            title={canOpenShippingLabelModal(order)
-                                                ? 'Open label print options'
-                                                : 'Label printing requires at least sender or receiver address details'}
-                                        >
-                                            <Printer size={11} />
-                                        </button>
-                                        {canDownloadInvoice(order) && (
-                                            <button
-                                                type="button"
-                                                onClick={(e) => handleDownloadInvoice(order, e)}
-                                                disabled={downloadingInvoiceId === (order.order_id || order.id)}
-                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionSuccess}`}
-                                                title="Download invoice"
-                                            >
-                                                <Download size={11} />
-                                            </button>
-                                        )}
-                                        {canDownloadInvoice(order) && (
-                                            <button
-                                                type="button"
-                                                onClick={(e) => handleSendInvoiceCommunication(order, e)}
-                                                disabled={sendingInvoiceId === (order.order_id || order.id)}
-                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionInfo}`}
-                                                title="Send invoice to email + WhatsApp"
-                                            >
-                                                <Send size={11} />
-                                            </button>
-                                        )}
-                                        {canReconcileAttempt(order) && (
-                                            <button
-                                                type="button"
-                                                onClick={(e) => handleReconcileAttempt(order, e)}
-                                                disabled={reconcilingAttemptId === (order.attempt_id || order.id)}
-                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionAccent}`}
-                                                title="Reconcile payment attempt"
-                                            >
-                                                <RotateCw size={11} className={reconcilingAttemptId === (order.attempt_id || order.id) ? 'animate-spin' : ''} />
-                                            </button>
-                                        )}
-                                        {canDeleteRow(order) && (
-                                            <button
-                                                type="button"
-                                                onClick={(e) => handleDeleteOrder(e, order)}
-                                                disabled={deletingOrderId === (isAttemptEntry(order) ? (order.attempt_id || order.id) : (order.order_id || order.id))}
-                                                className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionDanger}`}
-                                                title="Delete order"
-                                            >
-                                                <Trash2 size={11} />
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                                </div>
-                            );})}
-                        </div>
-                    </>
-                )}
-                <div className="px-6 py-4 border-t border-gray-100 overflow-x-hidden">
-                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                        <p className="text-xs text-gray-400 text-center md:text-left">Page {page} of {totalPages}</p>
-                        <div className="flex max-w-full flex-wrap items-center justify-center gap-2 md:justify-end">
-                            <button
-                                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                                disabled={page === 1}
-                                className="px-3 py-2 rounded-lg border border-gray-200 text-xs md:text-sm font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-50 md:w-28"
-                            >
-                                Previous
-                            </button>
-                            {visiblePages.map((pageNo) => (
-                                <button
-                                    key={pageNo}
-                                    onClick={() => setPage(pageNo)}
-                                    className={`min-w-9 px-3 py-2 rounded-lg border text-xs md:text-sm font-semibold ${
-                                        pageNo === page
-                                            ? 'border-primary bg-primary text-accent'
-                                            : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-                                    }`}
-                                >
-                                    {pageNo}
-                                </button>
-                            ))}
-                            <button
-                                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                                disabled={page === totalPages}
-                                className="px-3 py-2 rounded-lg border border-gray-200 text-xs md:text-sm font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-50 md:w-28"
-                            >
-                                Next
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {isDetailsOpen && createPortal(
-                <div className="fixed inset-0 z-[70] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
-                    <div
-                        ref={detailsDrawerScrollRef}
-                        className="bg-white w-full max-w-xl h-full shadow-2xl overflow-y-auto"
-                        onScroll={(event) => setIsDetailsDrawerScrolled(event.currentTarget.scrollTop > 8)}
-                    >
-                        <div className="sticky top-0 z-20 px-4 py-3 bg-white/68 backdrop-blur-xl supports-[backdrop-filter]:bg-white/60">
-                            <button
-                                onClick={() => setIsDetailsOpen(false)}
-                                className={`absolute left-4 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border transition ${
-                                    isDetailsDrawerScrolled
-                                        ? 'border-slate-900/70 bg-slate-950/85 text-white backdrop-blur-md'
-                                        : 'border-white/70 bg-white/85 text-slate-800 shadow-sm'
-                                }`}
-                                aria-label="Back"
-                            >
-                                <ArrowLeft size={18} />
-                            </button>
-                            <h3 className="m-0 flex min-h-[44px] items-center justify-center text-center text-base font-semibold leading-none text-gray-900">Order Details</h3>
-                        </div>
-                        <div className="px-6 pb-6 pt-4">
-                        {!selectedOrder ? (
-                            <div className="py-16 text-center text-gray-400">Loading order details...</div>
-                        ) : (
-                            <>
-                                {isDetailsLoading && (
-                                    <div className="mb-3 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 inline-flex items-center gap-1">
-                                        Refreshing latest details...
-                                    </div>
-                                )}
-                                {(() => {
-                                    const displayStatus = getEffectiveOrderDisplayStatus(selectedOrder);
-                                    const headerTheme = getOrderHeaderTheme(displayStatus);
-                                    const drawerTheme = getOrderDrawerSectionTheme(displayStatus);
-                                    const shippingAddress = typeof selectedOrder.shipping_address === 'string'
-                                        ? JSON.parse(selectedOrder.shipping_address || '{}')
-                                        : (selectedOrder.shipping_address || {});
-                                    const combinedCustomerPhone = [selectedOrder.customer_mobile, shippingAddress.additionalPhone]
-                                        .map((value) => String(value || '').trim())
-                                        .filter(Boolean)
-                                        .filter((value, index, list) => list.indexOf(value) === index)
-                                        .join(', ') || '—';
-                                    const customerDetailsRows = [
-                                        { label: 'Name', value: selectedOrder.customer_name || 'Guest' },
-                                        { label: 'Shipping Address', value: formatAddress(selectedOrder.shipping_address) },
-                                        { label: 'Landmark', value: shippingAddress.landmark || '—' },
-                                        ...(billingAddressEnabled ? [{ label: 'Billing Address', value: formatAddress(selectedOrder.billing_address) }] : []),
-                                        { label: 'City & State', value: (() => {
-                                            return [shippingAddress.city, shippingAddress.state].filter(Boolean).join(', ') || '—';
-                                        })() },
-                                        { label: 'Pin Code', value: (() => {
-                                            return shippingAddress.zip || '—';
-                                        })() },
-                                        { label: 'Customer Phone', value: combinedCustomerPhone }
-                                    ];
-                                    return (
-                                        <>
-                                            {(() => {
-                                                return (
-                                                    <>
-                                            <div className={`rounded-3xl p-5 shadow-lg ${headerTheme.shell}`}>
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div>
-                                                        <p className={`text-[11px] uppercase tracking-[0.24em] font-semibold ${headerTheme.rowLabel}`}>Order ID</p>
-                                                        <h3 className="mt-2 font-sans text-2xl font-black tracking-tight text-white">#{selectedOrder.order_ref}</h3>
-                                                        <p className={`mt-1 text-sm font-semibold ${headerTheme.subtle}`}>
-                                                            Order Value: ₹{Number(selectedOrderTotals.grandTotal || selectedOrder.total || 0).toLocaleString('en-IN')}
-                                                        </p>
-                                                        <p className={`mt-2 text-sm font-medium ${headerTheme.subtle}`}>{formatAdminDateTime(selectedOrder.created_at)}</p>
-                                                        {detailsLastSyncedAt && (
-                                                            <p className={`mt-1 text-[11px] ${headerTheme.micro}`}>
-                                                                Last synced: {formatAdminDateTime(detailsLastSyncedAt)}
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getOrderHeaderBadgeClasses(displayStatus)}`}>
-                                                        {formatStatusLabel(displayStatus)}
-                                                    </span>
-                                                </div>
-                                                <div className="mt-4 flex flex-wrap items-center gap-2">
-                                                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getPaymentHeaderBadgeClasses(selectedOrder.payment_status)}`}>
-                                                        {getPaymentStatusLabel(selectedOrder)}
-                                                    </span>
-                                                    <TierBadge
-                                                        tier={selectedOrder?.loyalty_tier || selectedOrder?.loyaltyTier || 'regular'}
-                                                        label={getTierLabel(selectedOrder)}
-                                                        className="px-3 py-1 text-xs"
-                                                        iconSize={12}
-                                                        hideRegular
-                                                    />
-                                                    {displayStatus === 'pending' && (
-                                                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getOrderHeaderBadgeClasses(displayStatus)}`}>
-                                                            {getPendingDurationLabel(selectedOrder.created_at)}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className="mt-4 border-t border-white/15 pt-4">
-                                                    <p className="text-lg font-semibold text-white truncate">{selectedOrder.customer_name || 'Guest'}</p>
-                                                    <p className={`mt-1 text-sm ${headerTheme.subtle}`}>{selectedOrder.customer_mobile || 'No mobile number'}</p>
-                                                    <p className={`mt-2 text-xs ${headerTheme.micro}`}>Invoice No: <span className="font-mono">{getInvoiceNumber(selectedOrder)}</span></p>
-                                                </div>
-                                            </div>
-                                            <div className="mt-4">
-                                                {!isAttemptEntry(selectedOrder) && (
-                                                    <div className="flex justify-end">
-                                                        <div className="inline-flex items-center gap-2 justify-end">
-                                                            {getCallLink(selectedOrder.customer_mobile) && (
-                                                                <a
-                                                                    href={getCallLink(selectedOrder.customer_mobile)}
-                                                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 bg-white/90 text-slate-700 hover:bg-white"
-                                                                    title="Call customer"
-                                                                >
-                                                                    <Phone size={16} />
-                                                                </a>
-                                                            )}
-                                                            {getWhatsappLink(selectedOrder.customer_mobile) && (
-                                                                <a
-                                                                    href={getWhatsappLink(selectedOrder.customer_mobile)}
-                                                                    target="_blank"
-                                                                    rel="noreferrer"
-                                                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                                                                    title="Contact customer on WhatsApp"
-                                                                >
-                                                                    <WhatsAppIcon size={16} />
-                                                                </a>
-                                                            )}
-                                                            {canDownloadInvoice(selectedOrder) && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(e) => handleDownloadInvoice(selectedOrder, e)}
-                                                                    disabled={downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id)}
-                                                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
-                                                                    title={downloadingInvoiceId === (selectedOrder.order_id || selectedOrder.id) ? 'Generating invoice' : 'Download invoice'}
-                                                                >
-                                                                    <Download size={16} />
-                                                                </button>
-                                                            )}
-                                                            {canDownloadInvoice(selectedOrder) && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(e) => handleSendInvoiceCommunication(selectedOrder, e)}
-                                                                    disabled={sendingInvoiceId === (selectedOrder.order_id || selectedOrder.id)}
-                                                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-60"
-                                                                    title={sendingInvoiceId === (selectedOrder.order_id || selectedOrder.id) ? 'Sending invoice' : 'Send invoice to email + WhatsApp'}
-                                                                >
-                                                                    <Send size={16} />
-                                                                </button>
-                                                            )}
-                                                            {canDeleteRow(selectedOrder) && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(e) => handleDeleteOrder(e, selectedOrder)}
-                                                                    disabled={deletingOrderId === (selectedOrder.order_id || selectedOrder.id)}
-                                                                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-60"
-                                                                    title="Delete order"
-                                                                >
-                                                                    <Trash2 size={16} />
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                {isAttemptEntry(selectedOrder) && (
-                                                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleReconcileAttempt(selectedOrder)}
-                                                            disabled={!canReconcileAttempt(selectedOrder) || reconcilingAttemptId === (selectedOrder.attempt_id || selectedOrder.id)}
-                                                            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-300 bg-amber-100 text-amber-900 text-sm font-semibold hover:bg-amber-200 disabled:opacity-60"
-                                                        >
-                                                            <RotateCw size={16} className={reconcilingAttemptId === (selectedOrder.attempt_id || selectedOrder.id) ? 'animate-spin' : ''} />
-                                                            {reconcilingAttemptId === (selectedOrder.attempt_id || selectedOrder.id) ? 'Reconciling...' : 'Reconcile with Razorpay'}
-                                                        </button>
-                                                        {String(user?.role || '').toLowerCase() === 'admin' && (
-                                                            <>
-                                                                <p className="text-xs text-emerald-800 font-semibold">
-                                                                    Convert this failed attempt into a successful manual order.
-                                                                </p>
-                                                                <div>
-                                                                    <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Payment Mode</label>
-                                                                    <select
-                                                                        value={attemptConversionMode}
-                                                                        onChange={(e) => setAttemptConversionMode(e.target.value)}
-                                                                        disabled={isConvertingAttempt}
-                                                                        className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
-                                                                    >
-                                                                        {MANUAL_PAYMENT_OPTIONS.map((mode) => (
-                                                                            <option key={mode.value} value={mode.value}>{mode.label}</option>
-                                                                        ))}
-                                                                    </select>
-                                                                </div>
-                                                                <div>
-                                                                    <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Reference (Optional)</label>
-                                                                    <input
-                                                                        type="text"
-                                                                        value={attemptConversionReference}
-                                                                        onChange={(e) => setAttemptConversionReference(e.target.value)}
-                                                                        disabled={isConvertingAttempt}
-                                                                        placeholder="Transaction / receipt reference"
-                                                                        className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
-                                                                    />
-                                                                </div>
-                                                                <div>
-                                                                    <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">Reason</label>
-                                                                    <textarea
-                                                                        value={attemptConversionReason}
-                                                                        onChange={(e) => setAttemptConversionReason(e.target.value)}
-                                                                        disabled={isConvertingAttempt}
-                                                                        placeholder="Document why this attempt is being converted manually"
-                                                                        className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700 min-h-[88px]"
-                                                                    />
-                                                                </div>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={handleConvertAttemptToPaidOrder}
-                                                                    disabled={isConvertingAttempt || String(attemptConversionReason || '').trim().length < 8}
-                                                                    className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60"
-                                                                >
-                                                                    {isConvertingAttempt ? 'Converting...' : 'Mark as Successful Order'}
-                                                                </button>
-                                                            </>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            <div className={`mt-5 overflow-hidden rounded-2xl border ${drawerTheme.shell}`}>
-                                                <div className={`border-b px-4 py-2 text-xs font-semibold uppercase ${drawerTheme.header}`}>Items</div>
-                                                <div className={`divide-y ${drawerTheme.divider}`}>
-                                                    {(selectedOrder.items || []).map((item, index) => {
-                                                        const snapshot = item?.item_snapshot && typeof item.item_snapshot === 'object' ? item.item_snapshot : null;
-                                                        const quantity = Number(item.quantity ?? snapshot?.quantity ?? 0);
-                                                        const invoiceItem = selectedOrderInvoiceItems[index] || null;
-                                                        const unitPrice = Number(invoiceItem?.displayRate ?? (isInclusivePricingOrder(selectedOrder)
-                                                            ? getOrderItemUnitPriceBase(item)
-                                                            : Number(item.price ?? snapshot?.unitPrice ?? 0)));
-                                                        const lineTotal = Number(invoiceItem?.displayLineTotal ?? (isInclusivePricingOrder(selectedOrder)
-                                                            ? getOrderItemLineTotalBase(item)
-                                                            : Number(item.line_total ?? snapshot?.lineTotal ?? (unitPrice * quantity))));
-                                                        const displayAmount = Number(invoiceItem?.displayAmount ?? (isInclusivePricingOrder(selectedOrder)
-                                                            ? getOrderItemLineTotalBase(item)
-                                                            : Number(item.line_total ?? snapshot?.lineTotal ?? (unitPrice * quantity))));
-                                                        const displayDiscount = Number(invoiceItem?.totalDiscount ?? 0);
-                                                        const itemTax = Number(invoiceItem?.displayTaxAmount ?? item.tax_amount ?? snapshot?.taxAmount ?? 0);
-                                                        const parsedWarrantyMonths = Number(snapshot?.polishWarrantyMonths ?? 0);
-                                                        const itemWarrantyMonths = [6, 7, 8, 9, 12].includes(parsedWarrantyMonths) ? parsedWarrantyMonths : null;
-                                                        const itemTitle = getOrderItemTitle(item);
-                                                        const itemVariantTitle = getOrderItemVariantTitle(item);
-                                                        const itemCategoryLabel = getOrderItemCategoryLabel(item);
-                                                        const itemImageUrl = getOrderItemImageUrl(item);
-                                                        return (
-                                                            <div key={item.id} className="flex items-start gap-3 p-3 sm:items-center sm:gap-4 sm:p-4">
-                                                                {itemImageUrl ? (
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => setZoomedItemPreview({ src: itemImageUrl, title: itemTitle })}
-                                                                        className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 focus:outline-none focus:ring-2 focus:ring-sky-400"
-                                                                        aria-label={`Zoom image for ${itemTitle}`}
-                                                                        title="Tap to zoom image"
-                                                                    >
-                                                                        <img src={itemImageUrl} alt={itemTitle} className="h-full w-full object-cover transition-transform duration-200 group-active:scale-95" />
-                                                                        <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/45 px-1 py-0.5 text-center text-[9px] font-semibold uppercase tracking-wide text-white">
-                                                                            Zoom
-                                                                        </span>
-                                                                    </button>
-                                                                ) : (
-                                                                    <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden border border-gray-200" />
-                                                                )}
-                                                                <div className="flex-1 min-w-0">
-                                                                    <p className="text-sm font-semibold text-gray-800 break-words whitespace-normal">{itemTitle}</p>
-                                                                    {itemVariantTitle && <p className="text-xs text-gray-500 line-clamp-1">{itemVariantTitle}</p>}
-                                                                    {itemCategoryLabel && <p className="text-[11px] text-gray-400 break-words whitespace-normal">Category: {itemCategoryLabel}</p>}
-                                                                    {itemWarrantyMonths && <p className="text-[11px] text-gray-400 line-clamp-1">Polish Warranty: {itemWarrantyMonths} months</p>}
-                                                                    <p className="text-xs text-gray-400 mt-1">Rate: ₹{unitPrice.toLocaleString()} x {quantity}</p>
-                                                                    <p className="text-[11px] text-gray-400 mt-1">Amount: ₹{displayAmount.toLocaleString()}</p>
-                                                                    {displayDiscount > 0 && (
-                                                                        <p className="text-[11px] text-emerald-700 mt-1">Discount: ₹{displayDiscount.toLocaleString()}</p>
-                                                                    )}
-                                                                </div>
-                                                                <div className="w-24 shrink-0 text-right text-sm font-semibold text-gray-800 sm:w-auto">
-                                                                    ₹{lineTotal.toLocaleString()}
-                                                                    {itemTax > 0 && (
-                                                                        <p className="text-[11px] text-gray-500 font-medium leading-tight">GST: ₹{itemTax.toLocaleString()}</p>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-
-                                            <div className={`mt-5 grid grid-cols-1 gap-2 rounded-2xl border p-4 text-sm ${drawerTheme.shell}`}>
-                                                <div className="flex items-center justify-between font-semibold text-gray-900">
-                                                    <span>Subtotal</span>
-                                                    <span>₹{Number(selectedOrderTotals.subtotal || 0).toLocaleString()}</span>
-                                                </div>
-                                                <div className={`flex items-center justify-between ${selectedOrderShippingPresentation.isFree ? 'text-sm text-gray-600' : 'text-xs text-gray-400'}`}>
-                                                    <span>Shipping</span>
-                                                    {selectedOrderShippingPresentation.isFree ? (
-                                                        <span className="font-semibold text-emerald-600">FREE</span>
-                                                    ) : (
-                                                        <span>₹{Number(selectedOrderTotals.shipping || 0).toLocaleString()}</span>
-                                                    )}
-                                                </div>
-                                                {selectedOrderTotals.hasAnyDiscount && (
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-gray-500">Price Before Discounts</span>
-                                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrderTotals.priceBeforeDiscounts || 0).toLocaleString()}</span>
-                                                    </div>
-                                                )}
-                                                {selectedOrderTotals.discounts.product > 0 && (
-                                                    <div className="flex items-center justify-between text-emerald-700">
-                                                        <span>Product Discount (MRP)</span>
-                                                        <span className="font-semibold">- ₹{Number(selectedOrderTotals.discounts.product || 0).toLocaleString()}</span>
-                                                    </div>
-                                                )}
-                                                {selectedOrderTotals.discounts.coupon > 0 && (
-                                                    <div className="flex items-center justify-between text-emerald-700">
-                                                        <span>Coupon{selectedOrderCouponCode ? ` (${selectedOrderCouponCode})` : ''}</span>
-                                                        <span className="font-semibold">- ₹{Number(selectedOrderTotals.discounts.coupon || 0).toLocaleString()}</span>
-                                                    </div>
-                                                )}
-                                                {selectedOrderTotals.discounts.member > 0 && (
-                                                    <div className="flex items-center justify-between text-blue-700">
-                                                        <span>Member Discount</span>
-                                                        <span className="font-semibold">- ₹{Number(selectedOrderTotals.discounts.member || 0).toLocaleString()}</span>
-                                                    </div>
-                                                )}
-                                                {selectedOrderTotals.discounts.memberShippingBenefit > 0 && (
-                                                    <div className="flex items-center justify-between text-blue-700">
-                                                        <span>Member Shipping Benefit</span>
-                                                        <span className="font-semibold">- ₹{Number(selectedOrderTotals.discounts.memberShippingBenefit || 0).toLocaleString()}</span>
-                                                    </div>
-                                                )}
-                                                {selectedOrderTotals.hasAnyDiscount && selectedOrderTotals.discounts.totalSavings > 0 && (
-                                                    <div className="flex items-center justify-between text-emerald-700">
-                                                        <span>Total Savings</span>
-                                                        <span className="font-semibold">₹{Number(selectedOrderTotals.discounts.totalSavings || 0).toLocaleString()}</span>
-                                                    </div>
-                                                )}
-                                                {selectedOrderTotals.hasAnyDiscount && (
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-gray-500">Price After Discounts</span>
-                                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrderTotals.priceAfterDiscounts || 0).toLocaleString()}</span>
-                                                    </div>
-                                                )}
-                                                {selectedOrderTotals.gstTotal > 0 && (
-                                                    <div className="flex items-start justify-between text-xs text-gray-400">
-                                                        <span>GST</span>
-                                                        <span>₹{Number(selectedOrderTotals.gstTotal || 0).toLocaleString()}</span>
-                                                    </div>
-                                                )}
-                                                {Number(selectedOrderTotals.roundOffAmount || 0) !== 0 && (
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-gray-500">Round Off</span>
-                                                        <span className="font-semibold text-gray-800">₹{Number(selectedOrderTotals.roundOffAmount || 0).toLocaleString()}</span>
-                                                    </div>
-                                                )}
-                                                <div className="flex items-center justify-between text-base font-semibold">
-                                                    <span>Total</span>
-                                                    <span>₹{Number(selectedOrderTotals.grandTotal || 0).toLocaleString()}</span>
-                                                </div>
-                                            </div>
-
-                                            <div className={`mt-5 overflow-hidden rounded-2xl border ${drawerTheme.shell}`}>
-                                                <div className={`border-b px-4 py-2 text-xs font-semibold uppercase ${drawerTheme.header}`}>Customer Details</div>
-                                                <div className={`divide-y ${drawerTheme.divider}`}>
-                                                    {customerDetailsRows.map((row) => (
-                                                        <div key={row.label} className="grid grid-cols-[120px_minmax(0,1fr)] gap-4 px-4 py-3 text-sm">
-                                                            <div className="text-gray-500">{row.label}</div>
-                                                            <div className="text-gray-800 whitespace-pre-line break-words">{row.value || '—'}</div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                            <div className={`mt-5 rounded-2xl border p-4 ${drawerTheme.shell}`}>
-                                                <p className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}>Status Timeline</p>
-                                                <div className="mt-3 space-y-3">
-                                                    {selectedOrderTimelineEntries.map((evt) => (
-                                                        <div key={evt.id} className="flex items-start justify-between gap-3 text-sm">
-                                                            <span className="min-w-0 flex items-start gap-2 font-semibold text-gray-700 capitalize">
-                                                                <span className={`h-2.5 w-2.5 rounded-full ${drawerTheme.timelineDot}`} />
-                                                                <span className="min-w-0">
-                                                                    <span className="block break-words">{evt.status}</span>
-                                                                    {evt.detail && (
-                                                                        <span className="mt-1 block text-[11px] font-medium normal-case text-gray-500 break-words">
-                                                                            {evt.detail}
-                                                                        </span>
-                                                                    )}
-                                                                </span>
-                                                            </span>
-                                                            <span className="shrink-0 text-xs text-gray-400">{formatAdminDateTime(evt.created_at)}</span>
-                                                        </div>
-                                                    ))}
-                                                    {selectedOrderTimelineEntries.length === 0 && (
-                                                        <p className="text-sm text-gray-400">No timeline data yet.</p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                                    </>
-                                                );
-                                            })()}
-
-                                            <div className="mt-5 grid grid-cols-1 gap-4">
-                                                {!isAttemptEntry(selectedOrder) && (
-                                                    <div className={`rounded-2xl border p-4 ${drawerTheme.shell}`}>
-                                                        <p className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}>Settlement Details</p>
-                                                        {(() => {
-                                                            const settlement = selectedOrder?.settlement_snapshot || selectedOrder?.settlementSnapshot || null;
-                                                            const paymentMode = getPaymentMethodInfoLabel(selectedOrder, paymentMethodContext);
-                                                            const modeVisual = getPaymentModeVisual(paymentMode);
-                                                            const ModeIcon = modeVisual.Icon;
-                                                            const paymentGatewayLabel = getPaymentMethodLabel(selectedOrder);
-                                                            const paymentReference = getPaymentReference(selectedOrder);
-                                                            const paidAtLabel = formatSettlementDateTime(selectedOrder?.created_at || selectedOrder?.createdAt);
-                                                            const settlementStatus = String(settlement?.status || '').trim().toLowerCase();
-                                                            const settlementSource = String(settlement?.source || '').trim().toLowerCase();
-                                                            const settlementId = String(settlement?.id || selectedOrder?.settlement_id || '').trim();
-                                                            const lastRefreshStatus = String(settlement?.last_refresh_status || '').trim().toLowerCase();
-                                                            const isSettled = settlementStatus === 'settled';
-                                                            const isManualSettlement = settlementSource === 'manual_attempt_conversion' || settlementId.startsWith('manual_settled_attempt_');
-                                                            const hasSettlementWarning = !isSettled && !isManualSettlement && lastRefreshStatus === 'failed';
-                                                            const isSettlementAwaited = !settlement || ['pending', 'processing', 'queued', 'failed'].includes(settlementStatus);
-                                                            const settlementStatusMeta = getSettlementStatusMeta(
-                                                                isManualSettlement
-                                                                    ? 'manual'
-                                                                    : (hasSettlementWarning ? 'unavailable' : (isSettlementAwaited ? 'pending' : settlementStatus))
-                                                            );
-                                                            const settledAtLabel = settlement?.created_at ? formatSettlementDateTime(settlement?.created_at) : 'Awaited';
-                                                            const canShowSettlementBreakdown = isSettled || isManualSettlement;
-                                                            const settlementAmount = settlement ? toSettlementRupees(settlement?.amount, settlement) : 0;
-                                                            const settlementFees = settlement ? toSettlementRupees(settlement?.fees, settlement) : 0;
-                                                            const settlementTax = settlement ? toSettlementRupees(settlement?.tax, settlement) : 0;
-                                                            const settlementNet = settlement
-                                                                ? (settlement?.net_amount != null
-                                                                    ? toSettlementRupees(settlement?.net_amount, settlement)
-                                                                    : Math.max(0, settlementAmount - settlementFees - settlementTax))
-                                                                : 0;
-                                                            const settlementHeadline = isManualSettlement
-                                                                ? 'Settlement recorded manually'
-                                                                : (isSettled
-                                                                    ? 'Money deposited in your bank'
-                                                                    : 'Settlement awaited');
-                                                            const settlementDetail = isManualSettlement
-                                                                ? (settlement?.created_at
-                                                                    ? `Recorded locally: ${settledAtLabel}`
-                                                                    : 'Recorded locally by an admin or recovery flow')
-                                                                : (isSettled
-                                                                    ? `Settled: ${settledAtLabel}`
-                                                                    : (hasSettlementWarning
-                                                                        ? (String(settlement?.last_refresh_error || '').trim() || 'Unable to refresh settlement confirmation from gateway')
-                                                                        : 'Awaiting settlement confirmation from gateway'));
-                                                            const settlementStatusLabel = isManualSettlement
-                                                                ? settlementStatusMeta.label
-                                                                : (hasSettlementWarning
-                                                                    ? 'Awaited'
-                                                                    : (isSettlementAwaited ? 'Awaited' : settlementStatusMeta.label));
-                                                            const displaySettlementId = isManualSettlement
-                                                                ? 'Admin-recorded'
-                                                                : (settlementId || '—');
-                                                            return (
-                                                                <div className="mt-3 space-y-3">
-                                                                    <div className="rounded-xl border border-white/70 bg-white/70 p-3 backdrop-blur-[1px]">
-                                                                        <div className="flex items-start justify-between gap-3">
-                                                                            <div>
-                                                                                <p className={`text-[11px] uppercase tracking-widest font-semibold ${drawerTheme.title}`}>Payment Mode</p>
-                                                                                <p className="mt-1 text-sm font-semibold text-gray-800">{paymentMode}</p>
-                                                                            </div>
-                                                                            <div className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 ${modeVisual.shell}`}>
-                                                                                <ModeIcon size={14} className={modeVisual.tone} />
-                                                                                <span className={`text-[10px] font-semibold tracking-wide ${modeVisual.tone}`}>{modeVisual.badge}</span>
-                                                                            </div>
-                                                                        </div>
-                                                                        <div className="mt-2 text-xs text-gray-600">
-                                                                            <p><span className="text-gray-500">Gateway:</span> {paymentGatewayLabel}</p>
-                                                                            <p><span className="text-gray-500">Payment Ref:</span> <span className="font-mono">{paymentReference}</span></p>
-                                                                        </div>
-                                                                        <div className="mt-3 border-t border-white/70 pt-3">
-                                                                            <div className="relative space-y-4">
-                                                                                <span className={`pointer-events-none absolute left-[10px] top-6 bottom-2 border-l border-dashed ${settlementStatusMeta.timelineLine}`} />
-                                                                                <div className="relative flex items-start gap-3">
-                                                                                    <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border border-emerald-200 bg-emerald-100 text-emerald-700">
-                                                                                        <CheckCircle2 size={12} />
-                                                                                    </span>
-                                                                                    <div className="pt-0.5">
-                                                                                        <p className="text-sm font-medium text-gray-800">Customer Paid</p>
-                                                                                        <p className="text-xs text-gray-500">{paidAtLabel}</p>
-                                                                                    </div>
-                                                                                </div>
-                                                                                <div className="relative flex items-start gap-3">
-                                                                                    <span className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border ${
-                                                                                        isSettled
-                                                                                            ? 'border-emerald-200 bg-emerald-100 text-emerald-700'
-                                                                                            : 'border-amber-200 bg-amber-100 text-amber-700'
-                                                                                    }`}>
-                                                                                        {isSettled ? <CheckCircle2 size={12} /> : <AlertCircle size={12} />}
-                                                                                    </span>
-                                                                                    <div className="pt-0.5">
-                                                                                        <p className="text-sm font-medium text-gray-800">
-                                                                                            {settlementHeadline}
-                                                                                        </p>
-                                                                                        <p className="text-xs text-gray-500">
-                                                                                            {settlementDetail}
-                                                                                            {(isSettled || isManualSettlement) && settlement?.utr ? ` | UTR: ${settlement.utr}` : ''}
-                                                                                        </p>
-                                                                                        {!isSettled && settlementContext?.isTestMode && (
-                                                                                            <p className="mt-1 text-xs text-amber-700">
-                                                                                                Razorpay test mode usually does not generate real settlement records.
-                                                                                            </p>
-                                                                                        )}
-                                                                                        {hasSettlementWarning && (
-                                                                                            <p className="mt-1 text-xs text-amber-700">
-                                                                                                Auto-retry will continue using the ICICI settlement sync job.
-                                                                                            </p>
-                                                                                        )}
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="rounded-xl border border-white/70 bg-white/70 p-3 backdrop-blur-[1px]">
-                                                                        <div className="flex items-center justify-between gap-3">
-                                                                            <span className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}>Settlement Status</span>
-                                                                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${settlementStatusMeta.chip}`}>
-                                                                                {settlementStatusLabel}
-                                                                            </span>
-                                                                        </div>
-                                                                        <div className="mt-3 overflow-hidden rounded-xl border border-white/70">
-                                                                            {[
-                                                                                { label: 'Settlement ID', value: <span className={`${isManualSettlement ? '' : 'font-mono'} text-xs`}>{displaySettlementId}</span> },
-                                                                                { label: 'Settlement Amount', value: canShowSettlementBreakdown ? formatSettlementAmount(settlementAmount) : settlementStatusLabel },
-                                                                                { label: 'Charges (Fees)', value: canShowSettlementBreakdown ? formatSettlementAmount(settlementFees) : settlementStatusLabel },
-                                                                                { label: 'Tax', value: canShowSettlementBreakdown ? formatSettlementAmount(settlementTax) : settlementStatusLabel },
-                                                                                { label: 'Net Credited', value: canShowSettlementBreakdown ? formatSettlementAmount(settlementNet) : settlementStatusLabel },
-                                                                                { label: 'Settled Date', value: canShowSettlementBreakdown ? settledAtLabel : settlementStatusLabel },
-                                                                                { label: 'UTR', value: <span className="font-mono text-xs">{canShowSettlementBreakdown ? (settlement?.utr || '—') : '—'}</span> }
-                                                                            ].map((row) => (
-                                                                                <div key={row.label} className="grid grid-cols-[132px_minmax(0,1fr)] gap-4 border-t border-white/60 px-3 py-2 text-sm first:border-t-0">
-                                                                                    <div className="text-gray-500">{row.label}</div>
-                                                                                    <div className="min-w-0 break-words text-gray-800">{row.value}</div>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                        <div className="mt-3">
-                                                                            {canFetchPaymentStatus(selectedOrder) && (
-                                                                                <button type="button" onClick={() => handleFetchPaymentStatus({ reason: 'payment' })} disabled={isFetchingPaymentStatus} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100 disabled:opacity-60">
-                                                                                    <RefreshCw size={14} className={isFetchingPaymentStatus ? 'animate-spin' : ''} />
-                                                                                    {isFetchingPaymentStatus ? 'Syncing...' : 'Sync Payment Status'}
-                                                                                </button>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })()}
-                                                    </div>
-                                                )}
-
-                                                <div className={`rounded-2xl border p-4 ${drawerTheme.shell}`}>
-                                                    <p className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}>Promotion</p>
-                                                    <div className="mt-3">
-                                                        {(() => {
-                                                            const couponSplit = getCouponDiscountSplit(selectedOrder);
-                                                            const memberProductDiscount = Number(selectedOrder.loyalty_discount_total || 0);
-                                                            const memberShippingDiscount = Number(selectedOrder.loyalty_shipping_discount_total || 0);
-                                                            const hasMemberBenefit = memberProductDiscount > 0 || memberShippingDiscount > 0;
-                                                            const promotionRows = [
-                                                                { label: 'Membership Tier', value: getTierLabel(selectedOrder) },
-                                                                ...(selectedOrderHasAppliedCoupon ? [{ label: 'Coupon', value: selectedOrderCouponCode }] : []),
-                                                                ...(selectedOrderHasAppliedCoupon && selectedOrder.coupon_type ? [{ label: 'Type', value: selectedOrder.coupon_type }] : []),
-                                                                ...(Number(selectedOrder.coupon_discount_value || 0) > 0 ? [{ label: 'Coupon Discount', value: `₹${Number(selectedOrder.coupon_discount_value || 0).toLocaleString()}` }] : []),
-                                                                ...(couponSplit.productDiscount > 0 ? [{ label: 'Coupon Product Discount', value: `₹${couponSplit.productDiscount.toLocaleString()}` }] : []),
-                                                                ...(couponSplit.shippingDiscount > 0 ? [{ label: 'Coupon Shipping Discount', value: `₹${couponSplit.shippingDiscount.toLocaleString()}` }] : []),
-                                                                ...(memberProductDiscount > 0 ? [{ label: 'Member Product Discount', value: `₹${memberProductDiscount.toLocaleString()}` }] : []),
-                                                                ...(memberShippingDiscount > 0 ? [{ label: 'Member Shipping Discount', value: `₹${memberShippingDiscount.toLocaleString()}` }] : []),
-                                                                ...(Number(selectedOrder.discount_total || 0) > 0 ? [{ label: 'Total Discount', value: `₹${Number(selectedOrder.discount_total || 0).toLocaleString()}` }] : []),
-                                                                { label: 'Source', value: getSourceLabel(selectedOrder) }
-                                                            ];
-                                                            return (
-                                                                <>
-                                                                    <div className="overflow-hidden rounded-xl border border-white/70 bg-white/60">
-                                                                        {promotionRows.map((row) => (
-                                                                            <div key={row.label} className="grid grid-cols-[160px_minmax(0,1fr)] gap-4 border-t border-white/60 px-3 py-2 text-sm first:border-t-0">
-                                                                                <div className="text-gray-500">{row.label}</div>
-                                                                                <div className="min-w-0 break-words text-gray-800">{row.value}</div>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                    {!hasMemberBenefit && Number(selectedOrder.coupon_discount_value || 0) > 0 && (
-                                                                        <p className="mt-3 text-xs text-emerald-700">
-                                                                            Discount is fully from coupon benefits. No membership perk applied.
-                                                                        </p>
-                                                                    )}
-                                                                </>
-                                                            );
-                                                        })()}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            {!isAttemptEntry(selectedOrder) && !isRefundLockedOrder(selectedOrder) && !isTerminalOrderStatus(selectedOrder.status) && (
-                                                <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-                                                    <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">Update Status</label>
-                                                    <select
-                                                        value={pendingStatus || ''}
-                                                        onChange={(e) => setPendingStatus(e.target.value)}
-                                                        disabled={isUpdatingStatus}
-                                                        className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
-                                                    >
-                                                        <option value="">{formatStatusLabel(getEffectiveOrderDisplayStatus(selectedOrder))}</option>
-                                                        {getAvailableStatusOptions(selectedOrder.status).map((option) => (
-                                                            <option key={option.value} value={option.value}>{option.label}</option>
-                                                        ))}
-                                                    </select>
-                                                    {pendingStatus === 'cancelled' && isPaidPayment(selectedOrder) && (
-                                                        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
-                                                            {(() => {
-                                                                const { effectiveShippingPaid, refundableBase } = getRefundableBaseForOrder(selectedOrder);
-                                                                return (
-                                                            <p className="text-xs text-amber-800 font-semibold">
-                                                                Shipping actually paid by the customer is non-refundable. Effective shipping paid: ₹{effectiveShippingPaid.toLocaleString('en-IN')} • Maximum refundable amount: ₹{refundableBase.toLocaleString('en-IN')}
-                                                            </p>
-                                                                );
-                                                            })()}
-                                                            <div>
-                                                                <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Cancellation Mode</label>
-                                                                <select
-                                                                    value={cancellationMode}
-                                                                    onChange={(e) => setCancellationMode(e.target.value)}
-                                                                    disabled={isUpdatingStatus}
-                                                                    className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
-                                                                >
-                                                                    <option value="">Select cancellation mode</option>
-                                                                    {visibleCancellationModes.map((mode) => (
-                                                                        <option key={mode.value} value={mode.value}>{mode.label}</option>
-                                                                    ))}
-                                                                </select>
-                                                            </div>
-                                                            {cancellationMode === 'manual' && (
-                                                                <div className="grid grid-cols-1 gap-3">
-                                                                    <div>
-                                                                        <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Refunded Amount</label>
-                                                                        <input type="number" min="0" step="0.01" value={manualRefundAmount} onChange={(e) => setManualRefundAmount(e.target.value)} disabled={isUpdatingStatus} placeholder="Enter refunded amount" className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none" />
-                                                                    </div>
-                                                                    <div>
-                                                                        <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Refund Method</label>
-                                                                        <select value={manualRefundMethod} onChange={(e) => setManualRefundMethod(e.target.value)} disabled={isUpdatingStatus} className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none">
-                                                                            <option value="">Select refund method</option>
-                                                                            {MANUAL_REFUND_METHODS.map((method) => (
-                                                                                <option key={method} value={method}>{method}</option>
-                                                                            ))}
-                                                                        </select>
-                                                                    </div>
-                                                                    {(manualRefundMethod === 'UPI' || manualRefundMethod === 'Bank A/c Transfer') && (
-                                                                        <div>
-                                                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Reference Number</label>
-                                                                            <input type="text" value={manualRefundRef} onChange={(e) => setManualRefundRef(e.target.value)} disabled={isUpdatingStatus} placeholder="Enter reference number" className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none" />
-                                                                        </div>
-                                                                    )}
-                                                                    {manualRefundMethod === 'NEFT/RTGS' && (
-                                                                        <div>
-                                                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">UTR Number</label>
-                                                                            <input type="text" value={manualRefundUtr} onChange={(e) => setManualRefundUtr(e.target.value)} disabled={isUpdatingStatus} placeholder="Enter UTR number" className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none" />
-                                                                        </div>
-                                                                    )}
-                                                                    {manualRefundMethod === 'Voucher code' && (
-                                                                        <p className="text-xs text-amber-700">
-                                                                            A customer-specific coupon will be auto-generated with 180 days validity after cancellation.
-                                                                        </p>
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                    <button
-                                                        type="button"
-                                                        onClick={handleStatusUpdate}
-                                                        disabled={isUpdatingStatus || !selectedOrder || !pendingStatus}
-                                                        className="mt-3 w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60"
-                                                    >
-                                                        {isUpdatingStatus ? 'Updating...' : 'Update Status'}
-                                                    </button>
-                                                </div>
-                                            )}
-                                            {!isAttemptEntry(selectedOrder) && !isRefundLockedOrder(selectedOrder) && isTerminalOrderStatus(selectedOrder.status) && (
-                                                <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600">
-                                                    This order is already {formatStatusLabel(selectedOrder.status).toLowerCase()}. Status updates are disabled.
-                                                </div>
-                                            )}
-                                            {!isAttemptEntry(selectedOrder) && isRefundLockedOrder(selectedOrder) && (
-                                                <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                                                    Refund has been initiated for this cancelled order. Status changes are locked.
-                                                </div>
-                                            )}
-                                        </>
-                                    );
-                                })()}
-                            </>
-                        )}
-                        </div>
-                    </div>
-                </div>,
-                document.body
-            )}
-            {zoomedItemPreview && createPortal(
-                <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
-                    <button
-                        type="button"
-                        className="absolute inset-0"
-                        onClick={() => setZoomedItemPreview(null)}
-                        aria-label="Close zoomed item image"
-                    />
-                    <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-3xl border border-white/15 bg-slate-950 shadow-2xl">
-                        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 text-white">
-                            <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold">{zoomedItemPreview.title || 'Item Image'}</p>
-                                <p className="text-[11px] text-white/65">Tap outside to close</p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setZoomedItemPreview(null)}
-                                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white hover:bg-white/15"
-                                aria-label="Close image preview"
-                            >
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <div className="flex items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.12),_transparent_55%)] p-4 sm:p-5">
-                            <img
-                                src={zoomedItemPreview.src}
-                                alt={zoomedItemPreview.title || 'Order item'}
-                                className="max-h-[72vh] w-auto max-w-full rounded-2xl object-contain"
-                            />
-                        </div>
-                    </div>
-                </div>,
-                document.body
-            )}
-            {!isDetailsOpen && (
-                <button
-                    type="button"
-                    onClick={openCreateManualOrder}
-                    className="md:hidden fixed bottom-24 right-4 z-[175] inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-2xl shadow-emerald-600/30 hover:bg-emerald-500"
-                    aria-label="Create order"
+  useEffect(() => {
+    if (!selectedOrder) return;
+    if (
+      (selectedOrderGateway === "icici" && cancellationMode === "razorpay") ||
+      (selectedOrderGateway === "razorpay" && cancellationMode === "icici") ||
+      (selectedOrderGateway !== "icici" &&
+        selectedOrderGateway !== "razorpay" &&
+        ["razorpay", "icici"].includes(cancellationMode))
+    ) {
+      setCancellationMode("");
+    }
+  }, [selectedOrder, selectedOrderGateway, cancellationMode]);
+  return (
+    <div className="animate-fade-in overflow-x-hidden md:overflow-x-visible">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 md:gap-4 mb-3 md:mb-6">
+        <div className="flex items-start justify-between gap-3">
+          <div className="w-full">
+            <div className="flex items-start justify-between gap-2 md:block">
+              <div className="flex min-w-0 items-start gap-2">
+                <h1
+                  className={`${mobilePageHeaderActive ? "hidden md:block" : ""} shrink-0 text-2xl md:text-3xl font-serif text-primary font-bold leading-none`}
                 >
-                    <Plus size={22} />
+                  Orders
+                </h1>
+                <button
+                  type="button"
+                  onClick={() => setIsAnalyticsPanelOpen((prev) => !prev)}
+                  aria-pressed={isAnalyticsPanelOpen}
+                  aria-label={
+                    isAnalyticsPanelOpen
+                      ? "Hide order analytics"
+                      : "Show order analytics"
+                  }
+                  className={`mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition md:hidden ${
+                    isAnalyticsPanelOpen
+                      ? "border-primary bg-primary text-accent shadow-md shadow-primary/20"
+                      : "border-gray-200 bg-white text-gray-600"
+                  }`}
+                >
+                  <BarChart3 size={15} />
                 </button>
+              </div>
+              <div className="flex min-w-0 items-center gap-2 md:hidden">
+                {selectedPeriodText && (
+                  <p
+                    className="min-w-0 text-right text-[10px] text-gray-400 leading-tight whitespace-nowrap overflow-hidden text-ellipsis"
+                    style={{ fontSize: "clamp(8px, 2.6vw, 10px)" }}
+                  >
+                    {selectedPeriodText}
+                  </p>
+                )}
+              </div>
+            </div>
+            <p
+              className={`${mobilePageHeaderActive ? "hidden" : "hidden md:block"} text-gray-500 text-sm mt-1`}
+            >
+              Track sales, payments, and order status.
+            </p>
+            {selectedPeriodText && (
+              <p className="hidden md:block mt-0.5 md:mt-1 text-[11px] md:text-xs text-gray-400 leading-tight">
+                Selected period: {selectedPeriodText}
+              </p>
             )}
-            {isCreateOrderOpen && createPortal(
-                <div className="fixed inset-0 z-[90]">
-                    <div className="absolute inset-0 bg-black/50" onClick={() => { if (!isCreatingManualOrder) void closeCreateManualOrder(); }}></div>
-                    <div className="relative z-10 flex min-h-full items-center justify-center p-4">
-                        <div className="w-full max-w-3xl rounded-2xl bg-white border border-gray-200 shadow-2xl max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col">
-                            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                                <div>
-                                    <p className="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">Manual Order</p>
-                                    <div className="flex items-center gap-2 mt-1">
-                                        <h3 className="text-lg font-semibold text-gray-900">Create Order</h3>
-                                        {selectedManualCustomer && (
-                                            <TierBadge
-                                                tier={selectedManualCustomer?.loyalty_tier || selectedManualCustomer?.loyaltyTier || 'regular'}
-                                                label={getTierLabel(selectedManualCustomer)}
-                                                className="px-2.5 py-1 text-xs"
-                                                iconSize={12}
-                                                hideRegular
-                                            />
-                                        )}
-                                    </div>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => { if (!isCreatingManualOrder) void closeCreateManualOrder(); }}
-                                    className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
-                                >
-                                    <X size={16} />
-                                </button>
-                            </div>
-                            <div className="p-5 space-y-4 overflow-y-auto">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <label className="text-sm text-gray-600">
-                                        Search Customer
-                                        <input
-                                            className="input-field mt-1"
-                                            value={manualCustomerQuery}
-                                            onChange={(e) => setManualCustomerQuery(e.target.value)}
-                                            placeholder="Name / mobile / email"
-                                        />
-                                    </label>
-                                    <label className="text-sm text-gray-600">
-                                        Customer
-                                        <select
-                                            className={`input-field mt-1 ${manualCreateAttempted && manualValidationState.missingCustomer ? 'border-red-300 focus:border-red-400' : ''}`}
-                                            value={manualOrderForm.userId}
-                                            onChange={(e) => { void handleManualCustomerSelect(e.target.value); }}
-                                            disabled={isManualCustomersLoading}
-                                        >
-                                            <option value="">{isManualCustomersLoading ? 'Loading customers...' : 'Select customer'}</option>
-                                            {filteredManualCustomers.map((customer) => (
-                                                <option key={customer.id} value={customer.id}>
-                                                    {customer.name || 'Customer'} ({customer.mobile || customer.email || customer.id})
-                                                </option>
-                                            ))}
-                                            {isManualCustomersFetchingMore && <option value="" disabled>Loading more customers...</option>}
-                                        </select>
-                                        {selectedManualCustomer && (
-                                            <p className="mt-1 text-xs text-gray-500">
-                                                Selected: {selectedManualCustomer.name} {selectedManualCustomer.mobile ? `• ${selectedManualCustomer.mobile}` : ''}
-                                            </p>
-                                        )}
-                                        {isManualCustomersFetchingMore && (
-                                            <p className="mt-1 text-xs text-gray-400 inline-flex items-center gap-1"><RefreshCw size={10} className="animate-spin" /> Fetching more customers...</p>
-                                        )}
-                                        {manualCreateAttempted && manualValidationState.missingCustomer && (
-                                            <p className="mt-1 text-xs text-red-600">Select a customer to continue.</p>
-                                        )}
-                                    </label>
-                                    <label className="text-sm text-gray-600">
-                                        Payment Mode
-                                        <select
-                                            className="input-field mt-1"
-                                            value={manualOrderForm.paymentMode}
-                                            onChange={(e) => setManualOrderForm((prev) => ({ ...prev, paymentMode: e.target.value }))}
-                                        >
-                                            {MANUAL_PAYMENT_OPTIONS.map((mode) => (
-                                                <option key={mode.value} value={mode.value}>{mode.label}</option>
-                                            ))}
-                                        </select>
-                                    </label>
-                                    <label className="text-sm text-gray-600">
-                                        Payment Reference (Optional)
-                                        <input
-                                            className="input-field mt-1"
-                                            value={manualOrderForm.paymentReference}
-                                            onChange={(e) => setManualOrderForm((prev) => ({ ...prev, paymentReference: e.target.value }))}
-                                            placeholder="Receipt / transaction reference"
-                                        />
-                                    </label>
-                                    {selectedManualCustomer && customerNeedsManualMobile && (
-                                        <label className="text-sm text-gray-600 md:col-span-2">
-                                            Customer Mobile
-                                            <input
-                                                className={`input-field mt-1 ${manualCreateAttempted && (manualValidationState.missingCustomerMobile || manualValidationState.invalidCustomerMobile) ? 'border-red-300 focus:border-red-400' : ''}`}
-                                                value={manualOrderForm.mobile}
-                                                onChange={(e) => setManualOrderForm((prev) => ({ ...prev, mobile: normalizeMobileDigits(e.target.value).slice(0, 14) }))}
-                                                inputMode="numeric"
-                                                maxLength={14}
-                                                placeholder="Enter customer mobile number"
-                                            />
-                                            <p className="mt-1 text-xs text-gray-500">This mobile will be saved to the customer profile when the order is created.</p>
-                                            {manualCreateAttempted && manualValidationState.missingCustomerMobile && (
-                                                <p className="mt-1 text-xs text-red-600">Enter a customer mobile number to continue.</p>
-                                            )}
-                                            {manualCreateAttempted && !manualValidationState.missingCustomerMobile && manualValidationState.invalidCustomerMobile && (
-                                                <p className="mt-1 text-xs text-red-600">Mobile must contain 10-14 digits.</p>
-                                            )}
-                                        </label>
-                                    )}
-                                    <label className="text-sm text-gray-600 md:col-span-2">
-                                        Coupon (Optional)
-                                        <select
-                                            className="input-field mt-1"
-                                            value={manualOrderForm.couponCode}
-                                            onChange={(e) => setManualOrderForm((prev) => ({ ...prev, couponCode: e.target.value }))}
-                                            disabled={!manualOrderForm.userId || isManualCouponsLoading}
-                                        >
-                                            <option value="">
-                                                {!manualOrderForm.userId
-                                                    ? 'Select customer first'
-                                                    : isManualCouponsLoading
-                                                        ? 'Loading coupons...'
-                                                        : 'No coupon'}
-                                            </option>
-                                            {manualCoupons.map((coupon) => (
-                                                <option
-                                                    key={coupon.code}
-                                                    value={coupon.code}
-                                                    disabled={coupon?.isEligible === false}
-                                                >
-                                                    {coupon.code} - {coupon.name || coupon.code}{coupon?.isEligible === false ? ' (Not eligible yet)' : ''}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        {manualOrderForm.userId && manualItemPayload.length > 0 && !isManualCouponsLoading && manualCoupons.length === 0 && (
-                                            <p className="mt-1 text-xs text-amber-600">No eligible coupons available for current cart value/category.</p>
-                                        )}
-                                        {manualCouponError && (
-                                            <p className="mt-1 text-xs text-amber-600">{manualCouponError}</p>
-                                        )}
-                                    </label>
-                                </div>
-                                <div className="rounded-xl border border-gray-200 p-4 space-y-3">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Products & Variants</p>
-                                    </div>
-                                    <input
-                                        className="input-field"
-                                        placeholder="Search products by name / sku / variant"
-                                        value={manualProductQuery}
-                                        onChange={(e) => setManualProductQuery(e.target.value)}
-                                    />
-                                    {isManualProductsFetchingMore && (
-                                        <p className="text-xs text-gray-400 inline-flex items-center gap-1"><RefreshCw size={10} className="animate-spin" /> Fetching more products...</p>
-                                    )}
-                                    {(() => {
-                                        const selectedProduct = (manualProducts || []).find((p) => String(p?.id) === String(manualDraftItem?.productId || ''));
-                                        const variants = Array.isArray(selectedProduct?.variants) ? selectedProduct.variants.filter((variant) => isVariantInStock(variant)) : [];
-                                        const hasVariants = variants.length > 0;
-                                        return (
-                                            <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
-                                                <label className="text-xs text-gray-500 md:col-span-6">
-                                                    Product
-                                                    <select
-                                                        className="input-field mt-1"
-                                                        value={manualDraftItem?.productId || ''}
-                                                        onChange={(e) => updateManualDraftItem({ productId: e.target.value, variantId: '' })}
-                                                    >
-                                                        <option value="">{isManualProductsLoading ? 'Loading products...' : 'Select product'}</option>
-                                                        {filteredManualProducts.map((product) => (
-                                                            <option key={product.id} value={product.id}>
-                                                                {product.title} ({product.sku || `#${product.id}`})
-                                                            </option>
-                                                        ))}
-                                                        {isManualProductsFetchingMore && <option value="" disabled>Loading more products...</option>}
-                                                    </select>
-                                                </label>
-                                                <label className="text-xs text-gray-500 md:col-span-3">
-                                                    Variant
-                                                    <select
-                                                        className="input-field mt-1"
-                                                        value={manualDraftItem?.variantId || ''}
-                                                        onChange={(e) => updateManualDraftItem({ variantId: e.target.value })}
-                                                        disabled={!manualDraftItem?.productId || !hasVariants}
-                                                    >
-                                                        <option value="">
-                                                            {!manualDraftItem?.productId
-                                                                ? 'Select product'
-                                                                : hasVariants
-                                                                    ? 'Select variant'
-                                                                    : 'No variant'}
-                                                        </option>
-                                                        {variants.map((variant) => (
-                                                            <option key={variant.id} value={variant.id}>
-                                                                {variant.variant_title || `Variant #${variant.id}`} ({variant.sku || variant.id})
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                </label>
-                                                <label className="text-xs text-gray-500 md:col-span-2">
-                                                    Qty
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        className="input-field mt-1"
-                                                        value={manualDraftItem?.quantity || 1}
-                                                        onChange={(e) => updateManualDraftItem({ quantity: e.target.value })}
-                                                    />
-                                                </label>
-                                                <div className="md:col-span-1">
-                                                    <button
-                                                        type="button"
-                                                        onClick={addManualDraftToCart}
-                                                        className="w-full h-10 flex items-center justify-center rounded-lg border border-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-50"
-                                                        title="Add to cart"
-                                                    >
-                                                        <Plus size={14} />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
-                                </div>
-                                <div className="rounded-xl border border-gray-200 p-4">
-                                    <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">In-Cart Summary</p>
-                                    {isManualSummaryLoading && (
-                                        <p className="mt-3 text-xs text-gray-500">Calculating order summary...</p>
-                                    )}
-                                    {!isManualSummaryLoading && !manualSummary && (
-                                        <p className="mt-3 text-xs text-gray-500">Add customer, items, and shipping address to view summary.</p>
-                                    )}
-                                    {manualSummaryError && (
-                                        <p className="mt-2 text-xs text-amber-600">{manualSummaryError}</p>
-                                    )}
-                                    {manualOrderItems.length > 0 && (
-                                        <div className="mt-3 space-y-2 border border-gray-100 rounded-lg p-2 bg-gray-50/50">
-                                            {(manualSummary?.items?.length ? manualSummary.items : manualCartDisplayItems).map((item, idx) => (
-                                                <div key={`sum-item-${item?.productId || 'p'}-${item?.variantId || ''}-${idx}`} className="grid grid-cols-[1fr_auto] gap-2 text-xs items-start">
-                                                    <div>
-                                                        <p className="font-semibold text-gray-700 line-clamp-1">{item.title || 'Product'}</p>
-                                                        <p className="text-gray-500">{item.variantTitle || 'Default'} • Qty {item.quantity}</p>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="text-right">
-                                                            <span className="font-semibold text-gray-700">₹{Number(item.lineTotal || 0).toLocaleString('en-IN')}</span>
-                                                            {Number(item.taxAmount || 0) > 0 && (
-                                                                <p className="text-[10px] text-gray-500">
-                                                                    {(() => {
-                                                                        const gst = getGstDisplayDetails({
-                                                                            taxAmount: Number(item.taxAmount || 0),
-                                                                            taxRatePercent: Number(item.taxRatePercent || 0),
-                                                                            taxLabel: item.taxCode || item.taxName || '',
-                                                                            ...manualGstContext
-                                                                        });
-                                                                        return `${gst.title}: ${gst.totalAmountLabel} (${gst.componentAmountLabel})`;
-                                                                    })()}
-                                                                </p>
-                                                            )}
-                                                        </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => removeManualCartItem(item?.productId, item?.variantId)}
-                                                            className="inline-flex items-center justify-center p-1 rounded-md border border-red-200 text-red-600 hover:bg-red-50"
-                                                            title="Delete item"
-                                                        >
-                                                            <Trash2 size={13} />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                    {manualCreateAttempted && manualValidationState.missingItems && (
-                                        <p className="mt-2 text-xs text-red-600">Add at least one product to cart.</p>
-                                    )}
-                                    {!isManualSummaryLoading && effectiveManualSummary && (
-                                        <div className="mt-3 space-y-2 text-sm">
-                                            <div className="flex items-center justify-between font-semibold text-gray-900"><span>Subtotal</span><span>{formatInrOrDash(manualTotals.subtotal)}</span></div>
-                                            <div className={`flex items-center justify-between ${manualShippingPresentation.isFree ? 'text-sm text-gray-600' : 'text-xs text-gray-400'}`}>
-                                                <span>Shipping</span>
-                                                {manualShippingPresentation.isFree ? (
-                                                    <span className="font-semibold text-emerald-600">FREE</span>
-                                                ) : (
-                                                    <span>{formatInrOrDash(manualTotals.shipping)}</span>
-                                                )}
-                                            </div>
-                                            {manualTotals.hasAnyDiscount && (
-                                                <div className="flex items-center justify-between"><span className="text-gray-500">Price Before Discounts</span><span className="font-semibold">{formatInrOrDash(manualTotals.priceBeforeDiscounts)}</span></div>
-                                            )}
-                                            {manualTotals.discounts.product > 0 && (
-                                                <div className="flex items-center justify-between text-emerald-700"><span>Product Discount (MRP)</span><span className="font-semibold">- {formatInrOrDash(manualTotals.discounts.product)}</span></div>
-                                            )}
-                                            {manualTotals.discounts.coupon > 0 && (
-                                                <div className="flex items-center justify-between text-emerald-700"><span>Coupon Discount</span><span className="font-semibold">- {formatInrOrDash(manualTotals.discounts.coupon)}</span></div>
-                                            )}
-                                            {manualTotals.discounts.member > 0 && (
-                                                <div className="flex items-center justify-between text-blue-700"><span>Member Discount</span><span className="font-semibold">- {formatInrOrDash(manualTotals.discounts.member)}</span></div>
-                                            )}
-                                            {manualTotals.discounts.memberShippingBenefit > 0 && (
-                                                <div className="flex items-center justify-between text-blue-700"><span>Member Shipping Benefit</span><span className="font-semibold">- {formatInrOrDash(manualTotals.discounts.memberShippingBenefit)}</span></div>
-                                            )}
-                                            {manualTotals.hasAnyDiscount && manualTotals.discounts.totalSavings > 0 && (
-                                                <div className="flex items-center justify-between"><span className="text-emerald-700">Total Savings</span><span className="font-semibold text-emerald-700">{formatInrOrDash(manualTotals.discounts.totalSavings)}</span></div>
-                                            )}
-                                            {manualTotals.hasAnyDiscount && (
-                                                <div className="flex items-center justify-between"><span className="text-gray-500">Price After Discounts</span><span className="font-semibold">{formatInrOrDash(manualTotals.priceAfterDiscounts)}</span></div>
-                                            )}
-                                            {manualTotals.gstTotal > 0 && (
-                                                <div className="flex items-start justify-between text-xs text-gray-400">
-                                                    <span>GST</span>
-                                                    <span>{formatInrOrDash(manualTotals.gstTotal)}</span>
-                                                </div>
-                                            )}
-                                            {Number(manualTotals.roundOffAmount || 0) !== 0 && (
-                                                <div className="flex items-center justify-between"><span className="text-gray-500">Round Off</span><span className="font-semibold">{formatInrOrDash(manualTotals.roundOffAmount)}</span></div>
-                                            )}
-                                            <div className="flex items-center justify-between text-base border-t border-gray-100 pt-2"><span className="font-semibold text-gray-700">Total</span><span className="font-bold text-gray-900">{formatInrOrDash(manualTotals.grandTotal)}</span></div>
-                                            {!manualSummary && (
-                                                <p className="text-xs text-gray-500">
-                                                    Add shipping address and select coupon to fetch exact shipping and membership benefit calculations.
-                                                </p>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="rounded-xl border border-gray-200 p-4">
-                                    <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Shipping Address</p>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                                        <input className={`input-field ${manualCreateAttempted && !String(manualOrderForm.shippingAddress.line1 || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="Address line" value={manualOrderForm.shippingAddress.line1} onChange={(e) => updateManualAddress('shippingAddress', 'line1', e.target.value)} />
-                                        <input className={`input-field ${manualCreateAttempted && !String(manualOrderForm.shippingAddress.city || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="City" value={manualOrderForm.shippingAddress.city} onChange={(e) => updateManualAddress('shippingAddress', 'city', e.target.value)} />
-                                        <input className={`input-field ${manualCreateAttempted && !String(manualOrderForm.shippingAddress.state || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="State" value={manualOrderForm.shippingAddress.state} onChange={(e) => updateManualAddress('shippingAddress', 'state', e.target.value)} />
-                                        <input className={`input-field ${manualCreateAttempted && !String(manualOrderForm.shippingAddress.zip || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="PIN code" value={manualOrderForm.shippingAddress.zip} onChange={(e) => updateManualAddress('shippingAddress', 'zip', e.target.value)} />
-                                    </div>
-                                    {manualCreateAttempted && manualValidationState.shippingMissing.length > 0 && (
-                                        <p className="mt-2 text-xs text-red-600">Shipping missing: {manualValidationState.shippingMissing.join(', ')}</p>
-                                    )}
-                                </div>
-                                {billingAddressEnabled && (
-                                    <div className="rounded-xl border border-gray-200 p-4">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Billing Address</p>
-                                            <label className="inline-flex items-center gap-2 text-xs text-gray-600">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={manualOrderForm.billingSameAsShipping}
-                                                    onChange={(e) => {
-                                                        const checked = e.target.checked;
-                                                        setManualOrderForm((prev) => ({
-                                                            ...prev,
-                                                            billingSameAsShipping: checked,
-                                                            billingAddress: checked ? { ...prev.shippingAddress } : prev.billingAddress
-                                                        }));
-                                                    }}
-                                                />
-                                                Same as shipping
-                                            </label>
-                                        </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                                            <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.line1 || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="Address line" value={manualOrderForm.billingAddress.line1} onChange={(e) => updateManualAddress('billingAddress', 'line1', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
-                                            <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.city || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="City" value={manualOrderForm.billingAddress.city} onChange={(e) => updateManualAddress('billingAddress', 'city', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
-                                            <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.state || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="State" value={manualOrderForm.billingAddress.state} onChange={(e) => updateManualAddress('billingAddress', 'state', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
-                                            <input className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.zip || '').trim() ? 'border-red-300 focus:border-red-400' : ''}`} placeholder="PIN code" value={manualOrderForm.billingAddress.zip} onChange={(e) => updateManualAddress('billingAddress', 'zip', e.target.value)} disabled={manualOrderForm.billingSameAsShipping} />
-                                        </div>
-                                        {manualCreateAttempted && manualValidationState.billingMissing.length > 0 && (
-                                            <p className="mt-2 text-xs text-red-600">Billing missing: {manualValidationState.billingMissing.join(', ')}</p>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                            <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => { void closeCreateManualOrder(); }}
-                                    disabled={isCreatingManualOrder}
-                                    className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleCreateManualOrder}
-                                    disabled={isCreatingManualOrder}
-                                    className="px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60"
-                                >
-                                    {isCreatingManualOrder ? 'Creating...' : 'Create Order'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>,
-                document.body
-            )}
-            {activeLabelOrder && createPortal(
-                <div className="fixed inset-0 z-[190] flex items-center justify-center p-4 animate-fade-in">
-                    <div
-                        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                        onClick={closeLabelPrintModal}
-                    />
-                    <div className="relative z-10 flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl">
-                        <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
-                            <div>
-                                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gray-400">Printer Labels</p>
-                                <h3 className="mt-2 text-xl font-semibold text-gray-900">Order {activeLabelOrder.order_ref}</h3>
-                                <p className="mt-1 text-sm text-gray-500">Print sender and recipient labels separately so each label stays readable.</p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={closeLabelPrintModal}
-                                disabled={Boolean(printingLabelId) || isPrinterConnecting}
-                                className="rounded-xl border border-gray-200 p-2 text-gray-500 hover:bg-gray-50 disabled:opacity-60"
-                                aria-label="Close label print modal"
-                            >
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto px-6 py-6">
-                            <div className="rounded-2xl border border-gray-200 bg-white p-4">
-                                <p className="text-sm font-semibold text-gray-900">Print Labels</p>
-                                <p className="mt-1 text-xs text-gray-500">Print sender and recipient labels separately using the two actions below.</p>
-                                {(!activeFromValidation.ok || !activeToValidation.ok) && (
-                                    <div className="mt-3 space-y-1">
-                                        {!activeFromValidation.ok && (
-                                            <p className="text-xs text-red-600">From missing: {activeFromValidation.missing.join(', ')}</p>
-                                        )}
-                                        {!activeToValidation.ok && (
-                                            <p className="text-xs text-red-600">To missing: {activeToValidation.missing.join(', ')}</p>
-                                        )}
-                                    </div>
-                                )}
-                                <div className="mt-4 grid grid-cols-2 gap-3">
-                                    <button
-                                        type="button"
-                                        onClick={() => handlePrintSingleLabel('from', activeLabelOrder)}
-                                        disabled={!activeFromValidation.ok || printingLabelId === activeLabelOrderId || isPrinterConnecting}
-                                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent hover:bg-primary-light disabled:opacity-60"
-                                    >
-                                        <Printer size={16} />
-                                        <span>{printingLabelId === activeLabelOrderId && printingLabelType === 'from' ? 'Printing...' : 'From'}</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handlePrintSingleLabel('to', activeLabelOrder)}
-                                        disabled={!activeToValidation.ok || printingLabelId === activeLabelOrderId || isPrinterConnecting}
-                                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/10 disabled:opacity-60"
-                                    >
-                                        <Printer size={16} />
-                                        <span>{printingLabelId === activeLabelOrderId && printingLabelType === 'to' ? 'Printing...' : 'To'}</span>
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="mt-5 grid gap-5 md:grid-cols-[1.2fr_0.8fr]">
-                                <div className="space-y-4">
-                                <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-4">
-                                    <div className="flex items-start gap-3">
-                                        <div className="mt-0.5 rounded-xl bg-violet-100 p-2 text-violet-700">
-                                            <Printer size={18} />
-                                        </div>
-                                        <div className="flex-1">
-                                            <p className="text-sm font-semibold text-gray-900">Printer Status</p>
-                                            <p className="mt-1 text-sm text-gray-600">{printerStatusLabel}</p>
-                                            <p className="mt-2 text-xs text-gray-500">
-                                                {preferredPrinter
-                                                    ? 'If the saved printer is offline, pair again before printing.'
-                                                    : 'No printer is paired yet. Pair once here and reuse it from order print actions.'}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50/70 p-4">
-                                    <p className="text-sm font-semibold text-gray-900">Pair Printer</p>
-                                    <div className="flex flex-wrap gap-2">
-                                        {canPairBluetooth && (
-                                            <button
-                                                type="button"
-                                                onClick={() => handleConnectLabelPrinter('bluetooth')}
-                                                disabled={!printerSupport.supported || isPrinterConnecting || Boolean(printingLabelId)}
-                                                className="inline-flex items-center rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-60"
-                                            >
-                                                {isPrinterConnecting ? 'Pairing...' : 'Pair via Bluetooth'}
-                                            </button>
-                                        )}
-                                        {canPairUsb && (
-                                            <button
-                                                type="button"
-                                                onClick={() => handleConnectLabelPrinter('usb')}
-                                                disabled={!printerSupport.supported || isPrinterConnecting || Boolean(printingLabelId)}
-                                                className="inline-flex items-center rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-60"
-                                            >
-                                                {isPrinterConnecting ? 'Pairing...' : 'Pair via USB'}
-                                            </button>
-                                        )}
-                                    </div>
-                                    <div className="grid gap-3 text-xs text-gray-500 md:grid-cols-2">
-                                        <div className="rounded-xl border border-gray-200 bg-white p-3">
-                                            <p className="font-semibold text-gray-700">Bluetooth guidance</p>
-                                            <p className="mt-1">Turn on the printer, place it in pairing mode, keep it nearby, and select it when the browser prompt opens.</p>
-                                        </div>
-                                        <div className="rounded-xl border border-gray-200 bg-white p-3">
-                                            <p className="font-semibold text-gray-700">USB guidance</p>
-                                            <p className="mt-1">Connect the printer with a cable first, then choose it from the browser's USB device picker.</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                                <div className="space-y-4">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>,
-                document.body
-            )}
-            <Modal
-                isOpen={confirmModal.isOpen}
-                onClose={handleConfirmModalClose}
-                title={confirmModal.title}
-                message={confirmModal.message}
-                type={confirmModal.type}
-                confirmText={confirmModal.confirmText}
-                onConfirm={handleConfirmAction}
-                isLoading={isConfirmProcessing}
-            />
+          </div>
         </div>
-    );
+        <div className="hidden md:block w-full">
+          <div className="flex flex-col md:flex-row md:flex-nowrap md:items-center gap-2 w-full md:w-auto">
+            <div className="relative w-full md:w-auto order-1">
+              <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+              <select
+                value={draftQuickRange}
+                onChange={(e) => {
+                  handleQuickRangeDraftChange(e.target.value);
+                }}
+                className="w-full md:w-auto pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer"
+              >
+                {QUICK_RANGES.map((range) => (
+                  <option key={range.value} value={range.value}>
+                    {range.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 order-2 md:order-2 w-full md:w-auto">
+              <input
+                ref={startDateInputRef}
+                type="date"
+                value={draftStartDate}
+                min={
+                  draftEndDate
+                    ? addDays(draftEndDate, -MAX_RANGE_DAYS)
+                    : undefined
+                }
+                max={draftEndDate || undefined}
+                onChange={(e) => setDraftStartDate(e.target.value)}
+                className="sr-only"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (draftQuickRange !== "custom") return;
+                  if (startDateInputRef.current?.showPicker)
+                    startDateInputRef.current.showPicker();
+                  else startDateInputRef.current?.click();
+                }}
+                disabled={draftQuickRange !== "custom"}
+                className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left whitespace-nowrap min-w-[170px]"
+              >
+                {draftStartDate
+                  ? formatRangeDate(draftStartDate)
+                  : "Start Date"}
+              </button>
+              <input
+                ref={endDateInputRef}
+                type="date"
+                value={draftEndDate}
+                min={draftStartDate || undefined}
+                max={
+                  draftStartDate
+                    ? addDays(draftStartDate, MAX_RANGE_DAYS)
+                    : undefined
+                }
+                onChange={(e) => setDraftEndDate(e.target.value)}
+                className="sr-only"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (draftQuickRange !== "custom") return;
+                  if (endDateInputRef.current?.showPicker)
+                    endDateInputRef.current.showPicker();
+                  else endDateInputRef.current?.click();
+                }}
+                disabled={draftQuickRange !== "custom"}
+                className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left whitespace-nowrap min-w-[170px]"
+              >
+                {draftEndDate ? formatRangeDate(draftEndDate) : "End Date"}
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={isExporting || isLoading}
+              className="w-full md:w-auto px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-700 font-semibold hover:bg-gray-50 disabled:opacity-60 inline-flex items-center justify-center gap-2 order-3 md:order-3"
+            >
+              <Download size={16} />
+              {isExporting ? "Exporting..." : "Export Report"}
+            </button>
+            <div className="relative w-full md:w-auto order-4 md:order-4">
+              <button
+                type="button"
+                onClick={handleApplyFilters}
+                className="w-full md:w-auto px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
+              >
+                Apply Filters
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {isFilterModalOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-[180] bg-black/50 backdrop-blur-sm flex items-end md:hidden">
+            <div className="w-full rounded-t-[28px] bg-white border-t border-gray-200 shadow-2xl p-5 max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Order Filters
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Refine the table and export the current view.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsFilterModalOpen(false)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500"
+                  aria-label="Close order filters"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="mt-4 space-y-3">
+                <div className="relative w-full">
+                  <Filter className="absolute left-3 top-3.5 text-gray-400 w-5 h-5" />
+                  <select
+                    value={draftQuickRange}
+                    onChange={(e) => {
+                      handleQuickRangeDraftChange(e.target.value);
+                    }}
+                    className="w-full pl-10 pr-8 py-3 bg-white rounded-xl border border-gray-200 shadow-sm focus:border-accent outline-none appearance-none cursor-pointer"
+                  >
+                    {QUICK_RANGES.map((range) => (
+                      <option key={range.value} value={range.value}>
+                        {range.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-1 gap-3">
+                  <input
+                    ref={startDateInputRef}
+                    type="date"
+                    value={draftStartDate}
+                    min={
+                      draftEndDate
+                        ? addDays(draftEndDate, -MAX_RANGE_DAYS)
+                        : undefined
+                    }
+                    max={draftEndDate || undefined}
+                    onChange={(e) => setDraftStartDate(e.target.value)}
+                    className="sr-only"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (draftQuickRange !== "custom") return;
+                      if (startDateInputRef.current?.showPicker)
+                        startDateInputRef.current.showPicker();
+                      else startDateInputRef.current?.click();
+                    }}
+                    disabled={draftQuickRange !== "custom"}
+                    className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left"
+                  >
+                    {draftStartDate
+                      ? formatRangeDate(draftStartDate)
+                      : "Start Date"}
+                  </button>
+                  <input
+                    ref={endDateInputRef}
+                    type="date"
+                    value={draftEndDate}
+                    min={draftStartDate || undefined}
+                    max={
+                      draftStartDate
+                        ? addDays(draftStartDate, MAX_RANGE_DAYS)
+                        : undefined
+                    }
+                    onChange={(e) => setDraftEndDate(e.target.value)}
+                    className="sr-only"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (draftQuickRange !== "custom") return;
+                      if (endDateInputRef.current?.showPicker)
+                        endDateInputRef.current.showPicker();
+                      else endDateInputRef.current?.click();
+                    }}
+                    disabled={draftQuickRange !== "custom"}
+                    className="px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm text-sm text-gray-600 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed text-left"
+                  >
+                    {draftEndDate ? formatRangeDate(draftEndDate) : "End Date"}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExport}
+                  disabled={isExporting || isLoading}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-gray-700 font-semibold hover:bg-gray-50 disabled:opacity-60 inline-flex items-center justify-center gap-2"
+                >
+                  <Download size={16} />
+                  {isExporting ? "Exporting..." : "Export Report"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleApplyFilters(true)}
+                  className="w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
+                >
+                  Apply Filters
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsFilterModalOpen(false)}
+                  className="w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {isMobileSortOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-[185] bg-black/40 backdrop-blur-sm flex items-end md:hidden">
+            <div className="w-full rounded-t-[28px] bg-white border-t border-gray-200 shadow-2xl p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Sort Orders
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Choose how the mobile list should be ordered.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsMobileSortOpen(false)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500"
+                  aria-label="Close sort options"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="mt-4 space-y-2">
+                {sortOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      setSortBy(option.value);
+                      setPage(1);
+                      setIsMobileSortOpen(false);
+                    }}
+                    className={`w-full rounded-xl border px-4 py-3 text-left text-sm font-semibold transition ${
+                      sortBy === option.value
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-gray-200 bg-white text-gray-700"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      <div
+        className={`${isAnalyticsPanelOpen ? "grid" : "hidden"} md:grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 md:mb-6 w-full`}
+      >
+        {cards.map((card, index) => (
+          <div
+            key={`${card.label}-${index}`}
+            className={`emboss-card relative overflow-hidden rounded-2xl border shadow-sm px-3 py-3 md:p-5 flex items-center gap-3 md:gap-4 ${KPI_CARD_THEMES[card.theme || "sky"].shell}`}
+            style={getKpiCardStyle(card.theme)}
+          >
+            <card.icon
+              size={isMobileViewport ? 32 : 56}
+              className={`bg-emboss-icon absolute right-2 bottom-2 ${KPI_CARD_THEMES[card.theme || "sky"].iconGhost}`}
+            />
+            <div className="min-w-0">
+              <p
+                className={`text-[10px] md:text-xs uppercase tracking-[0.18em] md:tracking-widest font-semibold ${KPI_CARD_THEMES[card.theme || "sky"].label}`}
+              >
+                {card.label}
+              </p>
+              <p
+                className={`mt-1 text-lg md:text-2xl font-extrabold leading-none ${KPI_CARD_THEMES[card.theme || "sky"].value}`}
+              >
+                {card.value}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-x-hidden overflow-y-visible">
+        <div className="md:hidden px-3 pt-2 pb-2 border-b border-gray-100 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsMobileSortOpen(true)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-amber-100 bg-gradient-to-br from-white to-amber-50/80 text-amber-700 shadow-sm shadow-amber-100/50"
+                aria-label="Sort orders"
+              >
+                <ArrowUpDown size={15} />
+              </button>
+              <input
+                placeholder="Search order / customer"
+                className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px] leading-tight focus:border-accent outline-none"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsFilterModalOpen(true)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sky-100 bg-gradient-to-br from-white to-sky-50/80 text-sky-700 shadow-sm shadow-sky-100/50"
+              aria-label="Open order filters"
+            >
+              <Filter size={15} />
+            </button>
+          </div>
+          <div className="w-full max-w-full overflow-hidden">
+            <div
+              className="w-full overflow-x-auto overscroll-x-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-x" }}
+            >
+              <div className="inline-flex min-w-max flex-nowrap gap-2 pr-1">
+                {mobileStatusChips.map((chip) => {
+                  const active = statusFilter === chip.value;
+                  return (
+                    <button
+                      key={chip.value}
+                      type="button"
+                      ref={(node) => {
+                        if (node) {
+                          mobileStatusChipRefs.current[chip.value] = node;
+                        } else {
+                          delete mobileStatusChipRefs.current[chip.value];
+                        }
+                      }}
+                      onClick={() => handleStatusFilterChange(chip.value)}
+                      className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-1.5 text-[11px] font-semibold leading-none tracking-normal whitespace-nowrap transition ${
+                        active
+                          ? getOrderStatusBadgeClasses(chip.value)
+                          : "border-gray-200 bg-white text-gray-600"
+                      }`}
+                    >
+                      {chip.label} ({mobileStatusChipCounts[chip.value] || 0})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="px-6 py-4 border-b border-gray-100 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-col md:flex-row md:items-center gap-2 w-full xl:w-auto">
+            <div className="relative hidden md:block w-full md:w-auto order-1">
+              <Filter className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
+              <select
+                value={draftStatusFilter}
+                onChange={(e) => handleStatusFilterChange(e.target.value)}
+                className="w-full md:w-auto pl-9 pr-7 py-2 bg-white rounded-lg border border-gray-200 text-sm focus:border-accent outline-none appearance-none cursor-pointer"
+              >
+                <option value="confirmed">New</option>
+                <option value="pending">Pending</option>
+                <option value="completed">Completed</option>
+                <option value="attempted">Attempted</option>
+                <option value="cancelled">Cancelled</option>
+                <option value="failed">Failed</option>
+                <option value="all">All Sales</option>
+              </select>
+            </div>
+            <div className="relative hidden md:block w-full md:w-auto order-2 md:order-3">
+              <ArrowUpDown className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
+              <select
+                value={sortBy}
+                onChange={(e) => {
+                  setSortBy(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full md:w-auto pl-9 pr-7 py-2 bg-white rounded-lg border border-gray-200 text-sm focus:border-accent outline-none appearance-none cursor-pointer"
+              >
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="amount_high">Amount: High to Low</option>
+                <option value="amount_low">Amount: Low to High</option>
+                <option value="priority">Fulfillment Priority (Tier)</option>
+              </select>
+            </div>
+            <div className="relative hidden md:block w-full md:w-auto order-3 md:order-2">
+              <Search className="absolute left-3 top-3 text-gray-400 w-4 h-4" />
+              <input
+                placeholder="Search order / customer"
+                className="w-full md:w-64 pl-9 pr-3 py-2.5 bg-white rounded-lg border border-gray-200 text-sm focus:border-accent outline-none"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={openCreateManualOrder}
+              className="hidden md:inline-flex w-full md:w-auto order-4 items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 text-sm font-semibold hover:bg-emerald-100"
+            >
+              <Plus size={15} />
+              Create Order
+            </button>
+          </div>
+        </div>
+        {isLoading ? (
+          <div className="py-16 text-center text-gray-400">
+            Loading orders...
+          </div>
+        ) : orders.length === 0 ? (
+          <div className="py-12 text-center text-gray-400 flex flex-col items-center gap-4">
+            <img
+              src={orderWaitIllustration}
+              alt="No orders"
+              className="w-40 h-40 object-contain opacity-85"
+            />
+            <div>
+              <p className="text-gray-700 font-semibold">
+                No orders available for the selected filters
+              </p>
+              <p className="text-sm text-gray-500 mt-1">
+                Try adjusting status, search, or date range.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="hidden md:block">
+              <table className="w-full text-left">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Name
+                    </th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Order ID
+                    </th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Total
+                    </th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Payment
+                    </th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">
+                      Action
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {orders.map((order) => {
+                    const displayStatus = getEffectiveOrderDisplayStatus(order);
+                    const pendingDurationLabel =
+                      displayStatus === "pending"
+                        ? getPendingDurationLabel(order.created_at)
+                        : "";
+                    return (
+                      <tr
+                        key={order.id}
+                        onClick={() => openDetails(order)}
+                        className={`transition-colors cursor-pointer ${isFailedRow(order) ? "bg-red-50/60 hover:bg-red-50" : "hover:bg-gray-50/50"}`}
+                      >
+                        <td className="px-6 py-4 text-sm text-gray-700">
+                          <div className="font-medium">
+                            {order.customer_name || "Guest"}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-xs text-gray-400">
+                              {order.customer_mobile || "—"}
+                            </span>
+                            <TierBadge
+                              tier={
+                                order?.loyalty_tier ||
+                                order?.loyaltyTier ||
+                                "regular"
+                              }
+                              label={getTierLabel(order)}
+                              className="px-2 py-0.5 text-[10px]"
+                              iconSize={11}
+                              hideRegular
+                            />
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-600">
+                          {formatAdminDate(order.created_at)}
+                        </td>
+                        <td className="px-6 py-4 text-sm font-semibold text-gray-800">
+                          <div className="flex items-center gap-2">
+                            <span>{order.order_ref}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-semibold text-gray-800">
+                          ₹{Number(order.total || 0).toLocaleString()}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getPaymentStatusBadgeClasses(order.payment_status)}`}
+                          >
+                            {getPaymentStatusLabel(order)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getOrderStatusBadgeClasses(displayStatus)}`}
+                            >
+                              {formatStatusLabel(displayStatus)}
+                            </span>
+                            {!!pendingDurationLabel && (
+                              <span className="text-[10px] uppercase tracking-widest font-bold text-amber-100 bg-amber-950 border border-amber-700 px-2 py-0.5 rounded-full">
+                                {pendingDurationLabel}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="inline-flex items-center gap-2">
+                            {getCallLink(order.customer_mobile) && (
+                              <a
+                                href={getCallLink(order.customer_mobile)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-sky-200 text-sky-700 hover:bg-sky-50"
+                                title="Call customer"
+                              >
+                                <Phone size={14} />
+                              </a>
+                            )}
+                            {getWhatsappLink(order.customer_mobile) && (
+                              <a
+                                href={getWhatsappLink(order.customer_mobile)}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                title="Contact customer on WhatsApp"
+                              >
+                                <WhatsAppIcon size={14} />
+                              </a>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) =>
+                                handleOpenPrintLabelModal(order, e)
+                              }
+                              disabled={
+                                printingLabelId ===
+                                  (order.order_id || order.id) ||
+                                (!canOpenShippingLabelModal(order) &&
+                                  printerSupport.supported)
+                              }
+                              className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-violet-200 text-violet-700 hover:bg-violet-50 disabled:opacity-60"
+                              title={
+                                canOpenShippingLabelModal(order)
+                                  ? "Open label print options"
+                                  : "Label printing requires at least sender or receiver address details"
+                              }
+                            >
+                              <Printer size={14} />
+                            </button>
+                            {canDownloadInvoice(order) && (
+                              <button
+                                type="button"
+                                onClick={(e) => handleDownloadInvoice(order, e)}
+                                disabled={
+                                  downloadingInvoiceId ===
+                                  (order.order_id || order.id)
+                                }
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                                title="Download invoice"
+                              >
+                                <Download size={14} />
+                              </button>
+                            )}
+                            {canDownloadInvoice(order) && (
+                              <button
+                                type="button"
+                                onClick={(e) =>
+                                  handleSendInvoiceCommunication(order, e)
+                                }
+                                disabled={
+                                  sendingInvoiceId ===
+                                  (order.order_id || order.id)
+                                }
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50 disabled:opacity-60"
+                                title="Send invoice to email + WhatsApp"
+                              >
+                                <Send size={14} />
+                              </button>
+                            )}
+                            {canReconcileAttempt(order) && (
+                              <button
+                                type="button"
+                                onClick={(e) =>
+                                  handleReconcileAttempt(order, e)
+                                }
+                                disabled={
+                                  reconcilingAttemptId ===
+                                  (order.attempt_id || order.id)
+                                }
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-60"
+                                title="Reconcile payment attempt"
+                              >
+                                <RotateCw
+                                  size={14}
+                                  className={
+                                    reconcilingAttemptId ===
+                                    (order.attempt_id || order.id)
+                                      ? "animate-spin"
+                                      : ""
+                                  }
+                                />
+                              </button>
+                            )}
+                            {canDeleteRow(order) && (
+                              <button
+                                type="button"
+                                onClick={(e) => handleDeleteOrder(e, order)}
+                                disabled={
+                                  deletingOrderId ===
+                                  (isAttemptEntry(order)
+                                    ? order.attempt_id || order.id
+                                    : order.order_id || order.id)
+                                }
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                title="Delete order"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="md:hidden divide-y divide-gray-100">
+              {mobileOrdersWithDateBadges.map((entry) => {
+                if (entry.type === "date_badge") {
+                  return (
+                    <div
+                      key={entry.key}
+                      className="sticky top-0 z-[2] flex justify-center bg-white/90 py-1 backdrop-blur-sm"
+                    >
+                      <span className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1.5 text-[11px] font-semibold leading-none tracking-normal text-slate-700 shadow-sm">
+                        {entry.label}
+                      </span>
+                    </div>
+                  );
+                }
+                const order = entry.order;
+                const displayStatus = getEffectiveOrderDisplayStatus(order);
+                const pendingDurationLabel =
+                  displayStatus === "pending"
+                    ? getPendingDurationLabel(order.created_at)
+                    : "";
+                const theme = getMobileOrderCardTheme(displayStatus);
+                const isQuickCompleting =
+                  quickCompletingOrderId === (order.order_id || order.id);
+                return (
+                  <div
+                    key={entry.key}
+                    onClick={() => openDetails(order)}
+                    className="w-full text-left px-1.5 py-0.5 transition-colors hover:bg-slate-50/70"
+                  >
+                    <div
+                      className={`relative overflow-hidden rounded-lg border px-2 pb-1 pt-1.5 shadow-sm ${theme.shell}`}
+                    >
+                      <div
+                        className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${theme.strip}`}
+                      />
+                      <div className="flex items-start justify-between gap-1.5">
+                        <div className="min-w-0">
+                          <p className="font-mono text-xs font-bold leading-tight tracking-normal text-slate-900 break-words">
+                            #{order.order_ref}
+                          </p>
+                          <div className="mt-0 flex min-w-0 items-baseline gap-1">
+                            <p className="min-w-0 truncate text-xs font-semibold leading-tight text-slate-800">
+                              {order.customer_name || "Guest"}
+                            </p>
+                            {order.customer_mobile && (
+                              <p className="shrink-0 text-[10px] leading-tight text-slate-600">
+                                {order.customer_mobile}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-0.5">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <span
+                              className={`inline-flex min-w-[68px] items-center justify-center px-2 py-1 rounded-full text-[11px] font-semibold leading-none ${getOrderStatusBadgeClasses(displayStatus)}`}
+                            >
+                              {formatStatusLabel(displayStatus)}
+                            </span>
+                            {!isAttemptEntry(order) &&
+                              !["completed", "cancelled"].includes(
+                                displayStatus,
+                              ) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleQuickComplete(order, e)}
+                                  disabled={isQuickCompleting}
+                                  className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-gradient-to-r from-emerald-50 via-lime-50 to-emerald-100 px-1.5 py-1 text-[11px] font-semibold leading-none text-emerald-800 shadow-sm shadow-emerald-100/70 transition-all hover:from-emerald-100 hover:via-lime-100 hover:to-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                  title="Mark order as completed"
+                                >
+                                  <CheckCircle2
+                                    size={13}
+                                    className={
+                                      isQuickCompleting ? "animate-pulse" : ""
+                                    }
+                                  />
+                                  {isQuickCompleting
+                                    ? "Completing..."
+                                    : "Complete"}
+                                </button>
+                              )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        className={`mt-0.5 grid grid-cols-[1fr_auto] items-start gap-1.5 border-t px-0 pt-0.5 ${theme.divider}`}
+                      >
+                        <div>
+                          <p className="text-[11px] leading-tight text-slate-700">
+                            {formatAdminDateTime(order.created_at)}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p
+                            className={`text-sm font-semibold leading-tight ${theme.amount}`}
+                          >
+                            ₹{Number(order.total || 0).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div
+                        className={`mt-0.5 flex flex-wrap items-center gap-0.5 ${theme.divider}`}
+                      >
+                        <span
+                          className={`inline-flex min-w-[64px] items-center justify-center px-1 py-0.5 rounded-full text-[9px] font-semibold leading-none ${getPaymentStatusBadgeClasses(order.payment_status)}`}
+                        >
+                          {getPaymentStatusLabel(order)}
+                        </span>
+                        <TierBadge
+                          tier={
+                            order?.loyalty_tier ||
+                            order?.loyaltyTier ||
+                            "regular"
+                          }
+                          label={getTierLabel(order)}
+                          className="min-w-[64px] justify-center px-1 py-0.5 text-[8px]"
+                          iconSize={9}
+                          hideRegular
+                        />
+                        {!!pendingDurationLabel && (
+                          <span
+                            className={`inline-flex items-center px-1 py-0.5 rounded-full text-[8px] font-semibold uppercase tracking-normal ${getOrderStatusBadgeClasses("pending")}`}
+                          >
+                            {pendingDurationLabel}
+                          </span>
+                        )}
+                        <span className="ml-auto inline-flex items-center justify-center w-4.5 h-4.5 rounded-full border border-slate-200 bg-white text-slate-500 cursor-pointer transition-colors transition-transform hover:bg-primary/10 hover:text-primary hover:border-primary/30 active:scale-95">
+                          <ArrowRight size={10} />
+                        </span>
+                      </div>
+
+                      <div
+                        className={`mt-0.5 flex items-center justify-end gap-0.5 flex-nowrap overflow-hidden border-t pt-0.5 ${theme.divider}`}
+                      >
+                        {getCallLink(order.customer_mobile) && (
+                          <a
+                            href={getCallLink(order.customer_mobile)}
+                            onClick={(e) => e.stopPropagation()}
+                            className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm ${theme.actionInfo}`}
+                            title="Call customer"
+                          >
+                            <Phone size={11} />
+                          </a>
+                        )}
+                        {getWhatsappLink(order.customer_mobile) && (
+                          <a
+                            href={getWhatsappLink(order.customer_mobile)}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm ${theme.actionSuccess}`}
+                            title="Contact customer on WhatsApp"
+                          >
+                            <WhatsAppIcon size={11} />
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenPrintLabelModal(order, e)}
+                          disabled={
+                            printingLabelId === (order.order_id || order.id) ||
+                            (!canOpenShippingLabelModal(order) &&
+                              printerSupport.supported)
+                          }
+                          className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionAccent}`}
+                          title={
+                            canOpenShippingLabelModal(order)
+                              ? "Open label print options"
+                              : "Label printing requires at least sender or receiver address details"
+                          }
+                        >
+                          <Printer size={11} />
+                        </button>
+                        {canDownloadInvoice(order) && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleDownloadInvoice(order, e)}
+                            disabled={
+                              downloadingInvoiceId ===
+                              (order.order_id || order.id)
+                            }
+                            className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionSuccess}`}
+                            title="Download invoice"
+                          >
+                            <Download size={11} />
+                          </button>
+                        )}
+                        {canDownloadInvoice(order) && (
+                          <button
+                            type="button"
+                            onClick={(e) =>
+                              handleSendInvoiceCommunication(order, e)
+                            }
+                            disabled={
+                              sendingInvoiceId === (order.order_id || order.id)
+                            }
+                            className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionInfo}`}
+                            title="Send invoice to email + WhatsApp"
+                          >
+                            <Send size={11} />
+                          </button>
+                        )}
+                        {canReconcileAttempt(order) && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleReconcileAttempt(order, e)}
+                            disabled={
+                              reconcilingAttemptId ===
+                              (order.attempt_id || order.id)
+                            }
+                            className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionAccent}`}
+                            title="Reconcile payment attempt"
+                          >
+                            <RotateCw
+                              size={11}
+                              className={
+                                reconcilingAttemptId ===
+                                (order.attempt_id || order.id)
+                                  ? "animate-spin"
+                                  : ""
+                              }
+                            />
+                          </button>
+                        )}
+                        {canDeleteRow(order) && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteOrder(e, order)}
+                            disabled={
+                              deletingOrderId ===
+                              (isAttemptEntry(order)
+                                ? order.attempt_id || order.id
+                                : order.order_id || order.id)
+                            }
+                            className={`inline-flex items-center justify-center w-6 h-6 rounded-md border shadow-sm disabled:opacity-60 ${theme.actionDanger}`}
+                            title="Delete order"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+        <div className="px-6 py-4 border-t border-gray-100 overflow-x-hidden">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <p className="text-xs text-gray-400 text-center md:text-left">
+              Page {page} of {totalPages}
+            </p>
+            <div className="flex max-w-full flex-wrap items-center justify-center gap-2 md:justify-end">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3 py-2 rounded-lg border border-gray-200 text-xs md:text-sm font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-50 md:w-28"
+              >
+                Previous
+              </button>
+              {visiblePages.map((pageNo) => (
+                <button
+                  key={pageNo}
+                  onClick={() => setPage(pageNo)}
+                  className={`min-w-9 px-3 py-2 rounded-lg border text-xs md:text-sm font-semibold ${
+                    pageNo === page
+                      ? "border-primary bg-primary text-accent"
+                      : "border-gray-200 text-gray-500 hover:bg-gray-50"
+                  }`}
+                >
+                  {pageNo}
+                </button>
+              ))}
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="px-3 py-2 rounded-lg border border-gray-200 text-xs md:text-sm font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-50 md:w-28"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {isDetailsOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-[70] flex items-stretch justify-end bg-black/40 backdrop-blur-sm">
+            <div
+              ref={detailsDrawerScrollRef}
+              className="bg-white w-full max-w-xl h-full shadow-2xl overflow-y-auto"
+              onScroll={(event) =>
+                setIsDetailsDrawerScrolled(event.currentTarget.scrollTop > 8)
+              }
+            >
+              <div className="sticky top-0 z-20 px-4 py-3 bg-white/68 backdrop-blur-xl supports-[backdrop-filter]:bg-white/60">
+                <button
+                  onClick={() => setIsDetailsOpen(false)}
+                  className={`absolute left-4 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 shrink-0 items-center justify-center rounded-full border transition ${
+                    isDetailsDrawerScrolled
+                      ? "border-slate-900/70 bg-slate-950/85 text-white backdrop-blur-md"
+                      : "border-white/70 bg-white/85 text-slate-800 shadow-sm"
+                  }`}
+                  aria-label="Back"
+                >
+                  <ArrowLeft size={18} />
+                </button>
+                <h3 className="m-0 flex min-h-[44px] items-center justify-center text-center text-base font-semibold leading-none text-gray-900">
+                  Order Details
+                </h3>
+              </div>
+              <div className="px-6 pb-6 pt-4">
+                {!selectedOrder ? (
+                  <div className="py-16 text-center text-gray-400">
+                    Loading order details...
+                  </div>
+                ) : (
+                  <>
+                    {isDetailsLoading && (
+                      <div className="mb-3 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 inline-flex items-center gap-1">
+                        Refreshing latest details...
+                      </div>
+                    )}
+                    {(() => {
+                      const displayStatus =
+                        getEffectiveOrderDisplayStatus(selectedOrder);
+                      const headerTheme = getOrderHeaderTheme(displayStatus);
+                      const drawerTheme =
+                        getOrderDrawerSectionTheme(displayStatus);
+                      const shippingAddress =
+                        typeof selectedOrder.shipping_address === "string"
+                          ? JSON.parse(selectedOrder.shipping_address || "{}")
+                          : selectedOrder.shipping_address || {};
+                      const combinedCustomerPhone =
+                        [
+                          selectedOrder.customer_mobile,
+                          shippingAddress.additionalPhone,
+                        ]
+                          .map((value) => String(value || "").trim())
+                          .filter(Boolean)
+                          .filter(
+                            (value, index, list) =>
+                              list.indexOf(value) === index,
+                          )
+                          .join(", ") || "—";
+                      const customerDetailsRows = [
+                        {
+                          label: "Name",
+                          value: selectedOrder.customer_name || "Guest",
+                        },
+                        {
+                          label: "Shipping Address",
+                          value: formatAddress(selectedOrder.shipping_address),
+                        },
+                        {
+                          label: "Landmark",
+                          value: shippingAddress.landmark || "—",
+                        },
+                        ...(billingAddressEnabled
+                          ? [
+                              {
+                                label: "Billing Address",
+                                value: formatAddress(
+                                  selectedOrder.billing_address,
+                                ),
+                              },
+                            ]
+                          : []),
+                        {
+                          label: "City & State",
+                          value: (() => {
+                            return (
+                              [shippingAddress.city, shippingAddress.state]
+                                .filter(Boolean)
+                                .join(", ") || "—"
+                            );
+                          })(),
+                        },
+                        {
+                          label: "Pin Code",
+                          value: (() => {
+                            return shippingAddress.zip || "—";
+                          })(),
+                        },
+                        {
+                          label: "Customer Phone",
+                          value: combinedCustomerPhone,
+                        },
+                      ];
+                      return (
+                        <>
+                          {(() => {
+                            return (
+                              <>
+                                <div
+                                  className={`rounded-3xl p-5 shadow-lg ${headerTheme.shell}`}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                      <p
+                                        className={`text-[11px] uppercase tracking-[0.24em] font-semibold ${headerTheme.rowLabel}`}
+                                      >
+                                        Order ID
+                                      </p>
+                                      <h3 className="mt-2 font-sans text-2xl font-black tracking-tight text-white">
+                                        #{selectedOrder.order_ref}
+                                      </h3>
+                                      <p
+                                        className={`mt-1 text-sm font-semibold ${headerTheme.subtle}`}
+                                      >
+                                        Order Value: ₹
+                                        {Number(
+                                          selectedOrderTotals.grandTotal ||
+                                            selectedOrder.total ||
+                                            0,
+                                        ).toLocaleString("en-IN")}
+                                      </p>
+                                      <p
+                                        className={`mt-2 text-sm font-medium ${headerTheme.subtle}`}
+                                      >
+                                        {formatAdminDateTime(
+                                          selectedOrder.created_at,
+                                        )}
+                                      </p>
+                                      {detailsLastSyncedAt && (
+                                        <p
+                                          className={`mt-1 text-[11px] ${headerTheme.micro}`}
+                                        >
+                                          Last synced:{" "}
+                                          {formatAdminDateTime(
+                                            detailsLastSyncedAt,
+                                          )}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <span
+                                      className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getOrderHeaderBadgeClasses(displayStatus)}`}
+                                    >
+                                      {formatStatusLabel(displayStatus)}
+                                    </span>
+                                  </div>
+                                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                                    <span
+                                      className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getPaymentHeaderBadgeClasses(selectedOrder.payment_status)}`}
+                                    >
+                                      {getPaymentStatusLabel(selectedOrder)}
+                                    </span>
+                                    <TierBadge
+                                      tier={
+                                        selectedOrder?.loyalty_tier ||
+                                        selectedOrder?.loyaltyTier ||
+                                        "regular"
+                                      }
+                                      label={getTierLabel(selectedOrder)}
+                                      className="px-3 py-1 text-xs"
+                                      iconSize={12}
+                                      hideRegular
+                                    />
+                                    {displayStatus === "pending" && (
+                                      <span
+                                        className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${getOrderHeaderBadgeClasses(displayStatus)}`}
+                                      >
+                                        {getPendingDurationLabel(
+                                          selectedOrder.created_at,
+                                        )}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="mt-4 border-t border-white/15 pt-4">
+                                    <p className="text-lg font-semibold text-white truncate">
+                                      {selectedOrder.customer_name || "Guest"}
+                                    </p>
+                                    <p
+                                      className={`mt-1 text-sm ${headerTheme.subtle}`}
+                                    >
+                                      {selectedOrder.customer_mobile ||
+                                        "No mobile number"}
+                                    </p>
+                                    <p
+                                      className={`mt-2 text-xs ${headerTheme.micro}`}
+                                    >
+                                      Invoice No:{" "}
+                                      <span className="font-mono">
+                                        {getInvoiceNumber(selectedOrder)}
+                                      </span>
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="mt-4">
+                                  {!isAttemptEntry(selectedOrder) && (
+                                    <div className="flex justify-end">
+                                      <div className="inline-flex items-center gap-2 justify-end">
+                                        {getCallLink(
+                                          selectedOrder.customer_mobile,
+                                        ) && (
+                                          <a
+                                            href={getCallLink(
+                                              selectedOrder.customer_mobile,
+                                            )}
+                                            className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 bg-white/90 text-slate-700 hover:bg-white"
+                                            title="Call customer"
+                                          >
+                                            <Phone size={16} />
+                                          </a>
+                                        )}
+                                        {getWhatsappLink(
+                                          selectedOrder.customer_mobile,
+                                        ) && (
+                                          <a
+                                            href={getWhatsappLink(
+                                              selectedOrder.customer_mobile,
+                                            )}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                            title="Contact customer on WhatsApp"
+                                          >
+                                            <WhatsAppIcon size={16} />
+                                          </a>
+                                        )}
+                                        {canDownloadInvoice(selectedOrder) && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) =>
+                                              handleDownloadInvoice(
+                                                selectedOrder,
+                                                e,
+                                              )
+                                            }
+                                            disabled={
+                                              downloadingInvoiceId ===
+                                              (selectedOrder.order_id ||
+                                                selectedOrder.id)
+                                            }
+                                            className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+                                            title={
+                                              downloadingInvoiceId ===
+                                              (selectedOrder.order_id ||
+                                                selectedOrder.id)
+                                                ? "Generating invoice"
+                                                : "Download invoice"
+                                            }
+                                          >
+                                            <Download size={16} />
+                                          </button>
+                                        )}
+                                        {canDownloadInvoice(selectedOrder) && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) =>
+                                              handleSendInvoiceCommunication(
+                                                selectedOrder,
+                                                e,
+                                              )
+                                            }
+                                            disabled={
+                                              sendingInvoiceId ===
+                                              (selectedOrder.order_id ||
+                                                selectedOrder.id)
+                                            }
+                                            className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+                                            title={
+                                              sendingInvoiceId ===
+                                              (selectedOrder.order_id ||
+                                                selectedOrder.id)
+                                                ? "Sending invoice"
+                                                : "Send invoice to email + WhatsApp"
+                                            }
+                                          >
+                                            <Send size={16} />
+                                          </button>
+                                        )}
+                                        {canDeleteRow(selectedOrder) && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) =>
+                                              handleDeleteOrder(
+                                                e,
+                                                selectedOrder,
+                                              )
+                                            }
+                                            disabled={
+                                              deletingOrderId ===
+                                              (selectedOrder.order_id ||
+                                                selectedOrder.id)
+                                            }
+                                            className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-60"
+                                            title="Delete order"
+                                          >
+                                            <Trash2 size={16} />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {isAttemptEntry(selectedOrder) && (
+                                    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleReconcileAttempt(selectedOrder)
+                                        }
+                                        disabled={
+                                          !canReconcileAttempt(selectedOrder) ||
+                                          reconcilingAttemptId ===
+                                            (selectedOrder.attempt_id ||
+                                              selectedOrder.id)
+                                        }
+                                        className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-300 bg-amber-100 text-amber-900 text-sm font-semibold hover:bg-amber-200 disabled:opacity-60"
+                                      >
+                                        <RotateCw
+                                          size={16}
+                                          className={
+                                            reconcilingAttemptId ===
+                                            (selectedOrder.attempt_id ||
+                                              selectedOrder.id)
+                                              ? "animate-spin"
+                                              : ""
+                                          }
+                                        />
+                                        {reconcilingAttemptId ===
+                                        (selectedOrder.attempt_id ||
+                                          selectedOrder.id)
+                                          ? "Reconciling..."
+                                          : "Check status"}
+                                      </button>
+                                      {String(
+                                        user?.role || "",
+                                      ).toLowerCase() === "admin" && (
+                                        <>
+                                          <p className="text-xs text-emerald-800 font-semibold">
+                                            Convert this failed attempt into a
+                                            successful manual order.
+                                          </p>
+                                          <div>
+                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">
+                                              Payment Mode
+                                            </label>
+                                            <select
+                                              value={attemptConversionMode}
+                                              onChange={(e) =>
+                                                setAttemptConversionMode(
+                                                  e.target.value,
+                                                )
+                                              }
+                                              disabled={isConvertingAttempt}
+                                              className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
+                                            >
+                                              {MANUAL_PAYMENT_OPTIONS.map(
+                                                (mode) => (
+                                                  <option
+                                                    key={mode.value}
+                                                    value={mode.value}
+                                                  >
+                                                    {mode.label}
+                                                  </option>
+                                                ),
+                                              )}
+                                            </select>
+                                          </div>
+                                          <div>
+                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">
+                                              Reference (Optional)
+                                            </label>
+                                            <input
+                                              type="text"
+                                              value={attemptConversionReference}
+                                              onChange={(e) =>
+                                                setAttemptConversionReference(
+                                                  e.target.value,
+                                                )
+                                              }
+                                              disabled={isConvertingAttempt}
+                                              placeholder="Transaction / receipt reference"
+                                              className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700"
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className="text-xs uppercase tracking-widest text-emerald-700 font-semibold">
+                                              Reason
+                                            </label>
+                                            <textarea
+                                              value={attemptConversionReason}
+                                              onChange={(e) =>
+                                                setAttemptConversionReason(
+                                                  e.target.value,
+                                                )
+                                              }
+                                              disabled={isConvertingAttempt}
+                                              placeholder="Document why this attempt is being converted manually"
+                                              className="mt-2 w-full px-3 py-2 rounded-lg border border-emerald-200 bg-white text-sm text-gray-700 min-h-[88px]"
+                                            />
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={
+                                              handleConvertAttemptToPaidOrder
+                                            }
+                                            disabled={
+                                              isConvertingAttempt ||
+                                              String(
+                                                attemptConversionReason || "",
+                                              ).trim().length < 8
+                                            }
+                                            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-60"
+                                          >
+                                            {isConvertingAttempt
+                                              ? "Converting..."
+                                              : "Mark as Successful Order"}
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div
+                                  className={`mt-5 overflow-hidden rounded-2xl border ${drawerTheme.shell}`}
+                                >
+                                  <div
+                                    className={`border-b px-4 py-2 text-xs font-semibold uppercase ${drawerTheme.header}`}
+                                  >
+                                    Items
+                                  </div>
+                                  <div
+                                    className={`divide-y ${drawerTheme.divider}`}
+                                  >
+                                    {(selectedOrder.items || []).map(
+                                      (item, index) => {
+                                        const snapshot =
+                                          item?.item_snapshot &&
+                                          typeof item.item_snapshot === "object"
+                                            ? item.item_snapshot
+                                            : null;
+                                        const quantity = Number(
+                                          item.quantity ??
+                                            snapshot?.quantity ??
+                                            0,
+                                        );
+                                        const invoiceItem =
+                                          selectedOrderInvoiceItems[index] ||
+                                          null;
+                                        const unitPrice = Number(
+                                          invoiceItem?.displayRate ??
+                                            (isInclusivePricingOrder(
+                                              selectedOrder,
+                                            )
+                                              ? getOrderItemUnitPriceBase(item)
+                                              : Number(
+                                                  item.price ??
+                                                    snapshot?.unitPrice ??
+                                                    0,
+                                                )),
+                                        );
+                                        const lineTotal = Number(
+                                          invoiceItem?.displayLineTotal ??
+                                            (isInclusivePricingOrder(
+                                              selectedOrder,
+                                            )
+                                              ? getOrderItemLineTotalBase(item)
+                                              : Number(
+                                                  item.line_total ??
+                                                    snapshot?.lineTotal ??
+                                                    unitPrice * quantity,
+                                                )),
+                                        );
+                                        const displayAmount = Number(
+                                          invoiceItem?.displayAmount ??
+                                            (isInclusivePricingOrder(
+                                              selectedOrder,
+                                            )
+                                              ? getOrderItemLineTotalBase(item)
+                                              : Number(
+                                                  item.line_total ??
+                                                    snapshot?.lineTotal ??
+                                                    unitPrice * quantity,
+                                                )),
+                                        );
+                                        const displayDiscount = Number(
+                                          invoiceItem?.totalDiscount ?? 0,
+                                        );
+                                        const itemTax = Number(
+                                          invoiceItem?.displayTaxAmount ??
+                                            item.tax_amount ??
+                                            snapshot?.taxAmount ??
+                                            0,
+                                        );
+                                        const parsedWarrantyMonths = Number(
+                                          snapshot?.polishWarrantyMonths ?? 0,
+                                        );
+                                        const itemWarrantyMonths = [
+                                          6, 7, 8, 9, 12,
+                                        ].includes(parsedWarrantyMonths)
+                                          ? parsedWarrantyMonths
+                                          : null;
+                                        const itemTitle =
+                                          getOrderItemTitle(item);
+                                        const itemVariantTitle =
+                                          getOrderItemVariantTitle(item);
+                                        const itemCategoryLabel =
+                                          getOrderItemCategoryLabel(item);
+                                        const itemImageUrl =
+                                          getOrderItemImageUrl(item);
+                                        return (
+                                          <div
+                                            key={item.id}
+                                            className="flex items-start gap-3 p-3 sm:items-center sm:gap-4 sm:p-4"
+                                          >
+                                            {itemImageUrl ? (
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setZoomedItemPreview({
+                                                    src: itemImageUrl,
+                                                    title: itemTitle,
+                                                  })
+                                                }
+                                                className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-100 focus:outline-none focus:ring-2 focus:ring-sky-400"
+                                                aria-label={`Zoom image for ${itemTitle}`}
+                                                title="Tap to zoom image"
+                                              >
+                                                <img
+                                                  src={itemImageUrl}
+                                                  alt={itemTitle}
+                                                  className="h-full w-full object-cover transition-transform duration-200 group-active:scale-95"
+                                                />
+                                                <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/45 px-1 py-0.5 text-center text-[9px] font-semibold uppercase tracking-wide text-white">
+                                                  Zoom
+                                                </span>
+                                              </button>
+                                            ) : (
+                                              <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden border border-gray-200" />
+                                            )}
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-sm font-semibold text-gray-800 break-words whitespace-normal">
+                                                {itemTitle}
+                                              </p>
+                                              {itemVariantTitle && (
+                                                <p className="text-xs text-gray-500 line-clamp-1">
+                                                  {itemVariantTitle}
+                                                </p>
+                                              )}
+                                              {itemCategoryLabel && (
+                                                <p className="text-[11px] text-gray-400 break-words whitespace-normal">
+                                                  Category: {itemCategoryLabel}
+                                                </p>
+                                              )}
+                                              {itemWarrantyMonths && (
+                                                <p className="text-[11px] text-gray-400 line-clamp-1">
+                                                  Polish Warranty:{" "}
+                                                  {itemWarrantyMonths} months
+                                                </p>
+                                              )}
+                                              <p className="text-xs text-gray-400 mt-1">
+                                                Rate: ₹
+                                                {unitPrice.toLocaleString()} x{" "}
+                                                {quantity}
+                                              </p>
+                                              <p className="text-[11px] text-gray-400 mt-1">
+                                                Amount: ₹
+                                                {displayAmount.toLocaleString()}
+                                              </p>
+                                              {displayDiscount > 0 && (
+                                                <p className="text-[11px] text-emerald-700 mt-1">
+                                                  Discount: ₹
+                                                  {displayDiscount.toLocaleString()}
+                                                </p>
+                                              )}
+                                            </div>
+                                            <div className="w-24 shrink-0 text-right text-sm font-semibold text-gray-800 sm:w-auto">
+                                              ₹{lineTotal.toLocaleString()}
+                                              {itemTax > 0 && (
+                                                <p className="text-[11px] text-gray-500 font-medium leading-tight">
+                                                  GST: ₹
+                                                  {itemTax.toLocaleString()}
+                                                </p>
+                                              )}
+                                            </div>
+                                          </div>
+                                        );
+                                      },
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div
+                                  className={`mt-5 grid grid-cols-1 gap-2 rounded-2xl border p-4 text-sm ${drawerTheme.shell}`}
+                                >
+                                  <div className="flex items-center justify-between font-semibold text-gray-900">
+                                    <span>Subtotal</span>
+                                    <span>
+                                      ₹
+                                      {Number(
+                                        selectedOrderTotals.subtotal || 0,
+                                      ).toLocaleString()}
+                                    </span>
+                                  </div>
+                                  <div
+                                    className={`flex items-center justify-between ${selectedOrderShippingPresentation.isFree ? "text-sm text-gray-600" : "text-xs text-gray-400"}`}
+                                  >
+                                    <span>Shipping</span>
+                                    {selectedOrderShippingPresentation.isFree ? (
+                                      <span className="font-semibold text-emerald-600">
+                                        FREE
+                                      </span>
+                                    ) : (
+                                      <span>
+                                        ₹
+                                        {Number(
+                                          selectedOrderTotals.shipping || 0,
+                                        ).toLocaleString()}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {selectedOrderTotals.hasAnyDiscount && (
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-gray-500">
+                                        Price Before Discounts
+                                      </span>
+                                      <span className="font-semibold text-gray-800">
+                                        ₹
+                                        {Number(
+                                          selectedOrderTotals.priceBeforeDiscounts ||
+                                            0,
+                                        ).toLocaleString()}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {selectedOrderTotals.discounts.product >
+                                    0 && (
+                                    <div className="flex items-center justify-between text-emerald-700">
+                                      <span>Product Discount (MRP)</span>
+                                      <span className="font-semibold">
+                                        - ₹
+                                        {Number(
+                                          selectedOrderTotals.discounts
+                                            .product || 0,
+                                        ).toLocaleString()}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {selectedOrderTotals.discounts.coupon > 0 && (
+                                    <div className="flex items-center justify-between text-emerald-700">
+                                      <span>
+                                        Coupon
+                                        {selectedOrderCouponCode
+                                          ? ` (${selectedOrderCouponCode})`
+                                          : ""}
+                                      </span>
+                                      <span className="font-semibold">
+                                        - ₹
+                                        {Number(
+                                          selectedOrderTotals.discounts
+                                            .coupon || 0,
+                                        ).toLocaleString()}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {selectedOrderTotals.discounts.member > 0 && (
+                                    <div className="flex items-center justify-between text-blue-700">
+                                      <span>Member Discount</span>
+                                      <span className="font-semibold">
+                                        - ₹
+                                        {Number(
+                                          selectedOrderTotals.discounts
+                                            .member || 0,
+                                        ).toLocaleString()}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {selectedOrderTotals.discounts
+                                    .memberShippingBenefit > 0 && (
+                                    <div className="flex items-center justify-between text-blue-700">
+                                      <span>Member Shipping Benefit</span>
+                                      <span className="font-semibold">
+                                        - ₹
+                                        {Number(
+                                          selectedOrderTotals.discounts
+                                            .memberShippingBenefit || 0,
+                                        ).toLocaleString()}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {selectedOrderTotals.hasAnyDiscount &&
+                                    selectedOrderTotals.discounts.totalSavings >
+                                      0 && (
+                                      <div className="flex items-center justify-between text-emerald-700">
+                                        <span>Total Savings</span>
+                                        <span className="font-semibold">
+                                          ₹
+                                          {Number(
+                                            selectedOrderTotals.discounts
+                                              .totalSavings || 0,
+                                          ).toLocaleString()}
+                                        </span>
+                                      </div>
+                                    )}
+                                  {selectedOrderTotals.hasAnyDiscount && (
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-gray-500">
+                                        Price After Discounts
+                                      </span>
+                                      <span className="font-semibold text-gray-800">
+                                        ₹
+                                        {Number(
+                                          selectedOrderTotals.priceAfterDiscounts ||
+                                            0,
+                                        ).toLocaleString()}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {selectedOrderTotals.gstTotal > 0 && (
+                                    <div className="flex items-start justify-between text-xs text-gray-400">
+                                      <span>GST</span>
+                                      <span>
+                                        ₹
+                                        {Number(
+                                          selectedOrderTotals.gstTotal || 0,
+                                        ).toLocaleString()}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {Number(
+                                    selectedOrderTotals.roundOffAmount || 0,
+                                  ) !== 0 && (
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-gray-500">
+                                        Round Off
+                                      </span>
+                                      <span className="font-semibold text-gray-800">
+                                        ₹
+                                        {Number(
+                                          selectedOrderTotals.roundOffAmount ||
+                                            0,
+                                        ).toLocaleString()}
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="flex items-center justify-between text-base font-semibold">
+                                    <span>Total</span>
+                                    <span>
+                                      ₹
+                                      {Number(
+                                        selectedOrderTotals.grandTotal || 0,
+                                      ).toLocaleString()}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div
+                                  className={`mt-5 overflow-hidden rounded-2xl border ${drawerTheme.shell}`}
+                                >
+                                  <div
+                                    className={`border-b px-4 py-2 text-xs font-semibold uppercase ${drawerTheme.header}`}
+                                  >
+                                    Customer Details
+                                  </div>
+                                  <div
+                                    className={`divide-y ${drawerTheme.divider}`}
+                                  >
+                                    {customerDetailsRows.map((row) => (
+                                      <div
+                                        key={row.label}
+                                        className="grid grid-cols-[120px_minmax(0,1fr)] gap-4 px-4 py-3 text-sm"
+                                      >
+                                        <div className="text-gray-500">
+                                          {row.label}
+                                        </div>
+                                        <div className="text-gray-800 whitespace-pre-line break-words">
+                                          {row.value || "—"}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div
+                                  className={`mt-5 rounded-2xl border p-4 ${drawerTheme.shell}`}
+                                >
+                                  <p
+                                    className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}
+                                  >
+                                    Status Timeline
+                                  </p>
+                                  <div className="mt-3 space-y-3">
+                                    {selectedOrderTimelineEntries.map((evt) => (
+                                      <div
+                                        key={evt.id}
+                                        className="flex items-start justify-between gap-3 text-sm"
+                                      >
+                                        <span className="min-w-0 flex items-start gap-2 font-semibold text-gray-700 capitalize">
+                                          <span
+                                            className={`h-2.5 w-2.5 rounded-full ${drawerTheme.timelineDot}`}
+                                          />
+                                          <span className="min-w-0">
+                                            <span className="block break-words">
+                                              {evt.status}
+                                            </span>
+                                            {evt.detail && (
+                                              <span className="mt-1 block text-[11px] font-medium normal-case text-gray-500 break-words">
+                                                {evt.detail}
+                                              </span>
+                                            )}
+                                          </span>
+                                        </span>
+                                        <span className="shrink-0 text-xs text-gray-400">
+                                          {formatAdminDateTime(evt.created_at)}
+                                        </span>
+                                      </div>
+                                    ))}
+                                    {selectedOrderTimelineEntries.length ===
+                                      0 && (
+                                      <p className="text-sm text-gray-400">
+                                        No timeline data yet.
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </>
+                            );
+                          })()}
+
+                          <div className="mt-5 grid grid-cols-1 gap-4">
+                            {!isAttemptEntry(selectedOrder) && (
+                              <div
+                                className={`rounded-2xl border p-4 ${drawerTheme.shell}`}
+                              >
+                                <p
+                                  className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}
+                                >
+                                  Settlement Details
+                                </p>
+                                {(() => {
+                                  const settlement =
+                                    selectedOrder?.settlement_snapshot ||
+                                    selectedOrder?.settlementSnapshot ||
+                                    null;
+                                  const paymentMode = getPaymentMethodInfoLabel(
+                                    selectedOrder,
+                                    paymentMethodContext,
+                                  );
+                                  const modeVisual =
+                                    getPaymentModeVisual(paymentMode);
+                                  const ModeIcon = modeVisual.Icon;
+                                  const paymentGatewayLabel =
+                                    getPaymentMethodLabel(selectedOrder);
+                                  const paymentReference =
+                                    getPaymentReference(selectedOrder);
+                                  const paidAtLabel = formatSettlementDateTime(
+                                    selectedOrder?.created_at ||
+                                      selectedOrder?.createdAt,
+                                  );
+                                  const settlementStatus = String(
+                                    settlement?.status || "",
+                                  )
+                                    .trim()
+                                    .toLowerCase();
+                                  const settlementSource = String(
+                                    settlement?.source || "",
+                                  )
+                                    .trim()
+                                    .toLowerCase();
+                                  const settlementId = String(
+                                    settlement?.id ||
+                                      selectedOrder?.settlement_id ||
+                                      "",
+                                  ).trim();
+                                  const lastRefreshStatus = String(
+                                    settlement?.last_refresh_status || "",
+                                  )
+                                    .trim()
+                                    .toLowerCase();
+                                  const isSettled =
+                                    settlementStatus === "settled";
+                                  const isManualSettlement =
+                                    settlementSource ===
+                                      "manual_attempt_conversion" ||
+                                    settlementId.startsWith(
+                                      "manual_settled_attempt_",
+                                    );
+                                  const hasSettlementWarning =
+                                    !isSettled &&
+                                    !isManualSettlement &&
+                                    lastRefreshStatus === "failed";
+                                  const isSettlementAwaited =
+                                    !settlement ||
+                                    [
+                                      "pending",
+                                      "processing",
+                                      "queued",
+                                      "failed",
+                                    ].includes(settlementStatus);
+                                  const settlementStatusMeta =
+                                    getSettlementStatusMeta(
+                                      isManualSettlement
+                                        ? "manual"
+                                        : hasSettlementWarning
+                                          ? "unavailable"
+                                          : isSettlementAwaited
+                                            ? "pending"
+                                            : settlementStatus,
+                                    );
+                                  const settledAtLabel = settlement?.created_at
+                                    ? formatSettlementDateTime(
+                                        settlement?.created_at,
+                                      )
+                                    : "Awaited";
+                                  const canShowSettlementBreakdown =
+                                    isSettled || isManualSettlement;
+                                  const settlementAmount = settlement
+                                    ? toSettlementRupees(
+                                        settlement?.amount,
+                                        settlement,
+                                      )
+                                    : 0;
+                                  const settlementFees = settlement
+                                    ? toSettlementRupees(
+                                        settlement?.fees,
+                                        settlement,
+                                      )
+                                    : 0;
+                                  const settlementTax = settlement
+                                    ? toSettlementRupees(
+                                        settlement?.tax,
+                                        settlement,
+                                      )
+                                    : 0;
+                                  const settlementNet = settlement
+                                    ? settlement?.net_amount != null
+                                      ? toSettlementRupees(
+                                          settlement?.net_amount,
+                                          settlement,
+                                        )
+                                      : Math.max(
+                                          0,
+                                          settlementAmount -
+                                            settlementFees -
+                                            settlementTax,
+                                        )
+                                    : 0;
+                                  const settlementHeadline = isManualSettlement
+                                    ? "Settlement recorded manually"
+                                    : isSettled
+                                      ? "Money deposited in your bank"
+                                      : "Settlement awaited";
+                                  const settlementDetail = isManualSettlement
+                                    ? settlement?.created_at
+                                      ? `Recorded locally: ${settledAtLabel}`
+                                      : "Recorded locally by an admin or recovery flow"
+                                    : isSettled
+                                      ? `Settled: ${settledAtLabel}`
+                                      : hasSettlementWarning
+                                        ? String(
+                                            settlement?.last_refresh_error ||
+                                              "",
+                                          ).trim() ||
+                                          "Unable to refresh settlement confirmation from gateway"
+                                        : "Awaiting settlement confirmation from gateway";
+                                  const settlementStatusLabel =
+                                    isManualSettlement
+                                      ? settlementStatusMeta.label
+                                      : hasSettlementWarning
+                                        ? "Awaited"
+                                        : isSettlementAwaited
+                                          ? "Awaited"
+                                          : settlementStatusMeta.label;
+                                  const displaySettlementId = isManualSettlement
+                                    ? "Admin-recorded"
+                                    : settlementId || "—";
+                                  return (
+                                    <div className="mt-3 space-y-3">
+                                      <div className="rounded-xl border border-white/70 bg-white/70 p-3 backdrop-blur-[1px]">
+                                        <div className="flex items-start justify-between gap-3">
+                                          <div>
+                                            <p
+                                              className={`text-[11px] uppercase tracking-widest font-semibold ${drawerTheme.title}`}
+                                            >
+                                              Payment Mode
+                                            </p>
+                                            <p className="mt-1 text-sm font-semibold text-gray-800">
+                                              {paymentMode}
+                                            </p>
+                                          </div>
+                                          <div
+                                            className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 ${modeVisual.shell}`}
+                                          >
+                                            <ModeIcon
+                                              size={14}
+                                              className={modeVisual.tone}
+                                            />
+                                            <span
+                                              className={`text-[10px] font-semibold tracking-wide ${modeVisual.tone}`}
+                                            >
+                                              {modeVisual.badge}
+                                            </span>
+                                          </div>
+                                        </div>
+                                        <div className="mt-2 text-xs text-gray-600">
+                                          <p>
+                                            <span className="text-gray-500">
+                                              Gateway:
+                                            </span>{" "}
+                                            {paymentGatewayLabel}
+                                          </p>
+                                          <p>
+                                            <span className="text-gray-500">
+                                              Payment Ref:
+                                            </span>{" "}
+                                            <span className="font-mono">
+                                              {paymentReference}
+                                            </span>
+                                          </p>
+                                        </div>
+                                        <div className="mt-3 border-t border-white/70 pt-3">
+                                          <div className="relative space-y-4">
+                                            <span
+                                              className={`pointer-events-none absolute left-[10px] top-6 bottom-2 border-l border-dashed ${settlementStatusMeta.timelineLine}`}
+                                            />
+                                            <div className="relative flex items-start gap-3">
+                                              <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border border-emerald-200 bg-emerald-100 text-emerald-700">
+                                                <CheckCircle2 size={12} />
+                                              </span>
+                                              <div className="pt-0.5">
+                                                <p className="text-sm font-medium text-gray-800">
+                                                  Customer Paid
+                                                </p>
+                                                <p className="text-xs text-gray-500">
+                                                  {paidAtLabel}
+                                                </p>
+                                              </div>
+                                            </div>
+                                            <div className="relative flex items-start gap-3">
+                                              <span
+                                                className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border ${
+                                                  isSettled
+                                                    ? "border-emerald-200 bg-emerald-100 text-emerald-700"
+                                                    : "border-amber-200 bg-amber-100 text-amber-700"
+                                                }`}
+                                              >
+                                                {isSettled ? (
+                                                  <CheckCircle2 size={12} />
+                                                ) : (
+                                                  <AlertCircle size={12} />
+                                                )}
+                                              </span>
+                                              <div className="pt-0.5">
+                                                <p className="text-sm font-medium text-gray-800">
+                                                  {settlementHeadline}
+                                                </p>
+                                                <p className="text-xs text-gray-500">
+                                                  {settlementDetail}
+                                                  {(isSettled ||
+                                                    isManualSettlement) &&
+                                                  settlement?.utr
+                                                    ? ` | UTR: ${settlement.utr}`
+                                                    : ""}
+                                                </p>
+                                                {!isSettled &&
+                                                  settlementContext?.isTestMode && (
+                                                    <p className="mt-1 text-xs text-amber-700">
+                                                      Razorpay test mode usually
+                                                      does not generate real
+                                                      settlement records.
+                                                    </p>
+                                                  )}
+                                                {hasSettlementWarning && (
+                                                  <p className="mt-1 text-xs text-amber-700">
+                                                    Auto-retry will continue
+                                                    using the ICICI settlement
+                                                    sync job.
+                                                  </p>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="rounded-xl border border-white/70 bg-white/70 p-3 backdrop-blur-[1px]">
+                                        <div className="flex items-center justify-between gap-3">
+                                          <span
+                                            className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}
+                                          >
+                                            Settlement Status
+                                          </span>
+                                          <span
+                                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${settlementStatusMeta.chip}`}
+                                          >
+                                            {settlementStatusLabel}
+                                          </span>
+                                        </div>
+                                        <div className="mt-3 overflow-hidden rounded-xl border border-white/70">
+                                          {[
+                                            {
+                                              label: "Settlement ID",
+                                              value: (
+                                                <span
+                                                  className={`${isManualSettlement ? "" : "font-mono"} text-xs`}
+                                                >
+                                                  {displaySettlementId}
+                                                </span>
+                                              ),
+                                            },
+                                            {
+                                              label: "Settlement Amount",
+                                              value: canShowSettlementBreakdown
+                                                ? formatSettlementAmount(
+                                                    settlementAmount,
+                                                  )
+                                                : settlementStatusLabel,
+                                            },
+                                            {
+                                              label: "Charges (Fees)",
+                                              value: canShowSettlementBreakdown
+                                                ? formatSettlementAmount(
+                                                    settlementFees,
+                                                  )
+                                                : settlementStatusLabel,
+                                            },
+                                            {
+                                              label: "Tax",
+                                              value: canShowSettlementBreakdown
+                                                ? formatSettlementAmount(
+                                                    settlementTax,
+                                                  )
+                                                : settlementStatusLabel,
+                                            },
+                                            {
+                                              label: "Net Credited",
+                                              value: canShowSettlementBreakdown
+                                                ? formatSettlementAmount(
+                                                    settlementNet,
+                                                  )
+                                                : settlementStatusLabel,
+                                            },
+                                            {
+                                              label: "Settled Date",
+                                              value: canShowSettlementBreakdown
+                                                ? settledAtLabel
+                                                : settlementStatusLabel,
+                                            },
+                                            {
+                                              label: "UTR",
+                                              value: (
+                                                <span className="font-mono text-xs">
+                                                  {canShowSettlementBreakdown
+                                                    ? settlement?.utr || "—"
+                                                    : "—"}
+                                                </span>
+                                              ),
+                                            },
+                                          ].map((row) => (
+                                            <div
+                                              key={row.label}
+                                              className="grid grid-cols-[132px_minmax(0,1fr)] gap-4 border-t border-white/60 px-3 py-2 text-sm first:border-t-0"
+                                            >
+                                              <div className="text-gray-500">
+                                                {row.label}
+                                              </div>
+                                              <div className="min-w-0 break-words text-gray-800">
+                                                {row.value}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                        <div className="mt-3">
+                                          {canFetchPaymentStatus(
+                                            selectedOrder,
+                                          ) && (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                handleFetchPaymentStatus({
+                                                  reason: "payment",
+                                                })
+                                              }
+                                              disabled={isFetchingPaymentStatus}
+                                              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100 disabled:opacity-60"
+                                            >
+                                              <RefreshCw
+                                                size={14}
+                                                className={
+                                                  isFetchingPaymentStatus
+                                                    ? "animate-spin"
+                                                    : ""
+                                                }
+                                              />
+                                              {isFetchingPaymentStatus
+                                                ? "Syncing..."
+                                                : "Sync Payment Status"}
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            )}
+
+                            <div
+                              className={`rounded-2xl border p-4 ${drawerTheme.shell}`}
+                            >
+                              <p
+                                className={`text-xs font-semibold uppercase tracking-widest ${drawerTheme.title}`}
+                              >
+                                Promotion
+                              </p>
+                              <div className="mt-3">
+                                {(() => {
+                                  const couponSplit =
+                                    getCouponDiscountSplit(selectedOrder);
+                                  const memberProductDiscount = Number(
+                                    selectedOrder.loyalty_discount_total || 0,
+                                  );
+                                  const memberShippingDiscount = Number(
+                                    selectedOrder.loyalty_shipping_discount_total ||
+                                      0,
+                                  );
+                                  const hasMemberBenefit =
+                                    memberProductDiscount > 0 ||
+                                    memberShippingDiscount > 0;
+                                  const promotionRows = [
+                                    {
+                                      label: "Membership Tier",
+                                      value: getTierLabel(selectedOrder),
+                                    },
+                                    ...(selectedOrderHasAppliedCoupon
+                                      ? [
+                                          {
+                                            label: "Coupon",
+                                            value: selectedOrderCouponCode,
+                                          },
+                                        ]
+                                      : []),
+                                    ...(selectedOrderHasAppliedCoupon &&
+                                    selectedOrder.coupon_type
+                                      ? [
+                                          {
+                                            label: "Type",
+                                            value: selectedOrder.coupon_type,
+                                          },
+                                        ]
+                                      : []),
+                                    ...(Number(
+                                      selectedOrder.coupon_discount_value || 0,
+                                    ) > 0
+                                      ? [
+                                          {
+                                            label: "Coupon Discount",
+                                            value: `₹${Number(selectedOrder.coupon_discount_value || 0).toLocaleString()}`,
+                                          },
+                                        ]
+                                      : []),
+                                    ...(couponSplit.productDiscount > 0
+                                      ? [
+                                          {
+                                            label: "Coupon Product Discount",
+                                            value: `₹${couponSplit.productDiscount.toLocaleString()}`,
+                                          },
+                                        ]
+                                      : []),
+                                    ...(couponSplit.shippingDiscount > 0
+                                      ? [
+                                          {
+                                            label: "Coupon Shipping Discount",
+                                            value: `₹${couponSplit.shippingDiscount.toLocaleString()}`,
+                                          },
+                                        ]
+                                      : []),
+                                    ...(memberProductDiscount > 0
+                                      ? [
+                                          {
+                                            label: "Member Product Discount",
+                                            value: `₹${memberProductDiscount.toLocaleString()}`,
+                                          },
+                                        ]
+                                      : []),
+                                    ...(memberShippingDiscount > 0
+                                      ? [
+                                          {
+                                            label: "Member Shipping Discount",
+                                            value: `₹${memberShippingDiscount.toLocaleString()}`,
+                                          },
+                                        ]
+                                      : []),
+                                    ...(Number(
+                                      selectedOrder.discount_total || 0,
+                                    ) > 0
+                                      ? [
+                                          {
+                                            label: "Total Discount",
+                                            value: `₹${Number(selectedOrder.discount_total || 0).toLocaleString()}`,
+                                          },
+                                        ]
+                                      : []),
+                                    {
+                                      label: "Source",
+                                      value: getSourceLabel(selectedOrder),
+                                    },
+                                  ];
+                                  return (
+                                    <>
+                                      <div className="overflow-hidden rounded-xl border border-white/70 bg-white/60">
+                                        {promotionRows.map((row) => (
+                                          <div
+                                            key={row.label}
+                                            className="grid grid-cols-[160px_minmax(0,1fr)] gap-4 border-t border-white/60 px-3 py-2 text-sm first:border-t-0"
+                                          >
+                                            <div className="text-gray-500">
+                                              {row.label}
+                                            </div>
+                                            <div className="min-w-0 break-words text-gray-800">
+                                              {row.value}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      {!hasMemberBenefit &&
+                                        Number(
+                                          selectedOrder.coupon_discount_value ||
+                                            0,
+                                        ) > 0 && (
+                                          <p className="mt-3 text-xs text-emerald-700">
+                                            Discount is fully from coupon
+                                            benefits. No membership perk
+                                            applied.
+                                          </p>
+                                        )}
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                          </div>
+                          {!isAttemptEntry(selectedOrder) &&
+                            !isRefundLockedOrder(selectedOrder) &&
+                            !isTerminalOrderStatus(selectedOrder.status) && (
+                              <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                                <label className="text-xs uppercase tracking-widest text-gray-400 font-semibold">
+                                  Update Status
+                                </label>
+                                <select
+                                  value={pendingStatus || ""}
+                                  onChange={(e) =>
+                                    setPendingStatus(e.target.value)
+                                  }
+                                  disabled={isUpdatingStatus}
+                                  className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                >
+                                  <option value="">
+                                    {formatStatusLabel(
+                                      getEffectiveOrderDisplayStatus(
+                                        selectedOrder,
+                                      ),
+                                    )}
+                                  </option>
+                                  {getAvailableStatusOptions(
+                                    selectedOrder.status,
+                                  ).map((option) => (
+                                    <option
+                                      key={option.value}
+                                      value={option.value}
+                                    >
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                {pendingStatus === "cancelled" &&
+                                  isPaidPayment(selectedOrder) && (
+                                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
+                                      {(() => {
+                                        const {
+                                          effectiveShippingPaid,
+                                          refundableBase,
+                                        } =
+                                          getRefundableBaseForOrder(
+                                            selectedOrder,
+                                          );
+                                        return (
+                                          <p className="text-xs text-amber-800 font-semibold">
+                                            Shipping actually paid by the
+                                            customer is non-refundable.
+                                            Effective shipping paid: ₹
+                                            {effectiveShippingPaid.toLocaleString(
+                                              "en-IN",
+                                            )}{" "}
+                                            • Maximum refundable amount: ₹
+                                            {refundableBase.toLocaleString(
+                                              "en-IN",
+                                            )}
+                                          </p>
+                                        );
+                                      })()}
+                                      <div>
+                                        <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">
+                                          Cancellation Mode
+                                        </label>
+                                        <select
+                                          value={cancellationMode}
+                                          onChange={(e) =>
+                                            setCancellationMode(e.target.value)
+                                          }
+                                          disabled={isUpdatingStatus}
+                                          className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                        >
+                                          <option value="">
+                                            Select cancellation mode
+                                          </option>
+                                          {visibleCancellationModes.map(
+                                            (mode) => (
+                                              <option
+                                                key={mode.value}
+                                                value={mode.value}
+                                              >
+                                                {mode.label}
+                                              </option>
+                                            ),
+                                          )}
+                                        </select>
+                                      </div>
+                                      {cancellationMode === "manual" && (
+                                        <div className="grid grid-cols-1 gap-3">
+                                          <div>
+                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">
+                                              Refunded Amount
+                                            </label>
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              step="0.01"
+                                              value={manualRefundAmount}
+                                              onChange={(e) =>
+                                                setManualRefundAmount(
+                                                  e.target.value,
+                                                )
+                                              }
+                                              disabled={isUpdatingStatus}
+                                              placeholder="Enter refunded amount"
+                                              className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">
+                                              Refund Method
+                                            </label>
+                                            <select
+                                              value={manualRefundMethod}
+                                              onChange={(e) =>
+                                                setManualRefundMethod(
+                                                  e.target.value,
+                                                )
+                                              }
+                                              disabled={isUpdatingStatus}
+                                              className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                            >
+                                              <option value="">
+                                                Select refund method
+                                              </option>
+                                              {MANUAL_REFUND_METHODS.map(
+                                                (method) => (
+                                                  <option
+                                                    key={method}
+                                                    value={method}
+                                                  >
+                                                    {method}
+                                                  </option>
+                                                ),
+                                              )}
+                                            </select>
+                                          </div>
+                                          {(manualRefundMethod === "UPI" ||
+                                            manualRefundMethod ===
+                                              "Bank A/c Transfer") && (
+                                            <div>
+                                              <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">
+                                                Reference Number
+                                              </label>
+                                              <input
+                                                type="text"
+                                                value={manualRefundRef}
+                                                onChange={(e) =>
+                                                  setManualRefundRef(
+                                                    e.target.value,
+                                                  )
+                                                }
+                                                disabled={isUpdatingStatus}
+                                                placeholder="Enter reference number"
+                                                className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                              />
+                                            </div>
+                                          )}
+                                          {manualRefundMethod ===
+                                            "NEFT/RTGS" && (
+                                            <div>
+                                              <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">
+                                                UTR Number
+                                              </label>
+                                              <input
+                                                type="text"
+                                                value={manualRefundUtr}
+                                                onChange={(e) =>
+                                                  setManualRefundUtr(
+                                                    e.target.value,
+                                                  )
+                                                }
+                                                disabled={isUpdatingStatus}
+                                                placeholder="Enter UTR number"
+                                                className="mt-2 w-full px-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:border-accent outline-none"
+                                              />
+                                            </div>
+                                          )}
+                                          {manualRefundMethod ===
+                                            "Voucher code" && (
+                                            <p className="text-xs text-amber-700">
+                                              A customer-specific coupon will be
+                                              auto-generated with 180 days
+                                              validity after cancellation.
+                                            </p>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                <button
+                                  type="button"
+                                  onClick={handleStatusUpdate}
+                                  disabled={
+                                    isUpdatingStatus ||
+                                    !selectedOrder ||
+                                    !pendingStatus
+                                  }
+                                  className="mt-3 w-full px-4 py-3 rounded-xl bg-primary text-accent font-semibold shadow-lg shadow-primary/20 hover:bg-primary-light disabled:opacity-60"
+                                >
+                                  {isUpdatingStatus
+                                    ? "Updating..."
+                                    : "Update Status"}
+                                </button>
+                              </div>
+                            )}
+                          {!isAttemptEntry(selectedOrder) &&
+                            !isRefundLockedOrder(selectedOrder) &&
+                            isTerminalOrderStatus(selectedOrder.status) && (
+                              <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600">
+                                This order is already{" "}
+                                {formatStatusLabel(
+                                  selectedOrder.status,
+                                ).toLowerCase()}
+                                . Status updates are disabled.
+                              </div>
+                            )}
+                          {!isAttemptEntry(selectedOrder) &&
+                            isRefundLockedOrder(selectedOrder) && (
+                              <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                                Refund has been initiated for this cancelled
+                                order. Status changes are locked.
+                              </div>
+                            )}
+                        </>
+                      );
+                    })()}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+      {zoomedItemPreview &&
+        createPortal(
+          <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+            <button
+              type="button"
+              className="absolute inset-0"
+              onClick={() => setZoomedItemPreview(null)}
+              aria-label="Close zoomed item image"
+            />
+            <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-3xl border border-white/15 bg-slate-950 shadow-2xl">
+              <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 text-white">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">
+                    {zoomedItemPreview.title || "Item Image"}
+                  </p>
+                  <p className="text-[11px] text-white/65">
+                    Tap outside to close
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setZoomedItemPreview(null)}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white hover:bg-white/15"
+                  aria-label="Close image preview"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="flex items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.12),_transparent_55%)] p-4 sm:p-5">
+                <img
+                  src={zoomedItemPreview.src}
+                  alt={zoomedItemPreview.title || "Order item"}
+                  className="max-h-[72vh] w-auto max-w-full rounded-2xl object-contain"
+                />
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+      {!isDetailsOpen && (
+        <button
+          type="button"
+          onClick={openCreateManualOrder}
+          className="md:hidden fixed bottom-24 right-4 z-[175] inline-flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-2xl shadow-emerald-600/30 hover:bg-emerald-500"
+          aria-label="Create order"
+        >
+          <Plus size={22} />
+        </button>
+      )}
+      {isCreateOrderOpen &&
+        createPortal(
+          <div className="fixed inset-0 z-[90]">
+            <div
+              className="absolute inset-0 bg-black/50"
+              onClick={() => {
+                if (!isCreatingManualOrder) void closeCreateManualOrder();
+              }}
+            ></div>
+            <div className="relative z-10 flex min-h-full items-center justify-center p-4">
+              <div className="w-full max-w-3xl rounded-2xl bg-white border border-gray-200 shadow-2xl max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col">
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">
+                      Manual Order
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        Create Order
+                      </h3>
+                      {selectedManualCustomer && (
+                        <TierBadge
+                          tier={
+                            selectedManualCustomer?.loyalty_tier ||
+                            selectedManualCustomer?.loyaltyTier ||
+                            "regular"
+                          }
+                          label={getTierLabel(selectedManualCustomer)}
+                          className="px-2.5 py-1 text-xs"
+                          iconSize={12}
+                          hideRegular
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isCreatingManualOrder) void closeCreateManualOrder();
+                    }}
+                    className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="p-5 space-y-4 overflow-y-auto">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label className="text-sm text-gray-600">
+                      Search Customer
+                      <input
+                        className="input-field mt-1"
+                        value={manualCustomerQuery}
+                        onChange={(e) => setManualCustomerQuery(e.target.value)}
+                        placeholder="Name / mobile / email"
+                      />
+                    </label>
+                    <label className="text-sm text-gray-600">
+                      Customer
+                      <select
+                        className={`input-field mt-1 ${manualCreateAttempted && manualValidationState.missingCustomer ? "border-red-300 focus:border-red-400" : ""}`}
+                        value={manualOrderForm.userId}
+                        onChange={(e) => {
+                          void handleManualCustomerSelect(e.target.value);
+                        }}
+                        disabled={isManualCustomersLoading}
+                      >
+                        <option value="">
+                          {isManualCustomersLoading
+                            ? "Loading customers..."
+                            : "Select customer"}
+                        </option>
+                        {filteredManualCustomers.map((customer) => (
+                          <option key={customer.id} value={customer.id}>
+                            {customer.name || "Customer"} (
+                            {customer.mobile || customer.email || customer.id})
+                          </option>
+                        ))}
+                        {isManualCustomersFetchingMore && (
+                          <option value="" disabled>
+                            Loading more customers...
+                          </option>
+                        )}
+                      </select>
+                      {selectedManualCustomer && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          Selected: {selectedManualCustomer.name}{" "}
+                          {selectedManualCustomer.mobile
+                            ? `• ${selectedManualCustomer.mobile}`
+                            : ""}
+                        </p>
+                      )}
+                      {isManualCustomersFetchingMore && (
+                        <p className="mt-1 text-xs text-gray-400 inline-flex items-center gap-1">
+                          <RefreshCw size={10} className="animate-spin" />{" "}
+                          Fetching more customers...
+                        </p>
+                      )}
+                      {manualCreateAttempted &&
+                        manualValidationState.missingCustomer && (
+                          <p className="mt-1 text-xs text-red-600">
+                            Select a customer to continue.
+                          </p>
+                        )}
+                    </label>
+                    <label className="text-sm text-gray-600">
+                      Payment Mode
+                      <select
+                        className="input-field mt-1"
+                        value={manualOrderForm.paymentMode}
+                        onChange={(e) =>
+                          setManualOrderForm((prev) => ({
+                            ...prev,
+                            paymentMode: e.target.value,
+                          }))
+                        }
+                      >
+                        {MANUAL_PAYMENT_OPTIONS.map((mode) => (
+                          <option key={mode.value} value={mode.value}>
+                            {mode.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-sm text-gray-600">
+                      Payment Reference (Optional)
+                      <input
+                        className="input-field mt-1"
+                        value={manualOrderForm.paymentReference}
+                        onChange={(e) =>
+                          setManualOrderForm((prev) => ({
+                            ...prev,
+                            paymentReference: e.target.value,
+                          }))
+                        }
+                        placeholder="Receipt / transaction reference"
+                      />
+                    </label>
+                    {selectedManualCustomer && customerNeedsManualMobile && (
+                      <label className="text-sm text-gray-600 md:col-span-2">
+                        Customer Mobile
+                        <input
+                          className={`input-field mt-1 ${manualCreateAttempted && (manualValidationState.missingCustomerMobile || manualValidationState.invalidCustomerMobile) ? "border-red-300 focus:border-red-400" : ""}`}
+                          value={manualOrderForm.mobile}
+                          onChange={(e) =>
+                            setManualOrderForm((prev) => ({
+                              ...prev,
+                              mobile: normalizeMobileDigits(
+                                e.target.value,
+                              ).slice(0, 14),
+                            }))
+                          }
+                          inputMode="numeric"
+                          maxLength={14}
+                          placeholder="Enter customer mobile number"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">
+                          This mobile will be saved to the customer profile when
+                          the order is created.
+                        </p>
+                        {manualCreateAttempted &&
+                          manualValidationState.missingCustomerMobile && (
+                            <p className="mt-1 text-xs text-red-600">
+                              Enter a customer mobile number to continue.
+                            </p>
+                          )}
+                        {manualCreateAttempted &&
+                          !manualValidationState.missingCustomerMobile &&
+                          manualValidationState.invalidCustomerMobile && (
+                            <p className="mt-1 text-xs text-red-600">
+                              Mobile must contain 10-14 digits.
+                            </p>
+                          )}
+                      </label>
+                    )}
+                    <label className="text-sm text-gray-600 md:col-span-2">
+                      Coupon (Optional)
+                      <select
+                        className="input-field mt-1"
+                        value={manualOrderForm.couponCode}
+                        onChange={(e) =>
+                          setManualOrderForm((prev) => ({
+                            ...prev,
+                            couponCode: e.target.value,
+                          }))
+                        }
+                        disabled={
+                          !manualOrderForm.userId || isManualCouponsLoading
+                        }
+                      >
+                        <option value="">
+                          {!manualOrderForm.userId
+                            ? "Select customer first"
+                            : isManualCouponsLoading
+                              ? "Loading coupons..."
+                              : "No coupon"}
+                        </option>
+                        {manualCoupons.map((coupon) => (
+                          <option
+                            key={coupon.code}
+                            value={coupon.code}
+                            disabled={coupon?.isEligible === false}
+                          >
+                            {coupon.code} - {coupon.name || coupon.code}
+                            {coupon?.isEligible === false
+                              ? " (Not eligible yet)"
+                              : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {manualOrderForm.userId &&
+                        manualItemPayload.length > 0 &&
+                        !isManualCouponsLoading &&
+                        manualCoupons.length === 0 && (
+                          <p className="mt-1 text-xs text-amber-600">
+                            No eligible coupons available for current cart
+                            value/category.
+                          </p>
+                        )}
+                      {manualCouponError && (
+                        <p className="mt-1 text-xs text-amber-600">
+                          {manualCouponError}
+                        </p>
+                      )}
+                    </label>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">
+                        Products & Variants
+                      </p>
+                    </div>
+                    <input
+                      className="input-field"
+                      placeholder="Search products by name / sku / variant"
+                      value={manualProductQuery}
+                      onChange={(e) => setManualProductQuery(e.target.value)}
+                    />
+                    {isManualProductsFetchingMore && (
+                      <p className="text-xs text-gray-400 inline-flex items-center gap-1">
+                        <RefreshCw size={10} className="animate-spin" />{" "}
+                        Fetching more products...
+                      </p>
+                    )}
+                    {(() => {
+                      const selectedProduct = (manualProducts || []).find(
+                        (p) =>
+                          String(p?.id) ===
+                          String(manualDraftItem?.productId || ""),
+                      );
+                      const variants = Array.isArray(selectedProduct?.variants)
+                        ? selectedProduct.variants.filter((variant) =>
+                            isVariantInStock(variant),
+                          )
+                        : [];
+                      const hasVariants = variants.length > 0;
+                      return (
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+                          <label className="text-xs text-gray-500 md:col-span-6">
+                            Product
+                            <select
+                              className="input-field mt-1"
+                              value={manualDraftItem?.productId || ""}
+                              onChange={(e) =>
+                                updateManualDraftItem({
+                                  productId: e.target.value,
+                                  variantId: "",
+                                })
+                              }
+                            >
+                              <option value="">
+                                {isManualProductsLoading
+                                  ? "Loading products..."
+                                  : "Select product"}
+                              </option>
+                              {filteredManualProducts.map((product) => (
+                                <option key={product.id} value={product.id}>
+                                  {product.title} (
+                                  {product.sku || `#${product.id}`})
+                                </option>
+                              ))}
+                              {isManualProductsFetchingMore && (
+                                <option value="" disabled>
+                                  Loading more products...
+                                </option>
+                              )}
+                            </select>
+                          </label>
+                          <label className="text-xs text-gray-500 md:col-span-3">
+                            Variant
+                            <select
+                              className="input-field mt-1"
+                              value={manualDraftItem?.variantId || ""}
+                              onChange={(e) =>
+                                updateManualDraftItem({
+                                  variantId: e.target.value,
+                                })
+                              }
+                              disabled={
+                                !manualDraftItem?.productId || !hasVariants
+                              }
+                            >
+                              <option value="">
+                                {!manualDraftItem?.productId
+                                  ? "Select product"
+                                  : hasVariants
+                                    ? "Select variant"
+                                    : "No variant"}
+                              </option>
+                              {variants.map((variant) => (
+                                <option key={variant.id} value={variant.id}>
+                                  {variant.variant_title ||
+                                    `Variant #${variant.id}`}{" "}
+                                  ({variant.sku || variant.id})
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="text-xs text-gray-500 md:col-span-2">
+                            Qty
+                            <input
+                              type="number"
+                              min="1"
+                              className="input-field mt-1"
+                              value={manualDraftItem?.quantity || 1}
+                              onChange={(e) =>
+                                updateManualDraftItem({
+                                  quantity: e.target.value,
+                                })
+                              }
+                            />
+                          </label>
+                          <div className="md:col-span-1">
+                            <button
+                              type="button"
+                              onClick={addManualDraftToCart}
+                              className="w-full h-10 flex items-center justify-center rounded-lg border border-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-50"
+                              title="Add to cart"
+                            >
+                              <Plus size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <div className="rounded-xl border border-gray-200 p-4">
+                    <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">
+                      In-Cart Summary
+                    </p>
+                    {isManualSummaryLoading && (
+                      <p className="mt-3 text-xs text-gray-500">
+                        Calculating order summary...
+                      </p>
+                    )}
+                    {!isManualSummaryLoading && !manualSummary && (
+                      <p className="mt-3 text-xs text-gray-500">
+                        Add customer, items, and shipping address to view
+                        summary.
+                      </p>
+                    )}
+                    {manualSummaryError && (
+                      <p className="mt-2 text-xs text-amber-600">
+                        {manualSummaryError}
+                      </p>
+                    )}
+                    {manualOrderItems.length > 0 && (
+                      <div className="mt-3 space-y-2 border border-gray-100 rounded-lg p-2 bg-gray-50/50">
+                        {(manualSummary?.items?.length
+                          ? manualSummary.items
+                          : manualCartDisplayItems
+                        ).map((item, idx) => (
+                          <div
+                            key={`sum-item-${item?.productId || "p"}-${item?.variantId || ""}-${idx}`}
+                            className="grid grid-cols-[1fr_auto] gap-2 text-xs items-start"
+                          >
+                            <div>
+                              <p className="font-semibold text-gray-700 line-clamp-1">
+                                {item.title || "Product"}
+                              </p>
+                              <p className="text-gray-500">
+                                {item.variantTitle || "Default"} • Qty{" "}
+                                {item.quantity}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-right">
+                                <span className="font-semibold text-gray-700">
+                                  ₹
+                                  {Number(item.lineTotal || 0).toLocaleString(
+                                    "en-IN",
+                                  )}
+                                </span>
+                                {Number(item.taxAmount || 0) > 0 && (
+                                  <p className="text-[10px] text-gray-500">
+                                    {(() => {
+                                      const gst = getGstDisplayDetails({
+                                        taxAmount: Number(item.taxAmount || 0),
+                                        taxRatePercent: Number(
+                                          item.taxRatePercent || 0,
+                                        ),
+                                        taxLabel:
+                                          item.taxCode || item.taxName || "",
+                                        ...manualGstContext,
+                                      });
+                                      return `${gst.title}: ${gst.totalAmountLabel} (${gst.componentAmountLabel})`;
+                                    })()}
+                                  </p>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  removeManualCartItem(
+                                    item?.productId,
+                                    item?.variantId,
+                                  )
+                                }
+                                className="inline-flex items-center justify-center p-1 rounded-md border border-red-200 text-red-600 hover:bg-red-50"
+                                title="Delete item"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {manualCreateAttempted &&
+                      manualValidationState.missingItems && (
+                        <p className="mt-2 text-xs text-red-600">
+                          Add at least one product to cart.
+                        </p>
+                      )}
+                    {!isManualSummaryLoading && effectiveManualSummary && (
+                      <div className="mt-3 space-y-2 text-sm">
+                        <div className="flex items-center justify-between font-semibold text-gray-900">
+                          <span>Subtotal</span>
+                          <span>{formatInrOrDash(manualTotals.subtotal)}</span>
+                        </div>
+                        <div
+                          className={`flex items-center justify-between ${manualShippingPresentation.isFree ? "text-sm text-gray-600" : "text-xs text-gray-400"}`}
+                        >
+                          <span>Shipping</span>
+                          {manualShippingPresentation.isFree ? (
+                            <span className="font-semibold text-emerald-600">
+                              FREE
+                            </span>
+                          ) : (
+                            <span>
+                              {formatInrOrDash(manualTotals.shipping)}
+                            </span>
+                          )}
+                        </div>
+                        {manualTotals.hasAnyDiscount && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-500">
+                              Price Before Discounts
+                            </span>
+                            <span className="font-semibold">
+                              {formatInrOrDash(
+                                manualTotals.priceBeforeDiscounts,
+                              )}
+                            </span>
+                          </div>
+                        )}
+                        {manualTotals.discounts.product > 0 && (
+                          <div className="flex items-center justify-between text-emerald-700">
+                            <span>Product Discount (MRP)</span>
+                            <span className="font-semibold">
+                              -{" "}
+                              {formatInrOrDash(manualTotals.discounts.product)}
+                            </span>
+                          </div>
+                        )}
+                        {manualTotals.discounts.coupon > 0 && (
+                          <div className="flex items-center justify-between text-emerald-700">
+                            <span>Coupon Discount</span>
+                            <span className="font-semibold">
+                              - {formatInrOrDash(manualTotals.discounts.coupon)}
+                            </span>
+                          </div>
+                        )}
+                        {manualTotals.discounts.member > 0 && (
+                          <div className="flex items-center justify-between text-blue-700">
+                            <span>Member Discount</span>
+                            <span className="font-semibold">
+                              - {formatInrOrDash(manualTotals.discounts.member)}
+                            </span>
+                          </div>
+                        )}
+                        {manualTotals.discounts.memberShippingBenefit > 0 && (
+                          <div className="flex items-center justify-between text-blue-700">
+                            <span>Member Shipping Benefit</span>
+                            <span className="font-semibold">
+                              -{" "}
+                              {formatInrOrDash(
+                                manualTotals.discounts.memberShippingBenefit,
+                              )}
+                            </span>
+                          </div>
+                        )}
+                        {manualTotals.hasAnyDiscount &&
+                          manualTotals.discounts.totalSavings > 0 && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-emerald-700">
+                                Total Savings
+                              </span>
+                              <span className="font-semibold text-emerald-700">
+                                {formatInrOrDash(
+                                  manualTotals.discounts.totalSavings,
+                                )}
+                              </span>
+                            </div>
+                          )}
+                        {manualTotals.hasAnyDiscount && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-500">
+                              Price After Discounts
+                            </span>
+                            <span className="font-semibold">
+                              {formatInrOrDash(
+                                manualTotals.priceAfterDiscounts,
+                              )}
+                            </span>
+                          </div>
+                        )}
+                        {manualTotals.gstTotal > 0 && (
+                          <div className="flex items-start justify-between text-xs text-gray-400">
+                            <span>GST</span>
+                            <span>
+                              {formatInrOrDash(manualTotals.gstTotal)}
+                            </span>
+                          </div>
+                        )}
+                        {Number(manualTotals.roundOffAmount || 0) !== 0 && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-500">Round Off</span>
+                            <span className="font-semibold">
+                              {formatInrOrDash(manualTotals.roundOffAmount)}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between text-base border-t border-gray-100 pt-2">
+                          <span className="font-semibold text-gray-700">
+                            Total
+                          </span>
+                          <span className="font-bold text-gray-900">
+                            {formatInrOrDash(manualTotals.grandTotal)}
+                          </span>
+                        </div>
+                        {!manualSummary && (
+                          <p className="text-xs text-gray-500">
+                            Add shipping address and select coupon to fetch
+                            exact shipping and membership benefit calculations.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="rounded-xl border border-gray-200 p-4">
+                    <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">
+                      Shipping Address
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                      <input
+                        className={`input-field ${manualCreateAttempted && !String(manualOrderForm.shippingAddress.line1 || "").trim() ? "border-red-300 focus:border-red-400" : ""}`}
+                        placeholder="Address line"
+                        value={manualOrderForm.shippingAddress.line1}
+                        onChange={(e) =>
+                          updateManualAddress(
+                            "shippingAddress",
+                            "line1",
+                            e.target.value,
+                          )
+                        }
+                      />
+                      <input
+                        className={`input-field ${manualCreateAttempted && !String(manualOrderForm.shippingAddress.city || "").trim() ? "border-red-300 focus:border-red-400" : ""}`}
+                        placeholder="City"
+                        value={manualOrderForm.shippingAddress.city}
+                        onChange={(e) =>
+                          updateManualAddress(
+                            "shippingAddress",
+                            "city",
+                            e.target.value,
+                          )
+                        }
+                      />
+                      <input
+                        className={`input-field ${manualCreateAttempted && !String(manualOrderForm.shippingAddress.state || "").trim() ? "border-red-300 focus:border-red-400" : ""}`}
+                        placeholder="State"
+                        value={manualOrderForm.shippingAddress.state}
+                        onChange={(e) =>
+                          updateManualAddress(
+                            "shippingAddress",
+                            "state",
+                            e.target.value,
+                          )
+                        }
+                      />
+                      <input
+                        className={`input-field ${manualCreateAttempted && !String(manualOrderForm.shippingAddress.zip || "").trim() ? "border-red-300 focus:border-red-400" : ""}`}
+                        placeholder="PIN code"
+                        value={manualOrderForm.shippingAddress.zip}
+                        onChange={(e) =>
+                          updateManualAddress(
+                            "shippingAddress",
+                            "zip",
+                            e.target.value,
+                          )
+                        }
+                      />
+                    </div>
+                    {manualCreateAttempted &&
+                      manualValidationState.shippingMissing.length > 0 && (
+                        <p className="mt-2 text-xs text-red-600">
+                          Shipping missing:{" "}
+                          {manualValidationState.shippingMissing.join(", ")}
+                        </p>
+                      )}
+                  </div>
+                  {billingAddressEnabled && (
+                    <div className="rounded-xl border border-gray-200 p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs uppercase tracking-widest text-gray-500 font-semibold">
+                          Billing Address
+                        </p>
+                        <label className="inline-flex items-center gap-2 text-xs text-gray-600">
+                          <input
+                            type="checkbox"
+                            checked={manualOrderForm.billingSameAsShipping}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setManualOrderForm((prev) => ({
+                                ...prev,
+                                billingSameAsShipping: checked,
+                                billingAddress: checked
+                                  ? { ...prev.shippingAddress }
+                                  : prev.billingAddress,
+                              }));
+                            }}
+                          />
+                          Same as shipping
+                        </label>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                        <input
+                          className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.line1 || "").trim() ? "border-red-300 focus:border-red-400" : ""}`}
+                          placeholder="Address line"
+                          value={manualOrderForm.billingAddress.line1}
+                          onChange={(e) =>
+                            updateManualAddress(
+                              "billingAddress",
+                              "line1",
+                              e.target.value,
+                            )
+                          }
+                          disabled={manualOrderForm.billingSameAsShipping}
+                        />
+                        <input
+                          className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.city || "").trim() ? "border-red-300 focus:border-red-400" : ""}`}
+                          placeholder="City"
+                          value={manualOrderForm.billingAddress.city}
+                          onChange={(e) =>
+                            updateManualAddress(
+                              "billingAddress",
+                              "city",
+                              e.target.value,
+                            )
+                          }
+                          disabled={manualOrderForm.billingSameAsShipping}
+                        />
+                        <input
+                          className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.state || "").trim() ? "border-red-300 focus:border-red-400" : ""}`}
+                          placeholder="State"
+                          value={manualOrderForm.billingAddress.state}
+                          onChange={(e) =>
+                            updateManualAddress(
+                              "billingAddress",
+                              "state",
+                              e.target.value,
+                            )
+                          }
+                          disabled={manualOrderForm.billingSameAsShipping}
+                        />
+                        <input
+                          className={`input-field ${manualCreateAttempted && !manualOrderForm.billingSameAsShipping && !String(manualOrderForm.billingAddress.zip || "").trim() ? "border-red-300 focus:border-red-400" : ""}`}
+                          placeholder="PIN code"
+                          value={manualOrderForm.billingAddress.zip}
+                          onChange={(e) =>
+                            updateManualAddress(
+                              "billingAddress",
+                              "zip",
+                              e.target.value,
+                            )
+                          }
+                          disabled={manualOrderForm.billingSameAsShipping}
+                        />
+                      </div>
+                      {manualCreateAttempted &&
+                        manualValidationState.billingMissing.length > 0 && (
+                          <p className="mt-2 text-xs text-red-600">
+                            Billing missing:{" "}
+                            {manualValidationState.billingMissing.join(", ")}
+                          </p>
+                        )}
+                    </div>
+                  )}
+                </div>
+                <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void closeCreateManualOrder();
+                    }}
+                    disabled={isCreatingManualOrder}
+                    className="px-4 py-2 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateManualOrder}
+                    disabled={isCreatingManualOrder}
+                    className="px-4 py-2 rounded-lg bg-primary text-accent text-sm font-semibold hover:bg-primary-light disabled:opacity-60"
+                  >
+                    {isCreatingManualOrder ? "Creating..." : "Create Order"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+      {activeLabelOrder &&
+        createPortal(
+          <div className="fixed inset-0 z-[190] flex items-center justify-center p-4 animate-fade-in">
+            <div
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={closeLabelPrintModal}
+            />
+            <div className="relative z-10 flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl">
+              <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-gray-400">
+                    Printer Labels
+                  </p>
+                  <h3 className="mt-2 text-xl font-semibold text-gray-900">
+                    Order {activeLabelOrder.order_ref}
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Print sender and recipient labels separately so each label
+                    stays readable.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeLabelPrintModal}
+                  disabled={Boolean(printingLabelId) || isPrinterConnecting}
+                  className="rounded-xl border border-gray-200 p-2 text-gray-500 hover:bg-gray-50 disabled:opacity-60"
+                  aria-label="Close label print modal"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-6 py-6">
+                <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                  <p className="text-sm font-semibold text-gray-900">
+                    Print Labels
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Print sender and recipient labels separately using the two
+                    actions below.
+                  </p>
+                  {(!activeFromValidation.ok || !activeToValidation.ok) && (
+                    <div className="mt-3 space-y-1">
+                      {!activeFromValidation.ok && (
+                        <p className="text-xs text-red-600">
+                          From missing:{" "}
+                          {activeFromValidation.missing.join(", ")}
+                        </p>
+                      )}
+                      {!activeToValidation.ok && (
+                        <p className="text-xs text-red-600">
+                          To missing: {activeToValidation.missing.join(", ")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handlePrintSingleLabel("from", activeLabelOrder)
+                      }
+                      disabled={
+                        !activeFromValidation.ok ||
+                        printingLabelId === activeLabelOrderId ||
+                        isPrinterConnecting
+                      }
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-accent hover:bg-primary-light disabled:opacity-60"
+                    >
+                      <Printer size={16} />
+                      <span>
+                        {printingLabelId === activeLabelOrderId &&
+                        printingLabelType === "from"
+                          ? "Printing..."
+                          : "From"}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handlePrintSingleLabel("to", activeLabelOrder)
+                      }
+                      disabled={
+                        !activeToValidation.ok ||
+                        printingLabelId === activeLabelOrderId ||
+                        isPrinterConnecting
+                      }
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/10 disabled:opacity-60"
+                    >
+                      <Printer size={16} />
+                      <span>
+                        {printingLabelId === activeLabelOrderId &&
+                        printingLabelType === "to"
+                          ? "Printing..."
+                          : "To"}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-5 grid gap-5 md:grid-cols-[1.2fr_0.8fr]">
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-4">
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 rounded-xl bg-violet-100 p-2 text-violet-700">
+                          <Printer size={18} />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-gray-900">
+                            Printer Status
+                          </p>
+                          <p className="mt-1 text-sm text-gray-600">
+                            {printerStatusLabel}
+                          </p>
+                          <p className="mt-2 text-xs text-gray-500">
+                            {preferredPrinter
+                              ? "If the saved printer is offline, pair again before printing."
+                              : "No printer is paired yet. Pair once here and reuse it from order print actions."}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50/70 p-4">
+                      <p className="text-sm font-semibold text-gray-900">
+                        Pair Printer
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {canPairBluetooth && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleConnectLabelPrinter("bluetooth")
+                            }
+                            disabled={
+                              !printerSupport.supported ||
+                              isPrinterConnecting ||
+                              Boolean(printingLabelId)
+                            }
+                            className="inline-flex items-center rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-60"
+                          >
+                            {isPrinterConnecting
+                              ? "Pairing..."
+                              : "Pair via Bluetooth"}
+                          </button>
+                        )}
+                        {canPairUsb && (
+                          <button
+                            type="button"
+                            onClick={() => handleConnectLabelPrinter("usb")}
+                            disabled={
+                              !printerSupport.supported ||
+                              isPrinterConnecting ||
+                              Boolean(printingLabelId)
+                            }
+                            className="inline-flex items-center rounded-xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-60"
+                          >
+                            {isPrinterConnecting
+                              ? "Pairing..."
+                              : "Pair via USB"}
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid gap-3 text-xs text-gray-500 md:grid-cols-2">
+                        <div className="rounded-xl border border-gray-200 bg-white p-3">
+                          <p className="font-semibold text-gray-700">
+                            Bluetooth guidance
+                          </p>
+                          <p className="mt-1">
+                            Turn on the printer, place it in pairing mode, keep
+                            it nearby, and select it when the browser prompt
+                            opens.
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-gray-200 bg-white p-3">
+                          <p className="font-semibold text-gray-700">
+                            USB guidance
+                          </p>
+                          <p className="mt-1">
+                            Connect the printer with a cable first, then choose
+                            it from the browser's USB device picker.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-4"></div>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+      <Modal
+        isOpen={confirmModal.isOpen}
+        onClose={handleConfirmModalClose}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        type={confirmModal.type}
+        confirmText={confirmModal.confirmText}
+        onConfirm={handleConfirmAction}
+        isLoading={isConfirmProcessing}
+      />
+    </div>
+  );
 }
 
 export default Orders;
