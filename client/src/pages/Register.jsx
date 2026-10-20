@@ -107,13 +107,22 @@ export default function Register() {
     }
     setIsLoading(true);
     try {
-        await authService.sendOtp(formData.mobile);
+        const result = await authService.sendOtp({
+            mobile: formData.mobile,
+            email: formData.email
+        });
+        if (!result?.ok) {
+            throw new Error(result?.message || 'OTP could not be delivered. Please try again.');
+        }
         setOtpSent(true);
         setTimer(30);
-        toast.success("OTP Sent! Check Server Console.");
+        toast.success("OTP sent successfully.");
         setOtpStatus('neutral');
     } catch (error) {
-        toast.error("Failed to send OTP.");
+        setOtpSent(false);
+        setOtpStatus('neutral');
+        setTimer(0);
+        toast.error(error?.message || 'Failed to send OTP. Please try again.');
     } finally {
         setIsLoading(false);
     }

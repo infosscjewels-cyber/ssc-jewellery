@@ -110,6 +110,53 @@ test('sendOtp returns 502 when no delivery channel actually succeeds', async () 
     assert.equal(res.body.delivery.failed[0].channel, 'whatsapp');
 });
 
+test('registration OTP falls back to email while retaining the mobile OTP storage key', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    let savedOtpKey;
+    let sentEmail;
+    const controller = loadAuthController({
+        comms: {
+            sendWhatsapp: async () => ({ ok: false, reason: 'whatsapp_down' }),
+            sendEmailCommunication: async (payload) => {
+                sentEmail = payload;
+                return { ok: true, provider: 'mock-email' };
+            }
+        }
+    });
+
+    const req = {
+        body: {
+            mobile: '9385635136',
+            email: 'Customer@Example.com'
+        }
+    };
+    const res = createMockRes();
+
+    try {
+        await withPatched(OtpService, {
+            saveOtp: async (key) => {
+                savedOtpKey = key;
+            }
+        }, async () => {
+            await controller.sendOtp(req, res);
+        });
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(savedOtpKey, OtpService.buildStorageKey('9385635136', 'mobile'));
+        assert.deepEqual(res.body.delivery.sent, ['email']);
+        assert.deepEqual(res.body.delivery.failed.map(({ channel }) => channel), ['whatsapp']);
+        assert.equal(res.body.delivery.contacts.email, 'Cu*****r@example.com');
+        assert.equal(res.body.delivery.contacts.whatsapp, '93******36');
+        assert.equal(sentEmail.to, 'customer@example.com');
+        assert.equal(sentEmail.workflow, 'registration_otp');
+        assert.equal(sentEmail.text.includes('registration screen'), true);
+        assert.equal(res.body.debug_otp, undefined);
+    } finally {
+        process.env.NODE_ENV = originalNodeEnv;
+    }
+});
+
 test('password reset OTP supports email-only accounts', async () => {
     const controller = loadAuthController({
         comms: {
