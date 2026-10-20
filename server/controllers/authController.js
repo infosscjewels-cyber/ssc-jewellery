@@ -93,10 +93,11 @@ const pickBySeed = (variants = [], seed = '') => {
     return list[idx];
 };
 
-const buildLoginOtpEmailTemplate = ({ user = {}, otp = '', maskedWhatsapp = '' } = {}) => {
+const buildLoginOtpEmailTemplate = ({ user = {}, otp = '', maskedWhatsapp = '', purpose = 'login' } = {}) => {
     const customerName = String(user?.name || 'Customer').trim() || 'Customer';
     const email = String(user?.email || '').trim().toLowerCase();
-    const seed = `${email}|${otp}|login-otp`;
+    const isRegistration = purpose === 'registration';
+    const seed = `${email}|${otp}|${purpose}-otp`;
 
     const subjects = [
         'Your Secure Login OTP for SSC Jewellery',
@@ -147,13 +148,22 @@ const buildLoginOtpEmailTemplate = ({ user = {}, otp = '', maskedWhatsapp = '' }
         'Yours faithfully,\nSSC Jewellery Help Desk'
     ];
 
-    const subject = pickBySeed(subjects, `${seed}|subject`);
-    const opening = pickBySeed(openings, `${seed}|opening`);
-    const assurance = pickBySeed(assurances, `${seed}|assurance`);
+    const subject = isRegistration
+        ? 'Your SSC Jewellery Registration OTP'
+        : pickBySeed(subjects, `${seed}|subject`);
+    const opening = isRegistration
+        ? `Hello ${customerName},`
+        : pickBySeed(openings, `${seed}|opening`);
+    const assurance = isRegistration
+        ? 'If you did not request this OTP, no action is required. The code expires automatically in 5 minutes.'
+        : pickBySeed(assurances, `${seed}|assurance`);
     const closing = pickBySeed(closings, `${seed}|closing`);
+    const action = isRegistration ? 'registration' : 'login';
     const whatsappLine = maskedWhatsapp
         ? `We also sent this OTP to your WhatsApp number ${maskedWhatsapp}.`
-        : 'No WhatsApp number is linked to this account, so OTP was delivered by email only.';
+        : isRegistration
+            ? 'Your OTP was delivered by email.'
+            : 'No WhatsApp number is linked to this account, so OTP was delivered by email only.';
 
     const text = [
         opening,
@@ -163,8 +173,8 @@ const buildLoginOtpEmailTemplate = ({ user = {}, otp = '', maskedWhatsapp = '' }
         whatsappLine,
         '',
         'Next steps:',
-        '1. Enter this OTP on the login screen.',
-        '2. Complete sign-in before the code expires.',
+        `1. Enter this OTP on the ${action} screen.`,
+        `2. Complete ${action === 'registration' ? 'registration' : 'sign-in'} before the code expires.`,
         '3. Request a new OTP if the timer runs out.',
         '',
         assurance,
@@ -178,14 +188,14 @@ const buildLoginOtpEmailTemplate = ({ user = {}, otp = '', maskedWhatsapp = '' }
                 <tr>
                     <td style="padding:24px 24px 12px;font-size:15px;line-height:1.6;">
                         <p style="margin:0 0 12px;">${opening}</p>
-                        <p style="margin:0 0 12px;">Please use the following One-Time Password to complete your login:</p>
+                        <p style="margin:0 0 12px;">Please use the following One-Time Password to complete your ${action}:</p>
                         <div style="margin:14px 0;padding:14px 16px;border-radius:10px;background:#111827;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:4px;text-align:center;">${otp}</div>
                         <p style="margin:0 0 12px;">This code is valid for <strong>5 minutes</strong>.</p>
                         <p style="margin:0 0 12px;">${whatsappLine}</p>
                         <p style="margin:0 0 8px;"><strong>Next steps:</strong></p>
                         <ol style="margin:0 0 12px 18px;padding:0;">
-                            <li>Enter this OTP on the login screen.</li>
-                            <li>Complete sign-in before the code expires.</li>
+                            <li>Enter this OTP on the ${action} screen.</li>
+                            <li>Complete ${action === 'registration' ? 'registration' : 'sign-in'} before the code expires.</li>
                             <li>Request a new OTP if needed.</li>
                         </ol>
                         <p style="margin:0 0 12px;">${assurance}</p>
@@ -338,6 +348,8 @@ const validateRegistration = (data) => {
 exports.sendOtp = async (req, res) => {
     try {
         const mobile = normalizeMobile(sanitize(req.body.mobile));
+        const registrationEmail = String(req.body.email || '').trim().toLowerCase();
+        const isRegistrationEmailValid = isEmail(registrationEmail);
         const identifier = sanitize(req.body.identifier).toLowerCase();
         const purpose = normalizeOtpPurpose(req.body.purpose);
         const otpChannel = normalizeOtpChannel(req.body.otpChannel);
@@ -476,18 +488,41 @@ exports.sendOtp = async (req, res) => {
                 }), 'whatsapp', delivery);
             }
         } else {
-            if (!/^[0-9]{10,12}$/.test(mobile)) {
+            const isWhatsappMobileValid = /^[0-9]{10,12}$/.test(mobile);
+            if (!isWhatsappMobileValid) {
                 delivery.missing.push('whatsapp');
-            } else {
-                delivery.contacts = {
-                    whatsapp: maskMobile(mobile)
-                };
+            }
+            if (!isRegistrationEmailValid) {
+                delivery.missing.push('email');
+            }
+            delivery.contacts = {
+                email: isRegistrationEmailValid ? maskEmail(registrationEmail) : '',
+                whatsapp: isWhatsappMobileValid ? maskMobile(mobile) : ''
+            };
+
+            if (isWhatsappMobileValid) {
                 await recordDeliveryAttempt(() => sendWhatsapp({
                     to: mobile,
                     message: `Your SSC Jewellery OTP is ${otp}. Valid for 5 minutes.`,
                     template: 'login_otp',
                     data: { otp }
                 }), 'whatsapp', delivery);
+            }
+
+            if (!delivery.sent.includes('whatsapp') && isRegistrationEmailValid) {
+                const template = buildLoginOtpEmailTemplate({
+                    user: { email: registrationEmail },
+                    otp,
+                    maskedWhatsapp: isWhatsappMobileValid ? maskMobile(mobile) : '',
+                    purpose: 'registration'
+                });
+                await recordDeliveryAttempt(() => sendEmailCommunication({
+                    to: registrationEmail,
+                    subject: template.subject,
+                    text: template.text,
+                    html: template.html,
+                    workflow: 'registration_otp'
+                }), 'email', delivery);
             }
         }
 
