@@ -2433,14 +2433,14 @@ class Order {
                     discountTotal,
                     taxPriceMode: finalTaxPriceMode
                 });
-            const resolvedSettlementSnapshot = settlementSnapshot || buildManualConversionSettlementSnapshot({
+            const resolvedSettlementSnapshot = settlementSnapshot || (String(paymentGateway || '').trim().toLowerCase() === 'razorpay' ? null : buildManualConversionSettlementSnapshot({
                 attemptId: lockedAttempt.id,
                 amount: finalTotal,
                 currency: lockedAttempt.currency || 'INR',
                 paymentGateway,
                 paymentReference,
                 actorUserId
-            });
+            }));
             const resolvedSettlementId = String(settlementId || resolvedSettlementSnapshot?.id || '').trim() || null;
 
             const [orderResult] = await connection.execute(
@@ -2645,6 +2645,7 @@ class Order {
                AND (
                     COALESCE(NULLIF(settlement_id, ''), '') = ''
                     OR settlement_snapshot IS NULL
+                    OR LEFT(COALESCE(settlement_id, ''), 23) = 'manual_settled_attempt_'
                     OR LOWER(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(settlement_snapshot, '$.status')), '')) IN ('pending', 'processing')
                )
              ORDER BY created_at ASC
@@ -2703,6 +2704,15 @@ class Order {
             ]
         );
         return Number(result?.affectedRows || 0);
+    }
+
+    static async clearSyntheticRazorpaySettlement(orderId) {
+        await db.execute(
+            `UPDATE orders SET settlement_id = NULL, settlement_snapshot = NULL, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ? AND LOWER(COALESCE(payment_gateway, '')) = 'razorpay'
+               AND LEFT(COALESCE(settlement_id, ''), 23) = 'manual_settled_attempt_'`,
+            [orderId]
+        );
     }
 
     static async updateSettlementByOrderId({

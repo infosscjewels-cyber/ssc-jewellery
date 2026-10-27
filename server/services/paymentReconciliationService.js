@@ -488,6 +488,43 @@ const runPaymentAttemptReconciliationPass = async ({
     return summary;
 };
 
+const syncSettlementForOrder = async ({ order, paymentDetails = null } = {}) => {
+    if (!order?.id || String(order.payment_gateway || '').toLowerCase() !== 'razorpay') {
+        return { status: 'skipped' };
+    }
+    // These legacy placeholders are not evidence of a gateway settlement.
+    await Order.clearSyntheticRazorpaySettlement(order.id);
+    try {
+        const razorpay = await createRazorpayClient();
+        const rawId = String(paymentDetails?.settlement_id || order.settlement_id || '').trim();
+        const settlementId = rawId.startsWith('manual_settled_attempt_') ? '' : rawId;
+        if (settlementId) {
+            const settlement = await razorpay.settlements.fetch(settlementId);
+            if (settlement?.id !== settlementId) throw new Error('Settlement response did not match the requested ID');
+            const snapshot = normalizeSettlementSnapshot(settlement);
+            await Order.updateSettlementByOrderId({ orderId: order.id, settlementId, settlementSnapshot: snapshot });
+            return { status: snapshot.status || 'pending' };
+        }
+        const paymentId = String(paymentDetails?.id || order.razorpay_payment_id || '').trim();
+        if (!paymentId) return { status: 'pending' };
+        const now = new Date();
+        for (let offset = 0; offset <= 7; offset += 1) {
+            const date = new Date(now.getTime() - offset * 86400000);
+            const items = await fetchSettlementReconItemsForDay(razorpay, getIstDateParts(date));
+            const entry = items.find((item) => String(item?.type || '').toLowerCase() === 'payment'
+                && String(item.entity_id || item.payment_id || '') === paymentId);
+            if (!entry) continue;
+            const snapshot = normalizeSettlementReconSnapshot(entry);
+            if (!snapshot?.id) return { status: 'pending' };
+            await Order.updateSettlementByOrderId({ orderId: order.id, settlementId: snapshot.id, settlementSnapshot: snapshot });
+            return { status: snapshot.status || 'pending' };
+        }
+        return { status: 'pending' };
+    } catch {
+        return { status: 'error', message: 'Payment synced, but settlement refresh failed. Please retry.' };
+    }
+};
+
 const runSettlementSyncPass = async ({
     limit = 100,
     minAgeHours = 1,
@@ -566,6 +603,7 @@ const runSettlementSyncPass = async ({
 };
 
 module.exports = {
+    syncSettlementForOrder,
     ensureCapturedPaymentMatchesAttempt,
     reconcilePaymentAttemptById,
     runPaymentAttemptReconciliationPass,

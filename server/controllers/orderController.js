@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const { PaymentAttempt, PAYMENT_STATUS } = require('../models/PaymentAttempt');
 const WebhookEvent = require('../models/WebhookEvent');
 const { createRazorpayClient, getRazorpayConfig } = require('../services/razorpayService');
-const { ensureCapturedPaymentMatchesAttempt, reconcilePaymentAttemptById } = require('../services/paymentReconciliationService');
+const { ensureCapturedPaymentMatchesAttempt, reconcilePaymentAttemptById, syncSettlementForOrder } = require('../services/paymentReconciliationService');
 const { markRecoveredByOrder } = require('../services/abandonedCartRecoveryService');
 const AbandonedCart = require('../models/AbandonedCart');
 const Wishlist = require('../models/Wishlist');
@@ -56,6 +56,22 @@ const buildReceipt = (userId) => {
     const uid = String(userId || '').replace(/[^a-zA-Z0-9]/g, '').slice(-10) || 'guest';
     const stamp = Date.now().toString(36);
     return `ssc_${uid}_${stamp}`.slice(0, 40);
+};
+
+const getCouponShippingDiscountForOrder = (order = null) => {
+    const type = String(order?.coupon_type || '').trim().toLowerCase();
+    const couponTotal = Math.max(0, Number(order?.coupon_discount_value || 0));
+    const shippingBase = Math.max(0, Number(order?.shipping_fee || 0));
+    if (!couponTotal || !shippingBase) return 0;
+    if (type !== 'shipping_full' && type !== 'shipping_partial') return 0;
+    return Math.min(couponTotal, shippingBase);
+};
+
+const getEffectiveShippingPaidForOrder = (order = null) => {
+    const shippingBase = Math.max(0, Number(order?.shipping_fee || 0));
+    const couponShippingDiscount = getCouponShippingDiscountForOrder(order);
+    const loyaltyShippingDiscount = Math.max(0, Number(order?.loyalty_shipping_discount_total || 0));
+    return Math.max(0, shippingBase - couponShippingDiscount - loyaltyShippingDiscount);
 };
 
 const collectOrderProductIds = (order = null) => (
@@ -3169,9 +3185,10 @@ const updateOrderStatus = async (req, res) => {
             return res.status(400).json({ message: 'Cancelled orders with initiated refunds cannot be moved to other statuses' });
         }
 
+        const effectiveShippingPaid = getEffectiveShippingPaidForOrder(existingOrder);
         const refundableBaseAmount = Math.max(
             0,
-            Number(existingOrder?.total || 0) - Number(existingOrder?.shipping_fee || 0)
+            Number(existingOrder?.total || 0) - effectiveShippingPaid
         );
         const paymentGateway = String(existingOrder?.payment_gateway || '').toLowerCase();
         const paymentStatus = String(existingOrder?.payment_status || '').toLowerCase();
@@ -3216,7 +3233,7 @@ const updateOrderStatus = async (req, res) => {
                     notes: {
                         order_ref: existingOrder.order_ref || '',
                         order_id: String(existingOrder.id),
-                        non_refundable_shipping_fee: String(Number(existingOrder?.shipping_fee || 0))
+                        non_refundable_shipping_fee: String(effectiveShippingPaid)
                     },
                     receipt: `rfnd-${existingOrder.order_ref || existingOrder.id}-${Date.now()}`
                 };
@@ -3245,7 +3262,7 @@ const updateOrderStatus = async (req, res) => {
                     return res.status(400).json({ message: 'Enter refunded amount for manual refund' });
                 }
                 if (amount > refundableBaseAmount) {
-                    return res.status(400).json({ message: `Refund amount cannot exceed ₹${refundableBaseAmount.toLocaleString('en-IN')}. Shipping charge is non-refundable.` });
+                    return res.status(400).json({ message: `Refund amount cannot exceed ₹${refundableBaseAmount.toLocaleString('en-IN')}. Shipping actually paid by the customer is non-refundable.` });
                 }
                 const ref = String(manualRefundRef || '').trim();
                 const utr = String(manualRefundUtr || '').trim();
@@ -3309,7 +3326,7 @@ const updateOrderStatus = async (req, res) => {
                 notes: {
                     order_ref: existingOrder.order_ref || '',
                     order_id: String(existingOrder.id),
-                    non_refundable_shipping_fee: String(Number(existingOrder?.shipping_fee || 0))
+                    non_refundable_shipping_fee: String(effectiveShippingPaid)
                 },
                 receipt: `rfnd-${existingOrder.order_ref || existingOrder.id}-${Date.now()}`
             };
@@ -3349,7 +3366,7 @@ const updateOrderStatus = async (req, res) => {
                 manualRefundRef: resolvedManualRef || null,
                 manualRefundUtr: resolvedManualUtr || null,
                 refundableBaseAmount,
-                nonRefundableShippingFee: Number(existingOrder?.shipping_fee || 0),
+                nonRefundableShippingFee: effectiveShippingPaid,
                 refundAmount: resolvedRefundAmount,
                 refundReference: resolvedRefundReference,
                 refundStatus: resolvedRefundStatus,
@@ -3900,9 +3917,14 @@ const fetchAdminPaymentStatus = async (req, res) => {
             });
         }
 
-        const updatedOrder = order?.id
+        let updatedOrder = order?.id
             ? await Order.getById(order.id)
             : (razorpayOrderId ? await Order.getByRazorpayOrderId(razorpayOrderId) : null);
+        let settlementSync = { status: 'skipped' };
+        if (updatedOrder) {
+            settlementSync = await syncSettlementForOrder({ order: updatedOrder, paymentDetails });
+            updatedOrder = await Order.getById(updatedOrder.id);
+        }
         if (updatedOrder) {
             maybeTriggerConfirmedEmailOnPaymentTransition({
                 order: updatedOrder,
@@ -3951,6 +3973,8 @@ const fetchAdminPaymentStatus = async (req, res) => {
             order: updatedOrder || null,
             attempt: updatedAttempt || null,
             settlementContext: {
+                syncStatus: settlementSync.status,
+                syncMessage: settlementSync.message || null,
                 mode: isRazorpayTestMode ? 'test' : 'live',
                 isTestMode: isRazorpayTestMode
             },
@@ -3973,7 +3997,7 @@ const fetchAdminPaymentStatus = async (req, res) => {
                     error_description: paymentDetails.error_description || null,
                     error_reason: paymentDetails.error_reason || null
                 } : null,
-                settlement: updatedOrder?.settlement_snapshot || order?.settlement_snapshot || null
+                settlement: updatedOrder ? (updatedOrder.settlement_snapshot || null) : null
             }
         });
     } catch (error) {

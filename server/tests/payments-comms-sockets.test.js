@@ -1322,3 +1322,67 @@ test('loyalty upgrade communication still attempts WhatsApp when email send fail
     assert.equal(whatsappPayload.type, 'loyalty_upgrade');
     assert.equal(whatsappPayload.mobile, '9999999999');
 });
+
+test('refund excludes only actual shipping paid after shipping benefits', async () => {
+    const cases = [
+        { label: 'no benefits', changes: {}, shipping: 100, refund: 520 },
+        { label: 'partial shipping coupon', changes: { coupon_type: 'shipping_partial', coupon_discount_value: 40, total: 580 }, shipping: 60, refund: 520 },
+        { label: 'free shipping coupon', changes: { coupon_type: 'shipping_full', coupon_discount_value: 100, total: 520 }, shipping: 0, refund: 520 },
+        { label: 'membership shipping benefit', changes: { loyalty_shipping_discount_total: 50, total: 570 }, shipping: 50, refund: 520 },
+        { label: 'combined benefits capped at shipping', changes: { coupon_type: 'shipping_partial', coupon_discount_value: 80, loyalty_shipping_discount_total: 50, total: 520 }, shipping: 0, refund: 520 },
+        { label: 'product coupon does not reduce shipping', changes: { coupon_type: 'fixed', coupon_discount_value: 20, total: 600 }, shipping: 100, refund: 500 }
+    ];
+    for (const entry of cases) {
+      for (const mode of ['razorpay', 'manual']) {
+        let gatewayPayload;
+        let statusPayload;
+        const controller = loadOrderController({ razorpayClient: async () => ({ payments: {
+            refund: async (id, payload) => {
+                assert.equal(id, 'pay_test');
+                gatewayPayload = payload;
+                return { id: 'rfnd_test', amount: payload.amount, status: 'processed' };
+            }
+        } }) });
+        await withPatched(Order, {
+            getById: async () => ({ id: 1, status: 'confirmed', payment_status: 'paid', payment_gateway: 'razorpay', razorpay_payment_id: 'pay_test', razorpay_order_id: 'order_test', shipping_fee: 100, total: 620, ...entry.changes }),
+            updatePaymentByRazorpayOrderId: async () => {},
+            updateStatus: async (id, status, payload) => { statusPayload = payload; throw new Error('TEST_STOP_BEFORE_WRITE'); }
+        }, async () => {
+            const res = createMockRes();
+            await controller.updateOrderStatus({ params: { id: '1' }, user: { id: 'admin' }, body: { status: 'cancelled', cancellationMode: mode, manualRefundMethod: 'UPI', manualRefundRef: 'test-reference', manualRefundAmount: entry.refund } }, res);
+            assert.equal(res.body.message, 'TEST_STOP_BEFORE_WRITE', entry.label);
+            if (mode === 'razorpay') {
+                assert.equal(gatewayPayload.amount, entry.refund * 100, entry.label);
+                assert.equal(gatewayPayload.notes.non_refundable_shipping_fee, String(entry.shipping), entry.label);
+            }
+            assert.equal(statusPayload.refundNotes.nonRefundableShippingFee, entry.shipping, entry.label);
+            assert.equal(statusPayload.refundNotes.refundableBaseAmount, entry.refund, entry.label);
+        });
+      }
+    }
+});
+
+test('admin payment sync returns refreshed settlement without restoring synthetic snapshot', async () => {
+    let synced = false;
+    const original = { id: 1, payment_status: 'paid', payment_gateway: 'razorpay', razorpay_order_id: 'order_test', razorpay_payment_id: 'pay_test', settlement_id: 'manual_settled_attempt_2005', settlement_snapshot: { id: 'manual_settled_attempt_2005', status: 'settled' } };
+    const controller = loadOrderController({
+        razorpayConfig: async () => ({ keyId: 'rzp_test_example' }),
+        razorpayClient: async () => ({ orders: { fetch: async () => ({ id: 'order_test', status: 'paid' }) }, payments: { fetch: async () => ({ id: 'pay_test', status: 'captured', order_id: 'order_test' }) } }),
+        reconciliation: { syncSettlementForOrder: async ({ order }) => { assert.equal(order.id, 1); synced = true; return { status: 'pending' }; } }
+    });
+    await withPatched(Order, {
+        getById: async () => synced ? { ...original, settlement_id: null, settlement_snapshot: null } : original,
+        getByRazorpayOrderId: async () => original,
+        updatePaymentByRazorpayOrderId: async () => {}
+    }, async () => withPatched(PaymentAttempt, {
+        upsertPaymentSnapshot: async () => {}, markPaidByRazorpayOrder: async () => {}, getByRazorpayOrderIdAny: async () => null
+    }, async () => {
+        const res = createMockRes();
+        await controller.fetchAdminPaymentStatus({ body: { orderId: 1 }, app: { get: () => null } }, res);
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.paymentStatus, 'paid');
+        assert.equal(res.body.settlementContext.syncStatus, 'pending');
+        assert.equal(res.body.order.settlement_snapshot, null);
+        assert.equal(res.body.razorpay.settlement, null);
+    }));
+});

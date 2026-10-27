@@ -786,6 +786,20 @@ const getShippingPresentation = (source = {}, totals = {}) => {
         isFree
     };
 };
+const getRefundableBaseForOrder = (order = {}) => {
+    const shippingBase = Math.max(0, Number(order?.shipping_fee || 0));
+    const couponSplit = getCouponDiscountSplit(order);
+    const couponShippingDiscount = Math.min(
+        shippingBase,
+        Math.max(0, Number(couponSplit?.shippingDiscount || 0))
+    );
+    const memberShippingBenefit = Math.max(0, Number(order?.loyalty_shipping_discount_total || 0));
+    const effectiveShippingPaid = Math.max(0, shippingBase - couponShippingDiscount - memberShippingBenefit);
+    return {
+        effectiveShippingPaid,
+        refundableBase: Math.max(0, Number(order?.total || 0) - effectiveShippingPaid)
+    };
+};
 const getOrderItemSnapshot = (item = {}) => {
     return item?.item_snapshot && typeof item.item_snapshot === 'object'
         ? item.item_snapshot
@@ -2557,7 +2571,7 @@ export function Orders({
     const handleStatusUpdate = useCallback(async () => {
         if (!selectedOrder || !pendingStatus) return;
         const isPaid = isPaidPayment(selectedOrder);
-        const refundableBase = Math.max(0, Number(selectedOrder?.total || 0) - Number(selectedOrder?.shipping_fee || 0));
+        const refundableBase = getRefundableBaseForOrder(selectedOrder).refundableBase;
         if (pendingStatus === 'cancelled' && isPaid) {
             if (!cancellationMode) {
                 toast.error('Select cancellation mode before cancelling this paid order');
@@ -2574,7 +2588,7 @@ export function Orders({
                     return;
                 }
                 if (amount > refundableBase) {
-                    toast.error(`Refund cannot exceed ₹${refundableBase.toLocaleString('en-IN')} (shipping excluded).`);
+                    toast.error(`Refund cannot exceed ₹${refundableBase.toLocaleString('en-IN')} (after excluding shipping actually paid).`);
                     return;
                 }
                 if (manualRefundMethod === 'NEFT/RTGS' && !String(manualRefundUtr || '').trim()) {
@@ -2675,6 +2689,11 @@ export function Orders({
             }
             if (data?.settlementContext) {
                 setSettlementContext(data.settlementContext);
+                if (data.settlementContext.syncStatus === 'error') {
+                    toast.error(data.settlementContext.syncMessage || 'Settlement refresh failed. Please retry.');
+                } else if (data.settlementContext.syncStatus === 'pending') {
+                    toast.info('Awaiting settlement confirmation from Razorpay.');
+                }
             }
             if (data?.razorpay?.payment) {
                 setPaymentMethodContext(data.razorpay.payment);
@@ -4414,7 +4433,7 @@ export function Orders({
                                                     {pendingStatus === 'cancelled' && isPaidPayment(selectedOrder) && (
                                                         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
                                                             <p className="text-xs text-amber-800 font-semibold">
-                                                                Shipping charge is non-refundable. Maximum refundable amount: ₹{Math.max(0, Number(selectedOrder?.total || 0) - Number(selectedOrder?.shipping_fee || 0)).toLocaleString('en-IN')}
+                                                                Shipping actually paid is non-refundable (₹{getRefundableBaseForOrder(selectedOrder).effectiveShippingPaid.toLocaleString('en-IN')}). Maximum refundable amount: ₹{getRefundableBaseForOrder(selectedOrder).refundableBase.toLocaleString('en-IN')}
                                                             </p>
                                                             <div>
                                                                 <label className="text-xs uppercase tracking-widest text-gray-500 font-semibold">Cancellation Mode</label>
