@@ -17,3 +17,6 @@ client/dist/
 # Secrets
 server/service-account.json
 server/*service-account*.json
+icici/
+/service-account.json
+service-account.json
