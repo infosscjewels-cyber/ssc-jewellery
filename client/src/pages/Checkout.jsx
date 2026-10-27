@@ -1,7 +1,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, ChevronRight, CreditCard, Download, Edit3, Home, Mail, Phone, ShoppingBag, Sparkles, Ticket, TrendingUp, UserRound } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronRight, CreditCard, Download, Edit3, Home, Mail, Phone, ShoppingBag, Ticket, TrendingUp, UserRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
@@ -20,8 +20,7 @@ import { burstConfetti, playCue } from '../utils/celebration';
 import RazorpayAffordability from '../components/RazorpayAffordability';
 import CheckoutFlowHeader from '../components/CheckoutFlowHeader';
 import CheckoutAccountVerificationModal from '../components/CheckoutAccountVerificationModal';
-import { formatTierLabel, getMembershipLabel } from '../utils/tierFormat';
-import { formatMissingProfileFields } from '../utils/membershipUnlock';
+import { formatTierLabel } from '../utils/tierFormat';
 import { getGstDisplayDetails } from '../utils/gst';
 import { hasUnavailableCheckoutItems } from '../utils/checkoutAvailability';
 import { normalizePaymentFailureReason } from '../utils/paymentFailure';
@@ -223,13 +222,6 @@ const getCouponEligibility = (entry = {}) => {
         current,
         shortfall
     };
-};
-const TIER_THEME = {
-    regular: { card: 'from-slate-700 via-slate-600 to-slate-700', chip: 'bg-slate-100 text-slate-700 border-slate-200', title: 'text-white', body: 'text-white/90', caption: 'text-white/80', track: 'bg-white/25', fill: 'bg-white', tag: 'bg-white/20 border-white/35 text-white' },
-    bronze: { card: 'from-amber-800 via-orange-700 to-amber-800', chip: 'bg-amber-100 text-amber-800 border-amber-200', title: 'text-white', body: 'text-white/90', caption: 'text-white/80', track: 'bg-white/20', fill: 'bg-white', tag: 'bg-white/15 border-white/30 text-white' },
-    silver: { card: 'from-slate-600 via-zinc-500 to-slate-600', chip: 'bg-slate-100 text-slate-700 border-slate-200', title: 'text-white', body: 'text-white/90', caption: 'text-white/80', track: 'bg-white/22', fill: 'bg-white', tag: 'bg-white/15 border-white/30 text-white' },
-    gold: { card: 'from-amber-900 via-amber-800 to-amber-900', chip: 'bg-yellow-100 text-yellow-800 border-yellow-200', title: 'text-amber-50', body: 'text-amber-100', caption: 'text-amber-200', track: 'bg-amber-200/40', fill: 'bg-white', tag: 'bg-amber-200/20 border-amber-200/40 text-amber-50' },
-    platinum: { card: 'from-sky-800 via-blue-700 to-sky-800', chip: 'bg-sky-100 text-sky-800 border-sky-200', title: 'text-white', body: 'text-sky-100', caption: 'text-sky-200', track: 'bg-white/22', fill: 'bg-white', tag: 'bg-white/15 border-white/30 text-white' }
 };
 const EXTRA_DISCOUNT_BY_TIER = {
     regular: 0,
@@ -1177,10 +1169,6 @@ export default function Checkout() {
     const resolvedCheckoutEligibility = useMemo(
         () => (user ? (loyaltyStatus?.eligibility || null) : null),
         [user, loyaltyStatus?.eligibility]
-    );
-    const resolvedCheckoutProgress = useMemo(
-        () => (user ? (loyaltyStatus?.progress || checkoutSummary?.loyaltyMeta?.progress || {}) : (checkoutSummary?.loyaltyMeta?.progress || {})),
-        [user, loyaltyStatus?.progress, checkoutSummary?.loyaltyMeta?.progress]
     );
     const estimatedLoyaltyDiscount = useMemo(() => {
         const isMembershipEligible = Boolean(resolvedCheckoutEligibility?.isEligible ?? true);
@@ -2187,31 +2175,6 @@ export default function Checkout() {
 
     if (!storefrontOpen) return <StorefrontClosed />;
     const tier = resolvedCheckoutTier;
-    const membershipEligibility = resolvedCheckoutEligibility;
-    const isMembershipEligible = Boolean(membershipEligibility?.isEligible ?? true);
-    const profileCompletionPct = Number(membershipEligibility?.completionPct || 0);
-    const missingProfileFields = Array.isArray(membershipEligibility?.missingFields) ? membershipEligibility.missingFields : [];
-    const membershipUnlockState = formatMissingProfileFields(missingProfileFields);
-    const tierTheme = TIER_THEME[tier] || TIER_THEME.regular;
-    const tierLabel = formatTierLabel(resolvedCheckoutLoyaltyProfile?.label || tier);
-    const progress = resolvedCheckoutProgress;
-    const progressPct = Number(progress?.progressPct || 0);
-    const nextTierKey = progress?.nextTier || null;
-    const nextTierLabel = nextTierKey
-        ? formatTierLabel(loyaltyStatus?.nextTierProfile?.label || nextTierKey)
-        : '';
-    const currentSpend = Number(progress?.currentSpend ?? 0);
-    const neededToNext = Number(progress?.needed || 0);
-    const progressMessage = String(progress?.message || '').trim();
-    const isProgressMessageDuplicated = Boolean(
-        nextTierLabel
-        && neededToNext > 0
-        && /spend/i.test(progressMessage)
-        && /unlock/i.test(progressMessage)
-    );
-    const membershipMessage = (!isProgressMessageDuplicated && progressMessage)
-        ? progressMessage
-        : 'Keep shopping to unlock higher tier benefits.';
 
     return (
         <div className="min-h-screen bg-secondary">
@@ -2252,87 +2215,6 @@ export default function Checkout() {
                         ) : (
                         <>
                         <div className="flex flex-col gap-6 h-full">
-                            {!user ? (
-                                <div className="rounded-2xl p-5 bg-gradient-to-r from-slate-700 via-slate-600 to-slate-700 shadow-lg">
-                                    <div className="flex items-start justify-between gap-4">
-                                        <div>
-                                            <p className="text-xs uppercase tracking-[0.24em] font-semibold text-white/75">Membership</p>
-                                            <p className="text-xl font-semibold mt-1 text-white">Unlock Your Member View</p>
-                                            <p className="text-sm mt-2 text-white/90">
-                                                Verify your account to view your membership card, tier progress, and personalized benefits.
-                                            </p>
-                                            <p className="text-xs mt-3 text-white/80">
-                                                Members can unlock extra pricing, shipping benefits, and tier-based rewards during checkout.
-                                            </p>
-                                        </div>
-                                        <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border border-white/30 bg-white/15 text-white">
-                                            <Sparkles size={14} /> Login to view
-                                        </span>
-                                    </div>
-                                    <div className="mt-4 rounded-lg border border-white/20 bg-slate-950/20 px-3 py-3">
-                                        <p className="text-xs font-semibold !mb-0 text-white">
-                                            OTP verification is required before we reveal your membership card and progress details.
-                                        </p>
-                                        <p className="mt-2 text-[11px] text-white/95">
-                                            Use {guestLockedAccount ? 'View/Edit' : 'account verification'} to log in and make this card viewable.
-                                        </p>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className={`rounded-2xl p-5 bg-gradient-to-r ${tierTheme.card} shadow-lg`}>
-                                    <div className="flex items-start justify-between gap-4">
-                                        <div>
-                                            <p className={`text-xs uppercase tracking-[0.24em] font-semibold ${tierTheme.caption}`}>Membership</p>
-                                            <p className={`text-xl font-semibold mt-1 ${tierTheme.title}`}>{getMembershipLabel(tierLabel)}</p>
-                                            <p className={`text-sm mt-2 ${tierTheme.body}`}>
-                                                {membershipMessage}
-                                            </p>
-                                            <p className={`text-xs mt-2 ${tierTheme.caption}`}>
-                                                Spent: ₹{currentSpend.toLocaleString('en-IN')}
-                                            </p>
-                                            <p className={`text-xs mt-1 ${tierTheme.caption}`}>
-                                                {nextTierLabel ? `Need ₹${neededToNext.toLocaleString('en-IN')} more for ${getMembershipLabel(nextTierLabel)}` : 'You are at the highest tier.'}
-                                            </p>
-                                        </div>
-                                        <div className="flex flex-col items-end gap-2">
-                                            <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border ${tierTheme.tag}`}>
-                                                <Sparkles size={14} /> {isMembershipEligible ? 'Extra member pricing' : 'Profile completion required'}
-                                            </span>
-                                            {isSummaryLoading && !isPreparingVerifiedCheckout && (
-                                                <span className="text-[11px] text-white/80">
-                                                    Updating pricing...
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                    {!isMembershipEligible && (
-                                        <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-amber-900">
-                                            <p className="text-xs font-semibold !mb-0">
-                                                Membership benefits are locked until profile reaches 100% completion ({profileCompletionPct}% now).
-                                            </p>
-                                            {membershipUnlockState.items.length > 0 && (
-                                                <div className="mt-2">
-                                                    <p className="text-[11px] font-semibold !mb-0">{membershipUnlockState.title}</p>
-                                                    <ul className="mt-1 space-y-1 text-[11px]">
-                                                        {membershipUnlockState.items.map((field) => (
-                                                            <li key={field}>- {field}</li>
-                                                        ))}
-                                                    </ul>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                    <div className="mt-4">
-                                        <div className={`h-2 rounded-full overflow-hidden ${tierTheme.track}`}>
-                                            <div className={`h-full rounded-full ${tierTheme.fill}`} style={{ width: `${Math.max(0, Math.min(100, progressPct))}%` }} />
-                                        </div>
-                                        <div className={`mt-2 flex items-center justify-between text-xs ${tierTheme.caption}`}>
-                                            <span>{progressPct}% to next tier</span>
-                                            <span>{nextTierLabel ? `Next: ${getMembershipLabel(nextTierLabel)}` : 'Highest tier reached'}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
                             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
                                 <div className="flex items-center justify-between gap-4">
                                     <div>
