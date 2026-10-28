@@ -1,3 +1,4 @@
+const { formatRazorpayFailure } = require('../utils/paymentFailure');
 const { createRazorpayClient } = require('./razorpayService');
 const { PaymentAttempt, PAYMENT_STATUS } = require('../models/PaymentAttempt');
 const Order = require('../models/Order');
@@ -399,7 +400,7 @@ const reconcilePaymentAttemptById = async ({ attemptId, source = 'scheduler' } =
                 id: attempt.id,
                 paymentId,
                 signature: attempt.razorpay_signature || null,
-                errorMessage: paymentDetails?.error_description || 'Payment failed at gateway'
+                errorMessage: formatRazorpayFailure(paymentDetails)
             });
             return { ok: true, failed: true, reason: 'gateway_failed' };
         }

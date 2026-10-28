@@ -1,3 +1,4 @@
+const { formatRazorpayFailure } = require('../utils/paymentFailure');
 const Order = require('../models/Order');
 const db = require('../config/db');
 const crypto = require('crypto');
@@ -2182,7 +2183,7 @@ const handleRazorpayWebhook = async (req, res) => {
 
         const razorpayOrderId = paymentEntity?.order_id || orderEntity?.id || null;
         const razorpayPaymentId = paymentEntity?.id || null;
-        const failureReason = paymentEntity?.error_description || paymentEntity?.error_reason || null;
+        const failureReason = formatRazorpayFailure(paymentEntity);
 
         let paymentStatus = null;
         if (event === 'payment.authorized') paymentStatus = PAYMENT_STATUS.ATTEMPTED;
@@ -3894,7 +3895,7 @@ const fetchAdminPaymentStatus = async (req, res) => {
                 await PaymentAttempt.markFailedByRazorpayOrder({
                     razorpayOrderId,
                     paymentId: razorpayPaymentId || null,
-                    errorMessage: paymentDetails?.error_description || 'Payment failed'
+                    errorMessage: formatRazorpayFailure(paymentDetails)
                 });
             } else {
                 await PaymentAttempt.markAttemptedByRazorpayOrder({

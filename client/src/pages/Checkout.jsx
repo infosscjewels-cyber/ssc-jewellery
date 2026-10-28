@@ -23,7 +23,7 @@ import CheckoutAccountVerificationModal from '../components/CheckoutAccountVerif
 import { formatTierLabel } from '../utils/tierFormat';
 import { getGstDisplayDetails } from '../utils/gst';
 import { hasUnavailableCheckoutItems } from '../utils/checkoutAvailability';
-import { normalizePaymentFailureReason } from '../utils/paymentFailure';
+import { normalizePaymentFailureReason, formatRazorpayFailure } from '../utils/paymentFailure';
 import { computeShippingPreview } from '../utils/shippingPreview';
 import { BRAND_LOGO_URL } from '../utils/branding.js';
 import { getAllowedShippingStates, isAllowedShippingState, isValidIndianPincode, lookupStateByPincode, normalizePincodeInput, resolveAllowedStateName } from '../utils/addressValidation';
@@ -2129,7 +2129,7 @@ export default function Checkout() {
                         phase: 'recovering'
                     }));
                     markSettled();
-                    const message = response?.error?.description || 'Payment failed. Please retry.';
+                    const message = formatRazorpayFailure(response?.error);
                     reject(new Error(message));
                 });
 

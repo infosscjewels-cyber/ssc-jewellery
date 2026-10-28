@@ -1,3 +1,4 @@
+const { preservePaymentFailure } = require('../utils/paymentFailure');
 const db = require('../config/db');
 const { sendToAdmins } = require('../services/pushNotificationService');
 
@@ -445,7 +446,10 @@ class PaymentAttempt {
                 return claim;
             }
         }
-        const safeFailureReason = sanitizeFailureReason(errorMessage);
+        const safeFailureReason = preservePaymentFailure(
+            sanitizeFailureReason(errorMessage),
+            existingAttempt?.failure_reason || existingAttempt?.last_gateway_error
+        );
         await db.execute(
             `UPDATE payment_attempts
              SET status = ?,
@@ -600,7 +604,10 @@ class PaymentAttempt {
                 return claim;
             }
         }
-        const safeFailureReason = sanitizeFailureReason(errorMessage);
+        const safeFailureReason = preservePaymentFailure(
+            sanitizeFailureReason(errorMessage),
+            targetAttempt.failure_reason || targetAttempt.last_gateway_error
+        );
         await db.execute(
             `UPDATE payment_attempts
                  SET status = ?,

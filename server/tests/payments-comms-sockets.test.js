@@ -945,6 +945,7 @@ test('failed payment webhook updates payment attempt state and inventory release
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.paymentStatus, PAYMENT_STATUS.FAILED);
     assert.equal(markedFailed.razorpayOrderId, 'order_1');
+    assert.equal(markedFailed.errorMessage, 'Razorpay: bank declined');
     assert.equal(updatedPayment.paymentStatus, PAYMENT_STATUS.FAILED);
     assert.equal(processed.status, 'processed');
 });
